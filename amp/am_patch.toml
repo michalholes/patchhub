@@ -1,6 +1,11 @@
 # Standalone AM Patch runner config for a repository that hosts the runner in amp/
 # and patches the parent repository root.
 
+
+[audit]
+post_success_audit = false
+audit_rubric_guard = false
+
 [paths]
 artifacts_root = ".."
 target_repo_roots = [".."]
