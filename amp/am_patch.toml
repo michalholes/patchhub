@@ -1,0 +1,51 @@
+# Standalone AM Patch runner config for a repository that hosts the runner in amp/
+# and patches the parent repository root.
+
+[paths]
+artifacts_root = ".."
+target_repo_roots = [".."]
+active_target_repo_root = ".."
+
+verbosity = "normal"
+log_level = "normal"
+
+require_up_to_date = false
+enforce_main_branch = true
+update_workspace = false
+soft_reset_workspace = false
+run_all_tests = true
+compile_check = true
+commit_and_push = true
+
+ruff_targets = ["amp", "tests"]
+pytest_targets = ["tests"]
+mypy_targets = ["amp"]
+gate_pytest_py_prefixes = ["amp", "tests"]
+gate_pytest_js_prefixes = []
+pytest_use_venv = true
+
+# Standalone namespace routing
+pytest_routing_mode = "bucketed"
+pytest_full_suite_prefixes = ["pyproject.toml", "pytest.ini", "tests/conftest.py"]
+
+[pytest_roots]
+"amp.*" = "amp/am_patch/"
+"*" = "*"
+
+[pytest_tree]
+
+[pytest_namespace_modules]
+"amp" = ["am_patch"]
+
+[pytest_dependencies]
+
+[pytest_external_dependencies]
+
+# Standalone monolith ownership layout
+[monolith]
+gate_monolith_areas_prefixes = ["amp/am_patch/", "tests/", "amp/"]
+gate_monolith_areas_names = ["amp", "tests", "runner"]
+gate_monolith_areas_dynamic = ["", "", ""]
+
+# PatchHub and BadGuys are not transferred in this repo.
+gate_badguys_runner = "off"
