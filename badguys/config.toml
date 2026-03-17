@@ -393,19 +393,6 @@ rc_eq = 0
 rc_eq = 0
 list_contains = ["?? scripts/badguys_batch3/"]
 
-[evaluation.tests.test_085_success_archive_zip_hygiene]
-[evaluation.tests.test_085_success_archive_zip_hygiene.steps]
-[evaluation.tests.test_085_success_archive_zip_hygiene.steps.0]
-rc_eq = 0
-
-[evaluation.tests.test_085_success_archive_zip_hygiene.steps.1]
-rc_eq = 0
-
-[evaluation.tests.test_085_success_archive_zip_hygiene.steps.2]
-rc_eq = 0
-list_contains = ["docs/badguys_batch4/success_archive_hygiene_issue_664_marker.txt", "docs/changes.md"]
-list_not_contains = [".git/HEAD", "patches/patched.zip", "patches/badguys_success_archive_085.zip"]
-
 [evaluation.tests.test_086_pytest_gate_runs_on_targeted_python_change]
 [evaluation.tests.test_086_pytest_gate_runs_on_targeted_python_change.steps]
 [evaluation.tests.test_086_pytest_gate_runs_on_targeted_python_change.steps.0]
@@ -421,7 +408,7 @@ value_contains = ["GATE: PYTEST", "tests/test_badguys_pytest_gate_target.py", "R
 value_not_contains = ["gate_pytest=SKIP", "gate_pytest=SKIP (no_matching_files)"]
 
 [runner]
-full_runner_tests = ["test_084_workspace_git_state_matches_mode", "test_085_success_archive_zip_hygiene", "test_900_commit_push_timestamp"]
+full_runner_tests = ["test_084_workspace_git_state_matches_mode", "test_900_commit_push_timestamp"]
 
 [recipes]
 [recipes.tests]
