@@ -69,3 +69,29 @@ def test_pytest_bucket_routing_external_callsite_is_only_gates_py() -> None:
         hits.append(rel)
 
     assert hits == ["scripts/am_patch/gates.py"]
+
+
+def test_gates_pytest_bucket_routing_callsite_passes_repo_root() -> None:
+    repo_root = _repo_root()
+    path = repo_root / "scripts" / "am_patch" / "gates.py"
+    src = path.read_text(encoding="utf-8")
+    mod = ast.parse(src, filename=str(path))
+
+    calls: list[ast.Call] = []
+    for node in ast.walk(mod):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if isinstance(fn, ast.Name) and fn.id == "select_pytest_targets":
+            calls.append(node)
+
+    assert len(calls) == 1, "expected exactly one select_pytest_targets call-site"
+
+    keywords = {
+        keyword.arg: keyword.value
+        for keyword in calls[0].keywords
+        if keyword.arg is not None
+    }
+    value = keywords.get("repo_root")
+    assert isinstance(value, ast.Name), "missing repo_root keyword binding"
+    assert value.id == "repo_root", "expected repo_root=repo_root"

@@ -55,6 +55,7 @@ def select_pytest_targets(
     decision_paths: Sequence[str],
     pytest_targets: Sequence[str],
     routing_policy: Mapping[str, object] | None,
+    repo_root=None,
 ) -> list[str]:
     if not routing_policy:
         return list(pytest_targets)
@@ -99,4 +100,5 @@ def select_pytest_targets(
         pytest_full_suite_prefixes=(
             pytest_full_suite_prefixes or PYTEST_FULL_SUITE_PREFIXES_DEFAULT
         ),
+        repo_root=repo_root,
     )

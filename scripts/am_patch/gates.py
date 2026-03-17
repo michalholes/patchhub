@@ -855,6 +855,7 @@ def run_gates(
                     decision_paths=decision_paths,
                     pytest_targets=pytest_targets,
                     routing_policy=pytest_routing_policy,
+                    repo_root=repo_root,
                 ),
             )
 

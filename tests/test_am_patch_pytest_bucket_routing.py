@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -124,6 +125,31 @@ def test_legacy_mode_returns_pytest_targets_only() -> None:
         routing_policy={"pytest_routing_mode": "legacy"},
     )
     assert targets == ["tests/custom_a.py", "tests/custom_b.py"]
+
+
+def test_bucketed_wrapper_forwards_explicit_repo_root(tmp_path: Path) -> None:
+    repo_root = tmp_path
+    expected = ["tests/sentinel.py"]
+    captured: dict[str, object] = {}
+
+    def _spy(**kwargs: object) -> list[str]:
+        captured["repo_root"] = kwargs["repo_root"]
+        return expected
+
+    with patch(
+        "am_patch.pytest_bucket_routing.select_namespace_pytest_targets",
+        side_effect=_spy,
+    ) as spy:
+        actual = select_pytest_targets(
+            decision_paths=["plugins/file_io/service.py"],
+            pytest_targets=TEST_TARGETS,
+            routing_policy={"pytest_routing_mode": "bucketed"},
+            repo_root=repo_root,
+        )
+
+    assert actual == expected
+    assert captured["repo_root"] is repo_root
+    spy.assert_called_once()
 
 
 def test_bucketed_mode_always_includes_direct_changed_tests(tmp_path: Path) -> None:
