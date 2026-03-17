@@ -1,0 +1,106 @@
+# IMPLEMENTAČNÝ KONTRAKT PRE IMPLEMENTAČNÉ CHATY (AM2)
+
+## 1. HARD CONTEXT RULES (HARD)
+
+1. Chat nesmie používať medzichatovú pamäť ako zdroj informácií.
+2. Pred akoukoľvek implementáciou je povinné prečítať všetky relevantné súbory v project files a riadiť sa nimi.
+3. Pri vytváraní patchov je povinné striktne dodržiavať špecifikáciu am_patch.
+4. Primárnym vstupom je:
+   - implementačný handoff
+   - snapshot repo tree
+5. Ak sú vstupy neúplné, neaktuálne alebo nekonzistentné, implementácia sa nesmie začať.
+
+## 2. IMPLEMENTATION WORKFLOW (HARD)
+
+1. Chat slúži výhradne na vykonanie implementačného handoffu.
+2. Diskusia alebo rozbor mimo rozsahu overenia realizovateľnosti plánu nie je povolený.
+3. Ak handoff neobsahuje číslo issue, chat ho musí vyžiadať pred začatím implementácie.
+4. Pred začiatkom implementácie je povinné overiť realizovateľnosť plánu:
+   - Ak plán nie je realizovateľný → zastaviť a informovať používateľa.
+   - Ak plán realizovateľný je → implementovať bez odchýlok.
+5. Odchýlka od schváleného handoffu nie je povolená bez explicitného súhlasu používateľa.
+
+## 3. PATCH VALIDATION REQUIREMENTS (HARD)
+
+1. Každý patch musí byť vytvorený striktne podľa pravidiel am_patch.
+2. Patch musí modifikovať iba súbory uvedené v FILE MANIFESTE.
+3. Pred dodaním patchu je povinné lokálne overenie:
+   - aplikovateľnosť patchu
+   - kompilovateľnosť (python -m compileall)
+4. Patch nesmie byť dodaný, ak neprejde základnou validačnou kontrolou.
+## 3A. MONOLITH GATE POVINNOSTI (HARD)
+
+1. Implementačný chat je povinný rešpektovať Monolith gate pre všetky zmeny v:
+   - src/
+   - plugins/
+   - scripts/
+
+2. Patch NESMIE spôsobiť pád Monolith gate podľa limitov definovaných v am_patch.toml.
+
+3. Pri práci s veľkými súbormi platí:
+
+   - Ak má súbor >= 900 LOC:
+     - max +20 LOC
+     - max +2 exports
+     - max +1 imports
+
+   - Ak má súbor >= 1300 LOC:
+     - +0 LOC
+     - +0 exports
+     - +0 imports
+     - súbor NESMIE narásť ani o 1 riadok
+
+4. Ak je cieľový súbor už veľký alebo vykazuje hub/cross-area riziko,
+   implementácia MUSÍ použiť extrakciu do nového súboru v rovnakej ownership oblasti.
+
+5. Nové súbory musia spĺňať:
+
+   - max 400 LOC
+   - max 25 exports
+   - max 15 imports
+   - nesmú mať catch-all názvy:
+     utils.py, common.py, helpers.py, misc.py
+   - nesmú byť umiestnené do catch-all adresárov:
+     utils/, common/, helpers/, misc/
+
+6. Je zakázané:
+   - centralizovať logiku do existujúceho veľkého modulu
+   - vytvárať nový hub modul
+   - miešať 3+ ownership areas v jednej zmene bez explicitného povolenia
+
+7. Ak Monolith gate zlyhá, oprava má prednosť pred všetkými ostatnými opravami.
+   Najprv sa musí odstrániť štrukturálne porušenie, až potom riešiť ruff/mypy/pytest.
+
+8. Implementačný chat NESMIE:
+   - obchádzať gate
+   - „umlčať“ porušenie
+   - maskovať rast kompresiou kódu
+   - riešiť problém formátovaním namiesto štrukturálnej zmeny
+
+9. Ak štrukturálna oprava v rámci označených súborov nie je objektívne možná,
+   implementačný chat musí zastaviť implementáciu a vyžiadať architektonické rozhodnutie.
+
+## 4. CHANGE CONTROL POLICY (HARD)
+
+1. Implementácia alebo zmena akejkoľvek funkcionality mimo rozsahu schváleného handoffu je zakázaná.
+2. Ak si implementácia vyžaduje:
+   - dodatočné rozhodnutie
+   - zmenu architektúry
+   - rozšírenie rozsahu
+   musí byť vyžiadaný explicitný súhlas používateľa.
+
+## 5. KOMUNIKAČNÉ PRAVIDLÁ (HARD)
+
+1. Odpovede musia byť v slovenskom jazyku.
+2. Chat nesmie klamať ani fabulovať.
+3. Ak nie je dostatok informácií, musí si ich vyžiadať.
+4. Keď používateľ uvedie „am“, rozumie sa tým AudioMason2.
+5. Ked pouzivatel uvedie "amp", rozumie sa tym am_patch v scripts/
+
+## 6. FORBIDDEN OUTPUT (HARD)
+
+Zakázané sú:
+- statusové správy namiesto vykonania požadovanej akcie
+- sebareflexia
+- opis vnútorného uvažovania
+- akýkoľvek výstup mimo rozsahu implementácie
