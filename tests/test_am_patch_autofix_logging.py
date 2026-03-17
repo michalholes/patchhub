@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+
+def _import_am_patch_modules():
+    scripts_dir = Path(__file__).parent.parent / "scripts"
+    sys.path.insert(0, str(scripts_dir))
+    from am_patch.gates import run_biome, run_ruff
+    from am_patch.log import Logger, RunResult
+
+    return Logger, RunResult, run_biome, run_ruff
+
+
+def _mk_logger(tmp_path: Path, *, screen_level: str, log_level: str):
+    logger_cls, _, _, _ = _import_am_patch_modules()
+    log_path = tmp_path / "am_patch.log"
+    symlink_path = tmp_path / "am_patch.symlink"
+    return logger_cls(
+        log_path=log_path,
+        symlink_path=symlink_path,
+        screen_level=screen_level,
+        log_level=log_level,
+        symlink_enabled=False,
+    )
+
+
+def test_run_logged_diagnostic_detail_omits_failed_step_output(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+):
+    logger = _mk_logger(tmp_path, screen_level="warning", log_level="warning")
+    try:
+        result = logger.run_logged(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; print('fixable stdout'); "
+                    "sys.stderr.write('fixable stderr\n'); sys.exit(1)"
+                ),
+            ],
+            failure_dump_mode="diagnostic_detail",
+        )
+    finally:
+        logger.close()
+
+    out = capsys.readouterr().out
+    data = (tmp_path / "am_patch.log").read_text(encoding="utf-8")
+
+    assert result.returncode == 1
+    assert "FAILED STEP OUTPUT" not in out
+    assert "FAILED STEP OUTPUT" not in data
+    assert "fixable stdout" in out
+    assert "fixable stderr" in out
+
+
+def test_run_logged_warn_detail_still_emits_failed_step_output(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+):
+    logger = _mk_logger(tmp_path, screen_level="warning", log_level="warning")
+    try:
+        result = logger.run_logged(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.stderr.write('boom\n'); sys.exit(1)",
+            ],
+            failure_dump_mode="warn_detail",
+        )
+    finally:
+        logger.close()
+
+    out = capsys.readouterr().out
+    data = (tmp_path / "am_patch.log").read_text(encoding="utf-8")
+
+    assert result.returncode == 1
+    assert "FAILED STEP OUTPUT" in out
+    assert "FAILED STEP OUTPUT" in data
+
+
+class _RecordingLogger:
+    def __init__(self, run_results):
+        self.run_results = list(run_results)
+        self.calls = []
+        self.sections = []
+        self.lines = []
+        self.warnings = []
+
+    def section(self, title: str) -> None:
+        self.sections.append(title)
+
+    def line(self, msg: str) -> None:
+        self.lines.append(msg)
+
+    def warning_core(self, msg: str) -> None:
+        self.warnings.append(msg)
+
+    def run_logged(self, argv, cwd=None, env=None, **kwargs):
+        self.calls.append(
+            {
+                "argv": list(argv),
+                "cwd": cwd,
+                "env": env,
+                "kwargs": dict(kwargs),
+            }
+        )
+        return self.run_results.pop(0)
+
+
+def test_run_ruff_uses_diagnostic_mode_only_for_initial_autofix_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    _, run_result_cls, _, run_ruff = _import_am_patch_modules()
+    logger = _RecordingLogger(
+        [
+            run_result_cls(
+                argv=["ruff", "check"],
+                returncode=1,
+                stdout="fixable\n",
+                stderr="",
+            ),
+            run_result_cls(
+                argv=["ruff", "check", "--fix"],
+                returncode=0,
+                stdout="",
+                stderr="",
+            ),
+            run_result_cls(
+                argv=["ruff", "check"],
+                returncode=1,
+                stdout="",
+                stderr="still bad\n",
+            ),
+        ]
+    )
+
+    monkeypatch.setattr(
+        "am_patch.gates._select_python_for_gate",
+        lambda **_kwargs: sys.executable,
+    )
+
+    ok = run_ruff(
+        logger,
+        tmp_path,
+        repo_root=tmp_path,
+        ruff_format=False,
+        autofix=True,
+        targets=["tests"],
+    )
+
+    assert ok is False
+    assert logger.calls[0]["kwargs"]["failure_dump_mode"] == "diagnostic_detail"
+    assert logger.calls[1]["kwargs"]["failure_dump_mode"] == "warn_detail"
+    assert "failure_dump_mode" not in logger.calls[2]["kwargs"]
+
+
+def test_run_biome_uses_diagnostic_mode_only_for_initial_autofix_check(tmp_path: Path):
+    _, run_result_cls, run_biome, _ = _import_am_patch_modules()
+    target = tmp_path / "demo.js"
+    target.write_text("console.log('x');\n", encoding="utf-8")
+    logger = _RecordingLogger(
+        [
+            run_result_cls(
+                argv=["biome", "check"],
+                returncode=1,
+                stdout="fixable\n",
+                stderr="",
+            ),
+            run_result_cls(
+                argv=["biome", "check", "--write"],
+                returncode=0,
+                stdout="",
+                stderr="",
+            ),
+            run_result_cls(
+                argv=["biome", "check"],
+                returncode=1,
+                stdout="",
+                stderr="still bad\n",
+            ),
+        ]
+    )
+
+    ok = run_biome(
+        logger,
+        tmp_path,
+        decision_paths=["demo.js"],
+        extensions=[".js"],
+        command=["biome", "check"],
+        biome_format=False,
+        format_command=["biome", "format", "--write"],
+        autofix=True,
+        fix_command=["biome", "check", "--write"],
+    )
+
+    assert ok is False
+    assert logger.calls[0]["kwargs"]["failure_dump_mode"] == "diagnostic_detail"
+    assert logger.calls[1]["kwargs"]["failure_dump_mode"] == "warn_detail"
+    assert "failure_dump_mode" not in logger.calls[2]["kwargs"]

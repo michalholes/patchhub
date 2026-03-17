@@ -1,0 +1,31 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.ignore_py]
+relpath = "docs/badguys_batch1/ignore_py.txt"
+
+[[asset]]
+id = "zip"
+kind = "patch_zip_manifest"
+
+[[asset.entry]]
+name = "patch_entry"
+kind = "git_patch_text"
+subject = "ignore_py"
+zip_name = "x.patch"
+content = """patch-wins
+"""
+
+[[asset.entry]]
+name = "script_entry"
+kind = "python_patch_script"
+zip_name = "evil.py"
+declared_subjects = ["ignore_py"]
+content = """ctx.write_text("ignore_py", "py-wins
+")
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "zip"

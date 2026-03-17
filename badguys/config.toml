@@ -1,0 +1,609 @@
+[suite]
+issue_id = "666"
+runner_cmd = ["python3", "scripts/am_patch.py"]
+runner_verbosity = "verbose"
+console_verbosity = "normal"
+log_verbosity = "debug"
+per_run_logs_post_run = "delete_successful"
+copy_runner_log = false
+write_subprocess_stdio = false
+patches_dir = "patches"
+logs_dir = "patches/badguys_logs"
+central_log_pattern = "patches/badguys_{run_id}.log"
+commit_limit = 2
+
+[lock]
+path = "patches/badguys.lock"
+ttl_seconds = 3600
+on_conflict = "fail"
+
+[guard]
+require_guard_test = true
+guard_test_name = "test_000_test_mode_smoke"
+abort_on_guard_fail = true
+
+[evaluation]
+strict_coverage = true
+
+[evaluation.tests]
+[evaluation.tests.test_000_test_mode_smoke]
+[evaluation.tests.test_000_test_mode_smoke.steps]
+[evaluation.tests.test_000_test_mode_smoke.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_010_help_short]
+[evaluation.tests.test_010_help_short.steps]
+[evaluation.tests.test_010_help_short.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_020_help_all]
+[evaluation.tests.test_020_help_all.steps]
+[evaluation.tests.test_020_help_all.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_030_show_config]
+[evaluation.tests.test_030_show_config.steps]
+[evaluation.tests.test_030_show_config.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_031_invalid_runner_verbosity_fails_cleanly]
+[evaluation.tests.test_031_invalid_runner_verbosity_fails_cleanly.steps]
+[evaluation.tests.test_031_invalid_runner_verbosity_fails_cleanly.steps.0]
+rc_eq = 2
+value_not_contains = ["Traceback"]
+
+
+[evaluation.tests.test_011_include_single]
+[evaluation.tests.test_011_include_single.steps]
+[evaluation.tests.test_011_include_single.steps.0]
+rc_eq = 0
+list_eq = ["test_000_test_mode_smoke", "test_010_help_short"]
+
+[evaluation.tests.test_012_exclude_single]
+[evaluation.tests.test_012_exclude_single.steps]
+[evaluation.tests.test_012_exclude_single.steps.0]
+rc_eq = 0
+list_contains = ["test_000_test_mode_smoke", "test_012_exclude_single"]
+list_not_contains = ["test_010_help_short"]
+
+[evaluation.tests.test_013_include_exclude_conflict]
+[evaluation.tests.test_013_include_exclude_conflict.steps]
+[evaluation.tests.test_013_include_exclude_conflict.steps.0]
+rc_eq = 2
+stderr_contains = ["include/exclude conflict"]
+
+[evaluation.tests.test_014_guard_exclude_guard_is_ignored]
+[evaluation.tests.test_014_guard_exclude_guard_is_ignored.steps]
+[evaluation.tests.test_014_guard_exclude_guard_is_ignored.steps.0]
+rc_eq = 2
+stderr_contains = ["guard test excluded but required"]
+
+[evaluation.tests.test_020_runner_quiet_default]
+[evaluation.tests.test_020_runner_quiet_default.steps]
+[evaluation.tests.test_020_runner_quiet_default.steps.0]
+rc_eq = 0
+value_contains = ["--verbosity=quiet"]
+
+[evaluation.tests.test_021_runner_verbose_override_cli]
+[evaluation.tests.test_021_runner_verbose_override_cli.steps]
+[evaluation.tests.test_021_runner_verbose_override_cli.steps.0]
+rc_eq = 0
+value_contains = ["--verbosity=verbose"]
+value_not_contains = ["--verbosity=quiet"]
+
+[evaluation.tests.test_022_runner_debug_override_cli]
+[evaluation.tests.test_022_runner_debug_override_cli.steps]
+[evaluation.tests.test_022_runner_debug_override_cli.steps.0]
+rc_eq = 0
+value_contains = ["--verbosity=debug"]
+value_not_contains = ["--verbosity=quiet"]
+
+[evaluation.tests.test_001_lock_create_and_release]
+[evaluation.tests.test_001_lock_create_and_release.steps]
+[evaluation.tests.test_001_lock_create_and_release.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_001_lock_create_and_release.steps.1]
+rc_eq = 0
+
+[evaluation.tests.test_001_lock_create_and_release.steps.2]
+rc_eq = 0
+
+[evaluation.tests.test_001_lock_create_and_release.steps.3]
+rc_eq = 0
+
+[evaluation.tests.test_002_lock_conflict_fail]
+[evaluation.tests.test_002_lock_conflict_fail.steps]
+[evaluation.tests.test_002_lock_conflict_fail.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_002_lock_conflict_fail.steps.1]
+rc_eq = 0
+
+[evaluation.tests.test_002_lock_conflict_fail.steps.2]
+rc_eq = 1
+
+[evaluation.tests.test_002_lock_conflict_fail.steps.3]
+rc_eq = 0
+
+[evaluation.tests.test_002_lock_conflict_fail.steps.4]
+rc_eq = 0
+
+[evaluation.tests.test_003_lock_conflict_steal_ttl]
+[evaluation.tests.test_003_lock_conflict_steal_ttl.steps]
+[evaluation.tests.test_003_lock_conflict_steal_ttl.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_003_lock_conflict_steal_ttl.steps.1]
+rc_eq = 0
+
+[evaluation.tests.test_003_lock_conflict_steal_ttl.steps.2]
+rc_eq = 0
+
+[evaluation.tests.test_003_lock_conflict_steal_ttl.steps.3]
+rc_eq = 0
+
+[evaluation.tests.test_003_lock_conflict_steal_ttl.steps.4]
+rc_eq = 0
+
+[evaluation.tests.test_050_unified_patch_zip_recursive_detection]
+[evaluation.tests.test_050_unified_patch_zip_recursive_detection.steps]
+[evaluation.tests.test_050_unified_patch_zip_recursive_detection.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_052_unified_patch_ignores_py_when_patch_present]
+[evaluation.tests.test_052_unified_patch_ignores_py_when_patch_present.steps]
+[evaluation.tests.test_052_unified_patch_ignores_py_when_patch_present.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_067_path_traversal_outside_repo_fails]
+[evaluation.tests.test_067_path_traversal_outside_repo_fails.steps]
+[evaluation.tests.test_067_path_traversal_outside_repo_fails.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_067_path_traversal_outside_repo_fails.steps.1]
+rc_eq = 1
+
+[evaluation.tests.test_067_path_traversal_outside_repo_fails.steps.2]
+rc_eq = 0
+
+[evaluation.tests.test_040_test_mode_hard_stop_no_archives]
+[evaluation.tests.test_040_test_mode_hard_stop_no_archives.steps]
+[evaluation.tests.test_040_test_mode_hard_stop_no_archives.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_040_test_mode_hard_stop_no_archives.steps.1]
+rc_eq = 0
+
+[evaluation.tests.test_040_test_mode_hard_stop_no_archives.steps.2]
+rc_eq = 0
+
+[evaluation.tests.test_041_test_mode_cleanup_on_fail]
+[evaluation.tests.test_041_test_mode_cleanup_on_fail.steps]
+[evaluation.tests.test_041_test_mode_cleanup_on_fail.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_041_test_mode_cleanup_on_fail.steps.1]
+rc_eq = 1
+
+[evaluation.tests.test_041_test_mode_cleanup_on_fail.steps.2]
+rc_eq = 0
+
+[evaluation.tests.test_060_scope_touching_undeclared_fails]
+[evaluation.tests.test_060_scope_touching_undeclared_fails.steps]
+[evaluation.tests.test_060_scope_touching_undeclared_fails.steps.0]
+rc_eq = 1
+
+[evaluation.tests.test_061_scope_declared_but_not_touched_fails]
+[evaluation.tests.test_061_scope_declared_but_not_touched_fails.steps]
+[evaluation.tests.test_061_scope_declared_but_not_touched_fails.steps.0]
+rc_eq = 1
+
+[evaluation.tests.test_062_scope_noop_patch_fails]
+[evaluation.tests.test_062_scope_noop_patch_fails.steps]
+[evaluation.tests.test_062_scope_noop_patch_fails.steps.0]
+rc_eq = 1
+
+[evaluation.tests.test_064_a_allows_undeclared]
+[evaluation.tests.test_064_a_allows_undeclared.steps]
+[evaluation.tests.test_064_a_allows_undeclared.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_065_scope_py_undeclared_leaves_index_clean]
+[evaluation.tests.test_065_scope_py_undeclared_leaves_index_clean.steps]
+[evaluation.tests.test_065_scope_py_undeclared_leaves_index_clean.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_065_scope_py_undeclared_leaves_index_clean.steps.1]
+rc_eq = 1
+
+[evaluation.tests.test_065_scope_py_undeclared_leaves_index_clean.steps.2]
+rc_eq = 0
+equals_step_index = 0
+
+[evaluation.tests.test_071_compile_exclude_respected]
+[evaluation.tests.test_071_compile_exclude_respected.steps]
+[evaluation.tests.test_071_compile_exclude_respected.steps.0]
+rc_eq = 1
+value_contains = ["GATE: compile", "GATE: RUFF", "compile_exclude=['patches', 'scripts/badguys_batch1_excluded']"]
+
+[evaluation.tests.test_072_g_continues_after_gate_fail]
+[evaluation.tests.test_072_g_continues_after_gate_fail.steps]
+[evaluation.tests.test_072_g_continues_after_gate_fail.steps.0]
+rc_eq = 0
+value_contains = ["LOG: "]
+
+[evaluation.tests.test_073_dont_touch_gate_blocks_protected_path]
+[evaluation.tests.test_073_dont_touch_gate_blocks_protected_path.steps]
+[evaluation.tests.test_073_dont_touch_gate_blocks_protected_path.steps.0]
+rc_eq = 1
+value_contains = ["GATE: dont-touch", "gate_dont_touch=FAIL", "STAGE: GATE_DONT-TOUCH"]
+
+[evaluation.tests.test_074_js_gate_runs_on_js_change]
+[evaluation.tests.test_074_js_gate_runs_on_js_change.steps]
+[evaluation.tests.test_074_js_gate_runs_on_js_change.steps.0]
+rc_eq = 1
+value_contains = ["GATE: JS SYNTAX", "FAIL: GATE_JS", "STAGE: GATE_JS"]
+
+[evaluation.tests.test_075_biome_gate_runs_on_biome_target]
+[evaluation.tests.test_075_biome_gate_runs_on_biome_target.steps]
+[evaluation.tests.test_075_biome_gate_runs_on_biome_target.steps.0]
+rc_eq = 1
+value_contains = ["GATE: BIOME FORMAT", "FAIL: GATE_BIOME", "STAGE: GATE_BIOME"]
+
+[evaluation.tests.test_076_typescript_gate_runs_on_targeted_change]
+[evaluation.tests.test_076_typescript_gate_runs_on_targeted_change.steps]
+[evaluation.tests.test_076_typescript_gate_runs_on_targeted_change.steps.0]
+rc_eq = 1
+value_contains = ["DO: GATE_TYPESCRIPT", "FAIL: GATE_TYPESCRIPT", "STAGE: GATE_TYPESCRIPT"]
+
+[evaluation.tests.test_077_docs_gate_requires_change_fragment]
+[evaluation.tests.test_077_docs_gate_requires_change_fragment.steps]
+[evaluation.tests.test_077_docs_gate_requires_change_fragment.steps.0]
+rc_eq = 1
+value_contains = ["gate_docs=FAIL", "gate_docs_missing=docs/change_fragments/", "STAGE: GATE_DOCS"]
+
+[evaluation.tests.test_078_monolith_gate_reports_violation]
+[evaluation.tests.test_078_monolith_gate_reports_violation.steps]
+[evaluation.tests.test_078_monolith_gate_reports_violation.steps.0]
+rc_eq = 1
+value_contains = ["GATE: MONOLITH", "MONO.CATCHALL", "STAGE: GATE_MONOLITH"]
+
+[evaluation.tests.test_079_skip_flags_short_circuit_selected_gates]
+[evaluation.tests.test_079_skip_flags_short_circuit_selected_gates.steps]
+[evaluation.tests.test_079_skip_flags_short_circuit_selected_gates.steps.0]
+rc_eq = 0
+value_contains = ["gate_biome=SKIP (skipped_by_user)", "gate_typescript=SKIP (skipped_by_user)", "RESULT: SUCCESS"]
+
+[evaluation.tests.test_100_rerun_latest_l]
+[evaluation.tests.test_100_rerun_latest_l.steps]
+[evaluation.tests.test_100_rerun_latest_l.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_100_rerun_latest_l.steps.1]
+rc_eq = 0
+
+[evaluation.tests.test_900_commit_push_timestamp]
+[evaluation.tests.test_900_commit_push_timestamp.steps]
+[evaluation.tests.test_900_commit_push_timestamp.steps.0]
+rc_ne = 0
+
+[evaluation.tests.test_900_commit_push_timestamp.steps.1]
+rc_eq = 0
+
+[evaluation.tests.test_900_commit_push_timestamp.steps.2]
+rc_eq = 0
+
+[evaluation.tests.test_900_commit_push_timestamp.steps.3]
+rc_eq = 0
+value_contains = ["RESULT: SUCCESS", "PUSH: OK"]
+value_regex = ["^COMMIT:\\s*[0-9a-f]{40}\\b"]
+
+[evaluation.tests.test_080_json_out_writes_ndjson_log]
+[evaluation.tests.test_080_json_out_writes_ndjson_log.steps]
+[evaluation.tests.test_080_json_out_writes_ndjson_log.steps.0]
+rc_eq = 0
+value_contains = ["RESULT: SUCCESS"]
+
+[evaluation.tests.test_080_json_out_writes_ndjson_log.steps.1]
+rc_eq = 0
+value_contains = ["\"json_path\":", "\"ok\": true", "\"return_code\": 0"]
+value_not_contains = ["\"event\":\"connected\"", "\"kind\":\"HEARTBEAT\"", "\"msg\":\"RESULT: SUCCESS\"", "\"type\": \"result\"", "\"type\": \"log\""]
+
+[evaluation.tests.test_080_json_out_writes_ndjson_log.steps.2]
+rc_eq = 0
+value_contains = ["\"event\":\"connected\"", "\"kind\":\"HEARTBEAT\"", "\"type\":\"result\"", "\"msg\":\"RESULT: SUCCESS\""]
+
+[evaluation.tests.test_081_ipc_heartbeat_events_present]
+[evaluation.tests.test_081_ipc_heartbeat_events_present.steps]
+[evaluation.tests.test_081_ipc_heartbeat_events_present.steps.0]
+rc_eq = 0
+value_contains = ["RESULT: SUCCESS"]
+
+[evaluation.tests.test_081_ipc_heartbeat_events_present.steps.1]
+rc_eq = 0
+value_contains = ["\"kind\":\"HEARTBEAT\"", "\"msg\":\"HEARTBEAT\"", "\"type\":\"result\""]
+
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack]
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack.steps]
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack.steps.0]
+rc_eq = 0
+value_contains = ["queued:ipc_reply.step0.json"]
+
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack.steps.1]
+rc_eq = 0
+value_contains = ["queued:ipc_reply.step1.json"]
+
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack.steps.2]
+rc_eq = 0
+value_contains = ["DEBUG: IPC startup handshake completed before START", "DEBUG: IPC shutdown handshake waiting for drain_ack", "RESULT: SUCCESS"]
+
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack.steps.3]
+rc_eq = 0
+value_contains = ["\"cmd\": \"ready\""]
+
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack.steps.4]
+rc_eq = 0
+value_contains = ["\"ok\": true", "\"ready\": true"]
+
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack.steps.5]
+rc_eq = 0
+value_contains = ["\"cmd\": \"drain_ack\""]
+
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack.steps.6]
+rc_eq = 0
+value_contains = ["\"ok\": true"]
+value_not_contains = ["\"code\": \"EOF\""]
+
+[evaluation.tests.test_082_ipc_handshake_ready_and_drain_ack.steps.7]
+rc_eq = 0
+value_contains = ["\"event\":\"eos\""]
+
+[evaluation.tests.test_083_ipc_cancel_command_stops_runner]
+[evaluation.tests.test_083_ipc_cancel_command_stops_runner.steps]
+[evaluation.tests.test_083_ipc_cancel_command_stops_runner.steps.0]
+rc_eq = 0
+value_contains = ["queued:ipc_reply.step0.json"]
+
+[evaluation.tests.test_083_ipc_cancel_command_stops_runner.steps.1]
+rc_eq = 130
+value_contains = ["RESULT: CANCELED", "REASON: cancel requested"]
+
+[evaluation.tests.test_083_ipc_cancel_command_stops_runner.steps.2]
+rc_eq = 0
+value_contains = ["\"cmd\": \"cancel\""]
+
+[evaluation.tests.test_083_ipc_cancel_command_stops_runner.steps.3]
+rc_eq = 0
+value_contains = ["\"ok\": true"]
+
+[evaluation.tests.test_083_ipc_cancel_command_stops_runner.steps.4]
+rc_eq = 0
+value_contains = ["\"type\":\"result\"", "\"return_code\":130", "RESULT: CANCELED"]
+
+[evaluation.tests.test_084_workspace_git_state_matches_mode]
+[evaluation.tests.test_084_workspace_git_state_matches_mode.steps]
+[evaluation.tests.test_084_workspace_git_state_matches_mode.steps.0]
+rc_eq = 1
+
+[evaluation.tests.test_084_workspace_git_state_matches_mode.steps.1]
+rc_eq = 0
+
+[evaluation.tests.test_084_workspace_git_state_matches_mode.steps.2]
+rc_eq = 0
+list_contains = ["?? scripts/badguys_batch3/"]
+
+[evaluation.tests.test_085_success_archive_zip_hygiene]
+[evaluation.tests.test_085_success_archive_zip_hygiene.steps]
+[evaluation.tests.test_085_success_archive_zip_hygiene.steps.0]
+rc_eq = 0
+
+[evaluation.tests.test_085_success_archive_zip_hygiene.steps.1]
+rc_eq = 0
+
+[evaluation.tests.test_085_success_archive_zip_hygiene.steps.2]
+rc_eq = 0
+list_contains = ["docs/badguys_batch4/success_archive_hygiene_issue_664_marker.txt", "docs/changes.md"]
+list_not_contains = [".git/HEAD", "patches/patched.zip", "patches/badguys_success_archive_085.zip"]
+
+[evaluation.tests.test_086_pytest_gate_runs_on_targeted_python_change]
+[evaluation.tests.test_086_pytest_gate_runs_on_targeted_python_change.steps]
+[evaluation.tests.test_086_pytest_gate_runs_on_targeted_python_change.steps.0]
+rc_eq = 0
+value_contains = ["GATE: PYTEST", "tests/test_badguys_pytest_gate_target.py", "RESULT: SUCCESS"]
+value_not_contains = ["gate_pytest=SKIP"]
+
+[evaluation.tests.test_087_pytest_gate_runs_on_configured_badguys_python_change]
+[evaluation.tests.test_087_pytest_gate_runs_on_configured_badguys_python_change.steps]
+[evaluation.tests.test_087_pytest_gate_runs_on_configured_badguys_python_change.steps.0]
+rc_eq = 0
+value_contains = ["GATE: PYTEST", "tests/test_badguys_pytest_gate_target.py", "RESULT: SUCCESS"]
+value_not_contains = ["gate_pytest=SKIP", "gate_pytest=SKIP (no_matching_files)"]
+
+[runner]
+full_runner_tests = ["test_084_workspace_git_state_matches_mode", "test_085_success_archive_zip_hygiene", "test_900_commit_push_timestamp"]
+
+[recipes]
+[recipes.tests]
+[recipes.tests.test_000_test_mode_smoke]
+[recipes.tests.test_000_test_mode_smoke.steps]
+[recipes.tests.test_000_test_mode_smoke.steps.0]
+args = ["${issue_id}", "badguys: test-mode smoke"]
+
+[recipes.tests.test_010_help_short]
+[recipes.tests.test_010_help_short.steps]
+[recipes.tests.test_010_help_short.steps.0]
+args = ["-h"]
+
+[recipes.tests.test_020_help_all]
+[recipes.tests.test_020_help_all.steps]
+[recipes.tests.test_020_help_all.steps.0]
+args = ["--help-all"]
+
+[recipes.tests.test_021_runner_verbose_override_cli]
+[recipes.tests.test_021_runner_verbose_override_cli.steps]
+[recipes.tests.test_021_runner_verbose_override_cli.steps.0]
+runner_verbosity = "verbose"
+
+[recipes.tests.test_022_runner_debug_override_cli]
+[recipes.tests.test_022_runner_debug_override_cli.steps]
+[recipes.tests.test_022_runner_debug_override_cli.steps.0]
+runner_verbosity = "debug"
+
+[recipes.tests.test_030_show_config]
+[recipes.tests.test_030_show_config.steps]
+[recipes.tests.test_030_show_config.steps.0]
+args = ["-c"]
+
+[recipes.tests.test_031_invalid_runner_verbosity_fails_cleanly]
+[recipes.tests.test_031_invalid_runner_verbosity_fails_cleanly.steps]
+[recipes.tests.test_031_invalid_runner_verbosity_fails_cleanly.steps.0]
+args = ["--verbosity=loud", "${issue_id}", "badguys: invalid runner verbosity must fail cleanly", "DOES_NOT_MATTER"]
+
+[recipes.tests.test_040_test_mode_hard_stop_no_archives]
+[recipes.tests.test_040_test_mode_hard_stop_no_archives.steps]
+[recipes.tests.test_040_test_mode_hard_stop_no_archives.steps.1]
+args = ["${issue_id}", "badguys: test-mode hard stop"]
+
+[recipes.tests.test_041_test_mode_cleanup_on_fail]
+[recipes.tests.test_041_test_mode_cleanup_on_fail.steps]
+[recipes.tests.test_041_test_mode_cleanup_on_fail.steps.1]
+args = ["--skip-pytest", "${issue_id}", "badguys: test-mode cleanup on fail"]
+
+[recipes.tests.test_050_unified_patch_zip_recursive_detection]
+[recipes.tests.test_050_unified_patch_zip_recursive_detection.steps]
+[recipes.tests.test_050_unified_patch_zip_recursive_detection.steps.0]
+args = ["${issue_id}", "badguys: unified zip recursive"]
+
+[recipes.tests.test_052_unified_patch_ignores_py_when_patch_present]
+[recipes.tests.test_052_unified_patch_ignores_py_when_patch_present.steps]
+[recipes.tests.test_052_unified_patch_ignores_py_when_patch_present.steps.0]
+args = ["${issue_id}", "badguys: unified ignores py"]
+
+[recipes.tests.test_060_scope_touching_undeclared_fails]
+[recipes.tests.test_060_scope_touching_undeclared_fails.steps]
+[recipes.tests.test_060_scope_touching_undeclared_fails.steps.0]
+args = ["${issue_id}", "badguys: scope touched undeclared fails"]
+
+[recipes.tests.test_061_scope_declared_but_not_touched_fails]
+[recipes.tests.test_061_scope_declared_but_not_touched_fails.steps]
+[recipes.tests.test_061_scope_declared_but_not_touched_fails.steps.0]
+args = ["${issue_id}", "badguys: scope declared but not touched fails"]
+
+[recipes.tests.test_062_scope_noop_patch_fails]
+[recipes.tests.test_062_scope_noop_patch_fails.steps]
+[recipes.tests.test_062_scope_noop_patch_fails.steps.0]
+args = ["${issue_id}", "badguys: noop patch fails"]
+
+[recipes.tests.test_064_a_allows_undeclared]
+[recipes.tests.test_064_a_allows_undeclared.steps]
+[recipes.tests.test_064_a_allows_undeclared.steps.0]
+args = ["-a", "${issue_id}", "badguys: -a allows undeclared"]
+
+[recipes.tests.test_065_scope_py_undeclared_leaves_index_clean]
+[recipes.tests.test_065_scope_py_undeclared_leaves_index_clean.steps]
+[recipes.tests.test_065_scope_py_undeclared_leaves_index_clean.steps.1]
+args = ["${issue_id}", "badguys: scope undeclared leaves live tree unchanged"]
+
+[recipes.tests.test_067_path_traversal_outside_repo_fails]
+[recipes.tests.test_067_path_traversal_outside_repo_fails.steps]
+[recipes.tests.test_067_path_traversal_outside_repo_fails.steps.1]
+args = ["${issue_id}", "badguys: path traversal outside repo must fail"]
+
+[recipes.tests.test_071_compile_exclude_respected]
+[recipes.tests.test_071_compile_exclude_respected.steps]
+[recipes.tests.test_071_compile_exclude_respected.steps.0]
+args = ["--skip-pytest", "--override", "compile_exclude=['scripts/badguys_batch1_excluded']", "${issue_id}", "badguys: compile exclude respected"]
+
+[recipes.tests.test_072_g_continues_after_gate_fail]
+[recipes.tests.test_072_g_continues_after_gate_fail.steps]
+[recipes.tests.test_072_g_continues_after_gate_fail.steps.0]
+args = ["--skip-pytest", "-g", "${issue_id}", "badguys: -g continues after gate fail (compile)"]
+
+[recipes.tests.test_073_dont_touch_gate_blocks_protected_path]
+[recipes.tests.test_073_dont_touch_gate_blocks_protected_path.steps]
+[recipes.tests.test_073_dont_touch_gate_blocks_protected_path.steps.0]
+args = ["${issue_id}", "badguys: dont-touch gate blocks protected path"]
+
+[recipes.tests.test_074_js_gate_runs_on_js_change]
+[recipes.tests.test_074_js_gate_runs_on_js_change.steps]
+[recipes.tests.test_074_js_gate_runs_on_js_change.steps.0]
+args = ["--skip-biome", "--skip-monolith", "${issue_id}", "badguys: js gate runs on js change"]
+
+[recipes.tests.test_075_biome_gate_runs_on_biome_target]
+[recipes.tests.test_075_biome_gate_runs_on_biome_target.steps]
+[recipes.tests.test_075_biome_gate_runs_on_biome_target.steps.0]
+args = ["--skip-js", "${issue_id}", "badguys: biome gate runs on ts target"]
+
+[recipes.tests.test_076_typescript_gate_runs_on_targeted_change]
+[recipes.tests.test_076_typescript_gate_runs_on_targeted_change.steps]
+[recipes.tests.test_076_typescript_gate_runs_on_targeted_change.steps.0]
+args = ["--skip-biome", "${issue_id}", "badguys: typescript gate runs on targeted change"]
+
+[recipes.tests.test_077_docs_gate_requires_change_fragment]
+[recipes.tests.test_077_docs_gate_requires_change_fragment.steps]
+[recipes.tests.test_077_docs_gate_requires_change_fragment.steps.0]
+args = ["${issue_id}", "badguys: docs gate requires change fragment"]
+
+[recipes.tests.test_078_monolith_gate_reports_violation]
+[recipes.tests.test_078_monolith_gate_reports_violation.steps]
+[recipes.tests.test_078_monolith_gate_reports_violation.steps.0]
+args = ["${issue_id}", "badguys: monolith gate reports violation"]
+
+[recipes.tests.test_079_skip_flags_short_circuit_selected_gates]
+[recipes.tests.test_079_skip_flags_short_circuit_selected_gates.steps]
+[recipes.tests.test_079_skip_flags_short_circuit_selected_gates.steps.0]
+args = ["--skip-biome", "--skip-typescript", "${issue_id}", "badguys: skip flags short circuit selected gates"]
+
+[recipes.tests.test_086_pytest_gate_runs_on_targeted_python_change]
+[recipes.tests.test_086_pytest_gate_runs_on_targeted_python_change.steps]
+[recipes.tests.test_086_pytest_gate_runs_on_targeted_python_change.steps.0]
+args = ["--override", "pytest_targets=['tests/test_badguys_pytest_gate_target.py']", "${issue_id}", "badguys: pytest gate runs on targeted python change"]
+
+[recipes.tests.test_087_pytest_gate_runs_on_configured_badguys_python_change]
+[recipes.tests.test_087_pytest_gate_runs_on_configured_badguys_python_change.steps]
+[recipes.tests.test_087_pytest_gate_runs_on_configured_badguys_python_change.steps.0]
+args = ["--override", "gate_pytest_py_prefixes=['badguys']", "--override", "pytest_routing_mode=legacy", "--override", "pytest_targets=['tests/test_badguys_pytest_gate_target.py']", "${issue_id}", "badguys: pytest gate runs on configured badguys python change"]
+
+[recipes.tests.test_100_rerun_latest_l]
+[recipes.tests.test_100_rerun_latest_l.steps]
+[recipes.tests.test_100_rerun_latest_l.steps.1]
+args = ["-l", "${issue_id}", "badguys: rerun-latest (-l) smoke"]
+
+[recipes.tests.test_900_commit_push_timestamp]
+[recipes.tests.test_900_commit_push_timestamp.steps]
+[recipes.tests.test_900_commit_push_timestamp.steps.0]
+args = ["--skip-pytest", "${issue_id}", "badguys: seed run to create workspace"]
+
+[recipes.tests.test_900_commit_push_timestamp.steps.3]
+args = ["${issue_id}", "badguys: apply latest bundle", "-l"]
+
+[recipes.tests.test_080_json_out_writes_ndjson_log]
+[recipes.tests.test_080_json_out_writes_ndjson_log.steps]
+[recipes.tests.test_080_json_out_writes_ndjson_log.steps.0]
+args = ["--json-out", "--skip-ruff", "--skip-pytest", "--skip-mypy", "${issue_id}", "badguys: json out writes ndjson log"]
+
+[recipes.tests.test_081_ipc_heartbeat_events_present]
+[recipes.tests.test_081_ipc_heartbeat_events_present.steps]
+[recipes.tests.test_081_ipc_heartbeat_events_present.steps.0]
+args = ["--skip-ruff", "--skip-pytest", "--skip-mypy", "${issue_id}", "badguys: ipc heartbeat events present"]
+
+[recipes.tests.test_082_ipc_handshake_ready_and_drain_ack]
+[recipes.tests.test_082_ipc_handshake_ready_and_drain_ack.steps]
+[recipes.tests.test_082_ipc_handshake_ready_and_drain_ack.steps.2]
+args = ["--ipc-handshake", "--ipc-handshake-wait-s", "2", "--skip-ruff", "--skip-pytest", "--skip-mypy", "${issue_id}", "badguys: ipc handshake ready and drain ack"]
+
+[recipes.tests.test_083_ipc_cancel_command_stops_runner]
+[recipes.tests.test_083_ipc_cancel_command_stops_runner.steps]
+[recipes.tests.test_083_ipc_cancel_command_stops_runner.steps.1]
+args = ["--skip-ruff", "--skip-pytest", "--skip-mypy", "${issue_id}", "badguys: ipc cancel command stops runner"]
+
+[recipes.tests.test_084_workspace_git_state_matches_mode]
+[recipes.tests.test_084_workspace_git_state_matches_mode.steps]
+[recipes.tests.test_084_workspace_git_state_matches_mode.steps.0]
+args = ["--skip-pytest", "${issue_id}", "badguys: workspace git state matches mode"]
+
+[recipes.tests.test_085_success_archive_zip_hygiene]
+[recipes.tests.test_085_success_archive_zip_hygiene.steps]
+[recipes.tests.test_085_success_archive_zip_hygiene.steps.1]
+args = ["--skip-ruff", "--skip-pytest", "--skip-mypy", "${issue_id}", "badguys: success archive zip hygiene"]

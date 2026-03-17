@@ -1,0 +1,28 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.declared]
+relpath = "docs/badguys_batch1/scope_declared_index_clean.txt"
+
+[subjects.undeclared]
+relpath = "docs/badguys_batch1/scope_undeclared_index_clean.txt"
+
+[[asset]]
+id = "patch"
+kind = "python_patch_script"
+declared_subjects = ["declared"]
+content = """NL = chr(10)
+ctx.write_text("declared", "declared" + NL)
+ctx.write_text("undeclared", "undeclared" + NL)
+"""
+
+[[step]]
+op = "GIT_STATUS_PORCELAIN"
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"
+
+[[step]]
+op = "GIT_STATUS_PORCELAIN"

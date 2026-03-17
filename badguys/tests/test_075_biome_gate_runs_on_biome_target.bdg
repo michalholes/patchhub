@@ -1,0 +1,17 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.biome_invalid]
+relpath = "docs/badguys_batch2/biome_gate_invalid.ts"
+
+[[asset]]
+id = "patch"
+kind = "git_patch_text"
+subject = "biome_invalid"
+content = """const broken: = 1;
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"

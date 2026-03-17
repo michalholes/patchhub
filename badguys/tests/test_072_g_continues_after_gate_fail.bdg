@@ -1,0 +1,22 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.compile_fail]
+relpath = "src/test.py"
+
+[[asset]]
+id = "bundle"
+kind = "patch_zip_manifest"
+
+[[asset.entry]]
+name = "patch_entry"
+kind = "git_patch_text"
+subject = "compile_fail"
+zip_name = "inner.patch"
+content = """oops = )
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "bundle"

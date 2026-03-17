@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PatchHub - Debug</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="bar">
+    <div class="title">PatchHub - Debug</div>
+    <div class="actions">
+      <a class="link" href="/">Home</a>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>Client errors</h2>
+      <pre id="clientErrors" class="pre pre-tall"></pre>
+      <div class="row">
+        <button type="button" id="clientErrorsFlush" class="btn">Flush</button>
+        <button type="button" id="clientErrorsCopy" class="btn">Copy</button>
+      </div>
+
+    <section class="card">
+      <h2>Client status</h2>
+      <pre id="clientStatus" class="pre pre-tall"></pre>
+      <div class="row">
+        <button type="button" id="clientStatusFlush" class="btn">Flush</button>
+        <button type="button" id="clientStatusCopy" class="btn">Copy</button>
+      </div>
+    </section>
+
+    </section>
+
+    <section class="card">
+      <h2>Client network</h2>
+      <pre id="clientNet" class="pre pre-tall"></pre>
+      <div class="row">
+        <button type="button" id="clientNetFlush" class="btn">Flush</button>
+        <button type="button" id="clientNetCopy" class="btn">Copy</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Server diagnostics</h2>
+      <div class="row">
+        <button type="button" id="diagRefresh" class="btn">Refresh</button>
+      </div>
+      <pre id="serverDiag" class="pre pre-tall"></pre>
+      <div class="row">
+        <button type="button" id="serverDiagFlush" class="btn">Flush</button>
+        <button type="button" id="serverDiagCopy" class="btn">Copy</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Parser inspector</h2>
+      <textarea id="raw" class="textarea" rows="4" placeholder="Paste runner command"></textarea>
+      <div class="row">
+        <button type="button" id="parse" class="btn">Parse</button>
+      </div>
+      <pre id="parsed" class="pre pre-tall"></pre>
+      <div class="row">
+        <button type="button" id="parsedFlush" class="btn">Flush</button>
+        <button type="button" id="parsedCopy" class="btn">Copy</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Runner tail</h2>
+      <div class="row">
+        <button type="button" id="tailRefresh" class="btn">Refresh</button>
+      </div>
+      <pre id="tail" class="pre pre-tall"></pre>
+      <div class="row">
+        <button type="button" id="tailFlush" class="btn">Flush</button>
+        <button type="button" id="tailCopy" class="btn">Copy</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/debug.js"></script>
+</body>
+</html>

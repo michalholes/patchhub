@@ -1,0 +1,17 @@
+[meta]
+makes_commit = false
+is_guard = true
+
+[subjects.smoke_marker]
+relpath = "badguys/tmp/test_mode_smoke_marker.txt"
+
+[[asset]]
+id = "smoke_patch"
+kind = "git_patch_text"
+subject = "smoke_marker"
+content = """badguys test-mode smoke
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "smoke_patch"

@@ -1,0 +1,17 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.monolith_helper]
+relpath = "docs/badguys_batch2/helpers.py"
+
+[[asset]]
+id = "patch"
+kind = "git_patch_text"
+subject = "monolith_helper"
+content = """VALUE = 1
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"

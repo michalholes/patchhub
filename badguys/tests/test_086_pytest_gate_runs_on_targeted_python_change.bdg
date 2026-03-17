@@ -1,0 +1,18 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.pytest_gate_target]
+relpath = "tests/test_badguys_pytest_gate_target.py"
+
+[[asset]]
+id = "pytest_patch"
+kind = "git_patch_text"
+subject = "pytest_gate_target"
+content = """def test_badguys_pytest_gate_target() -> None:
+    assert True
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "pytest_patch"

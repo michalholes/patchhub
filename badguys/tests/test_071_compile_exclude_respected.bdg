@@ -1,0 +1,18 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.excluded_syntax]
+relpath = "scripts/badguys_batch1_excluded/syntax_error.py"
+
+[[asset]]
+id = "patch"
+kind = "git_patch_text"
+subject = "excluded_syntax"
+content = """def oops(:
+    pass
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"

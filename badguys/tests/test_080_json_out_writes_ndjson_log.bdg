@@ -1,0 +1,27 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.json_out_marker]
+relpath = "docs/badguys_batch3/json_out_marker.txt"
+
+[[asset]]
+id = "patch"
+kind = "git_patch_text"
+subject = "json_out_marker"
+content = """json out marker
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "runner.result.json"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "runner.log.jsonl"

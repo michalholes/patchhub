@@ -1,0 +1,24 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.declared_dummy]
+relpath = "docs/badguys_batch1/path_traversal_declared_dummy.txt"
+
+[[asset]]
+id = "script"
+kind = "python_patch_script"
+declared_subjects = ["declared_dummy"]
+content = """NL = chr(10)
+ctx.write_outside_repo("pwned" + NL)
+"""
+
+[[step]]
+op = "CLEAN_OUTSIDE_SENTINEL"
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "script"
+
+[[step]]
+op = "ASSERT_NO_OUTSIDE_SENTINEL"

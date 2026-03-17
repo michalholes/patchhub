@@ -1,0 +1,21 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.declared_untouched]
+relpath = "docs/badguys_batch1/declared_untouched.txt"
+
+[subjects.touched]
+relpath = "docs/badguys_batch1/scope_touched.txt"
+
+[[asset]]
+id = "patch"
+kind = "python_patch_script"
+declared_subjects = ["declared_untouched", "touched"]
+content = """NL = chr(10)
+ctx.write_text("touched", "touched" + NL)
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"

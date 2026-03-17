@@ -1,0 +1,17 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.skip_invalid]
+relpath = "types/badguys_skip_invalid.ts"
+
+[[asset]]
+id = "patch"
+kind = "git_patch_text"
+subject = "skip_invalid"
+content = """const broken: = 1;
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"

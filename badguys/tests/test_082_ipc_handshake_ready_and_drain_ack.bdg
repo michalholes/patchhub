@@ -1,0 +1,55 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.handshake_marker]
+relpath = "docs/badguys_batch3/ipc_handshake_marker.txt"
+
+[[asset]]
+id = "patch"
+kind = "git_patch_text"
+subject = "handshake_marker"
+content = """ipc handshake marker
+"""
+
+[[step]]
+op = "IPC_SEND_COMMAND"
+cmd = "ready"
+cmd_id = "badguys_ready_082"
+
+[[step]]
+op = "IPC_SEND_COMMAND"
+cmd = "drain_ack"
+cmd_id = "badguys_drain_ack_082"
+wait_event_type = "control"
+wait_event_name = "eos"
+event_arg_map = { seq = "seq" }
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "ipc_request.step0.json"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "ipc_reply.step0.json"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "ipc_request.step1.json"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "ipc_reply.step1.json"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "runner.ipc.step2.jsonl"

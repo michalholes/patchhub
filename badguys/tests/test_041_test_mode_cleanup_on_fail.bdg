@@ -1,0 +1,24 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.compile_fail_script]
+relpath = "scripts/badguys_batch1_compile_fail.py"
+
+[[asset]]
+id = "patch"
+kind = "git_patch_text"
+subject = "compile_fail_script"
+content = """def oops(:
+    pass
+"""
+
+[[step]]
+op = "DELETE_PATCHED_ZIP"
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"
+
+[[step]]
+op = "ASSERT_NO_WORKSPACE_AND_NO_ARCHIVES"

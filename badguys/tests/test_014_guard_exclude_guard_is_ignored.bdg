@@ -1,0 +1,8 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[[step]]
+op = "DISCOVER_TESTS"
+include = []
+exclude = ["test_000_test_mode_smoke"]

@@ -1,0 +1,38 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.cancel_marker]
+relpath = "docs/badguys_batch3/ipc_cancel_marker.txt"
+
+[[asset]]
+id = "patch"
+kind = "git_patch_text"
+subject = "cancel_marker"
+content = """ipc cancel marker
+"""
+
+[[step]]
+op = "IPC_SEND_COMMAND"
+cmd = "cancel"
+cmd_id = "badguys_cancel_083"
+delay_s = 0.0
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "ipc_request.step0.json"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "ipc_reply.step0.json"
+
+[[step]]
+op = "READ_TEXT_FILE"
+scope = "artifacts"
+relpath = "runner.ipc.step1.jsonl"

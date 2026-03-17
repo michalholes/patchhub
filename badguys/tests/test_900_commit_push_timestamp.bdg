@@ -1,0 +1,32 @@
+[meta]
+makes_commit = true
+is_guard = false
+
+[subjects.seed_fail]
+relpath = "src/audiomason/_badguys_seed_fail.py"
+
+[subjects.commit_marker]
+relpath = "badguys/artifacts/commit_marker.txt"
+
+[[asset]]
+id = "seed_patch"
+kind = "git_patch_text"
+subject = "seed_fail"
+content = """def oops(:
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "seed_patch"
+
+[[step]]
+op = "ASSERT_WORKSPACE_REPO_EXISTS"
+
+[[step]]
+op = "PREPARE_LATEST_BUNDLE_900"
+stamp = "${now_stamp}"
+marker_subject = "commit_marker"
+seed_subject = "seed_fail"
+
+[[step]]
+op = "RUN_RUNNER"

@@ -1,0 +1,17 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.js_invalid]
+relpath = "docs/badguys_batch2/js_gate_invalid.js"
+
+[[asset]]
+id = "patch"
+kind = "git_patch_text"
+subject = "js_invalid"
+content = """const broken = ;
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "patch"

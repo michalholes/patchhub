@@ -1,0 +1,137 @@
+[server]
+host = "0.0.0.0"
+port = 8099
+backend = "asgi"
+
+[meta]
+version = "1.12.12"
+
+[runner]
+command = ["python3", "scripts/am_patch.py"]
+default_verbosity = "normal"
+queue_enabled = true
+runner_config_toml = "scripts/am_patch/am_patch.toml"
+ipc_handshake_wait_s = 1
+post_exit_grace_s = 5
+terminate_grace_s = 3
+# Both runner IPC tail and stdout tail waits must stay >= 1 second.
+
+[paths]
+patches_root = "patches"
+upload_dir = "patches/incoming"
+allow_crud = true
+crud_allowlist = ["", "incoming", "artifacts", "logs", "successful", "unsuccessful", "workspaces"]
+
+[upload]
+max_bytes = 200000000
+allowed_extensions = [".zip", ".patch", ".diff", ".py"]
+ascii_only_names = true
+
+[issue]
+default_regex = "issue_(\\d+)"
+allocation_start = 1
+allocation_max = 99999
+
+[indexing]
+log_filename_regex = "am_patch_issue_(\\d+)_"
+stats_windows_days = [7, 30]
+poll_interval_seconds = 2
+
+[ui]
+base_font_px = 24
+drop_overlay_enabled = true
+clear_output_on_autofill = true
+show_autofill_clear_status = true
+idle_auto_select_last_job = false
+
+[autofill]
+enabled = true
+poll_interval_seconds = 10
+
+# Filesystem scan (non-recursive)
+scan_dir = "patches"
+scan_extensions = [".zip"]
+# If true, ignore .zip candidates that do not contain any .patch file entry.
+scan_zip_require_patch = true
+scan_ignore_filenames = []
+scan_ignore_prefixes = ["patched"]
+choose_strategy = "mtime_ns"
+tiebreaker = "lex_name"
+
+# Derivation
+derive_enabled = true
+issue_regex = "^issue_(\\d+)_"
+commit_regex = "^issue_\\d+_(.+)\\.(zip|patch|diff)$"
+commit_replace_underscores = true
+commit_replace_dashes = true
+commit_collapse_spaces = true
+commit_trim = true
+commit_ascii_only = true
+issue_default_if_no_match = ""
+commit_default_if_no_match = ""
+
+# UI fill policy
+overwrite_policy = "if_not_dirty"
+fill_patch_path = true
+fill_issue_id = true
+fill_commit_message = true
+
+# Zip commit message (optional; fallback to filename derivation)
+zip_commit_enabled = true
+zip_commit_filename = "COMMIT_MESSAGE.txt"
+zip_commit_max_bytes = 4096
+zip_commit_max_ratio = 200
+
+# Zip issue id (optional; overrides filename derivation)
+zip_issue_enabled = true
+zip_issue_filename = "ISSUE_NUMBER.txt"
+zip_issue_max_bytes = 128
+zip_issue_max_ratio = 200
+
+
+[web_jobs_db]
+path = "artifacts/web_jobs.sqlite3"
+busy_timeout_ms = 5000
+connect_timeout_s = 5.0
+
+[web_jobs_migration]
+startup_migration_enabled = false
+startup_verify_enabled = false
+cleanup_enabled = false
+
+[web_jobs_backup]
+enabled = true
+destination_template = "artifacts/web_jobs_backup_{timestamp}.sqlite3"
+retain_count = 5
+verify_after_write = true
+trigger_policy = "interval_hours"
+interval_hours = 4
+check_interval_minutes = 5
+restore_source_preference = ["explicit", "latest_backup"]
+
+[web_jobs_recovery]
+restore_source_preference = ["explicit", "latest_backup", "main_db"]
+
+[web_jobs_fallback]
+# This toggle controls the live virtual artifacts/web_jobs compatibility namespace.
+virtual_artifacts_web_jobs_enabled = true
+
+[web_jobs_retention]
+jobs_keep_days = 30
+logs_keep_days = 30
+events_keep_days = 30
+compact_after_jobs = 10000
+compact_after_log_lines = 100000
+compact_after_event_lines = 100000
+max_completed_job_raw_log_lines = 100000
+max_completed_job_raw_event_lines = 100000
+max_completed_job_raw_age_days = 30
+keep_recent_terminal_jobs_per_mode = 5
+compact_tail_lines = 20000
+reclaim_trigger_policy = "after_compaction"
+reclaim_interval_seconds = 60
+reclaim_min_pruned_rows = 1
+
+[web_jobs_derived]
+# Derived default kept for config parity; fallback remains the runtime authority.
+virtual_artifacts_web_jobs_enabled = true

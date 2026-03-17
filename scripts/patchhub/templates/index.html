@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="patchhub-static-version" content="{{PATCHHUB_STATIC_VERSION}}" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PatchHub</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div id="dropOverlay" class="drop-overlay" aria-hidden="true">
+    Drop file to upload
+  </div>
+  <header class="bar bar-stacked">
+    <div class="bar-top">
+      <div class="title">PatchHub <span id="ampWebVersion"></span></div>
+      <div id="hdrMeta" class="hdrmeta"></div>
+      <div class="actions">
+        <a class="link" href="/debug">Debug</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel panel-left">
+      <section class="card card-tight">
+        <h2>Active job</h2>
+        <div id="activeJob" class="muted">(none)</div>
+        <div class="row">
+          <button type="button" id="refreshAll" class="btn btn-small">Refresh all</button>
+        </div>
+        <div class="row">
+          <button type="button" id="uploadBrowse" class="btn primary">Browse</button>
+          <span class="muted">You can also drag &amp; drop a file anywhere in this window.</span>
+        </div>
+        <input id="uploadInput" type="file" style="display:none" />
+        <span id="uploadHint" class="muted hidden"></span>
+      </section>
+
+      <section class="card card-tight">
+        <div class="row">
+          <h2 style="margin:0">Workspaces</h2>
+          <span class="spacer"></span>
+          <button
+            type="button"
+            id="workspacesCollapse"
+            class="btn btn-small"
+          >
+            Show
+          </button>
+        </div>
+        <div id="workspacesWrap" class="hidden">
+          <div class="row">
+            <button
+              type="button"
+              id="workspacesRefresh"
+              class="btn btn-small"
+            >
+              Refresh
+            </button>
+          </div>
+          <div id="workspacesList" class="scroll scroll-tall"></div>
+        </div>
+      </section>
+
+      <section class="card card-tight">
+        <h2>Stats</h2>
+        <div id="stats" class="stats"></div>
+      </section>
+
+      <section class="card card-tight">
+        <div class="row">
+          <h2 style="margin:0">Runs</h2>
+          <span class="spacer"></span>
+          <button type="button" id="runsCollapse" class="btn btn-small">Show</button>
+        </div>
+        <div id="runsWrap" class="hidden">
+          <div class="row">
+            <input id="runsIssue" class="input" placeholder="issue filter" />
+            <select id="runsResult" class="input">
+              <option value="">(any)</option>
+              <option value="success">success</option>
+              <option value="fail">fail</option>
+              <option value="unknown">unknown</option>
+              <option value="canceled">canceled</option>
+            </select>
+          </div>
+          <div class="row">
+            <button type="button" id="runsRefresh" class="btn btn-small">Refresh</button>
+          </div>
+          <div id="runsList" class="scroll scroll-tall"></div>
+        </div>
+      </section>
+    </aside>
+
+    <section class="panel panel-center">
+
+      <section class="card">
+        <div class="row">
+          <select id="mode" class="input start-run-mode">
+            <option value="patch">patch</option>
+            <option value="finalize_live">finalize_live (-f)</option>
+            <option value="finalize_workspace">finalize_workspace (-w)</option>
+            <option value="rerun_latest">rerun_latest (-l)</option>
+          </select>
+          <input
+            id="patchPath"
+            class="input start-run-patch"
+            placeholder="patch path (e.g. patches/incoming/issue_1000.zip)"
+          />
+          <button type="button" id="gateOptionsBtn" class="btn btn-small">Gate options</button>
+          <button type="button" id="browsePatch" class="btn btn-small hidden">From file manager</button>
+        </div>
+        <div class="row">
+          <input
+            id="issueId"
+            class="input start-run-issue"
+            placeholder="issue id (auto if empty for patch; required for -w)"
+          />
+          <input id="commitMsg" class="input" placeholder="message (required for patch and -f)" />
+          <button type="button" id="enqueueBtn" class="btn btn-danger btn-start" disabled>Start</button>
+        </div>
+
+        <div id="uiDegradedBanner" class="statusbar hidden" aria-live="polite"></div>
+        <div
+          id="uiStatusBar"
+          class="statusbar"
+          aria-live="polite"
+          role="button"
+          tabindex="0"
+          aria-haspopup="dialog"
+        >(idle)</div>
+        <div id="enqueueHint" class="muted hidden"></div>
+
+        <h3>Live log (events)</h3>
+        <div class="row">
+          <label class="lbl">Level</label>
+          <select id="liveLevel" class="input live-log-level">
+            <option value="quiet">quiet</option>
+            <option value="normal">normal</option>
+            <option value="warning">warning</option>
+            <option value="verbose">verbose</option>
+            <option value="debug_human">debug_human</option>
+            <option value="debug_raw">debug_raw</option>
+          </select>
+          <div id="zipSubsetStrip" class="zip-subset-strip hidden"></div>
+          <span class="live-toolbar-right">
+            <span id="liveStreamStatus" class="muted"></span>
+            <span class="muted live-autoscroll-label">Auto-scroll</span>
+            <button
+              type="button"
+              id="liveAutoscrollToggle"
+              class="gate-options-switch is-on"
+              role="switch"
+              aria-checked="true"
+              aria-label="Auto-scroll"
+            >
+              <span class="gate-options-switch-track">
+                <span class="gate-options-switch-thumb"></span>
+              </span>
+            </button>
+          </span>
+        </div>
+        <pre id="liveLog" class="pre pre-box"></pre>
+        <div class="row live-copy-row">
+          <button type="button" id="liveCopySelection" class="btn btn-small">Copy selection</button>
+          <button type="button" id="liveCopyAll" class="btn btn-small">Copy all</button>
+        </div>
+      </section>
+
+      <section class="card" id="ampCard">
+        <div class="row">
+          <h2 style="margin:0">AMP settings</h2>
+          <span class="spacer"></span>
+          <button type="button" id="ampCollapse" class="btn btn-small">Show</button>
+        </div>
+        <div id="ampWrap" class="hidden">
+          <div class="row">
+            <button type="button" id="ampReload" class="btn btn-small">Reload</button>
+            <button type="button" id="ampValidate" class="btn btn-small">Validate</button>
+            <button type="button" id="ampSave" class="btn btn-danger">Save</button>
+            <button type="button" id="ampRevert" class="btn btn-small">Revert</button>
+            <span id="ampStatus" class="muted"></span>
+          </div>
+          <div class="row">
+            <input id="ampFilter" class="input" placeholder="Filter keys..." />
+          </div>
+          <div id="ampFields" class="amp-fields"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>C) Files</h2>
+        <div class="row">
+          <button type="button" id="fsUp" class="btn btn-small" title="Up">Up</button>
+          <input id="fsPath" class="input" value="" placeholder="path under patches/ (e.g. incoming, logs)" />
+          <button type="button" id="fsRefresh" class="btn btn-small">Refresh</button>
+        </div>
+        <div class="row">
+          <button type="button" id="fsMkdir" class="btn btn-small">Mkdir</button>
+          <button type="button" id="fsRename" class="btn btn-small">Rename</button>
+          <button type="button" id="fsDelete" class="btn btn-small">Delete</button>
+          <button type="button" id="fsUnzip" class="btn btn-small">Unzip</button>
+        </div>
+        <div class="row">
+          <button type="button" id="fsSelectAll" class="btn btn-small">Select all</button>
+          <button type="button" id="fsClear" class="btn btn-small">Clear</button>
+          <button type="button" id="fsDownloadSelected" class="btn btn-small">Download selected as zip</button>
+          <span id="fsHint" class="muted hidden"></span>
+          <span id="fsSelCount" class="muted"></span>
+        </div>
+        <div id="fsList" class="scroll scroll-tall"></div>
+      </section>
+
+      <section class="card" id="issueDetailCard">
+        <h2>C) Issue detail</h2>
+        <div id="issueDetailTitle" class="muted">Select a run on the left.</div>
+        <div class="tabs" id="issueTabs" style="display:none">
+          <button type="button" class="tabbtn" id="tabOverview">Overview</button>
+          <button type="button" class="tabbtn" id="tabLogs">Logs</button>
+          <button type="button" class="tabbtn" id="tabPatch">Patch</button>
+          <button type="button" class="tabbtn" id="tabDiff">Diff bundle</button>
+          <button type="button" class="tabbtn" id="tabFiles">Files</button>
+        </div>
+        <div id="issueTabContent" class="tabcontent" style="display:none">
+          <div id="issueTabLinks" class="row"></div>
+          <pre id="issueTabBody" class="pre"></pre>
+        </div>
+      </section>
+    </section>
+
+    <aside class="panel panel-right">
+      <section class="card card-tight">
+        <div class="row">
+          <h2 style="margin:0">Progress</h2>
+          <span class="spacer"></span>
+          <span id="progressElapsed" class="muted hidden">elapsed 0.0s</span>
+        </div>
+        <div id="progressSteps" class="progress-steps"></div>
+        <div id="progressSummary" class="progress-summary muted">(idle)</div>
+        <div id="progressApplied" class="progress-applied hidden"></div>
+      </section>
+
+      <section class="card card-tight">
+        <div class="row">
+          <h2 style="margin:0">Jobs</h2>
+          <span class="spacer"></span>
+          <button type="button" id="jobsCollapse" class="btn btn-small">Show</button>
+        </div>
+        <div id="jobsWrap" class="hidden">
+          <div class="row">
+            <button type="button" id="jobsRefresh" class="btn btn-small">Refresh</button>
+          </div>
+          <div id="jobsList" class="scroll"></div>
+        </div>
+      </section>
+
+
+      <section class="card card-tight" id="previewCard">
+        <div class="row">
+          <h2 style="margin:0">Preview</h2>
+          <span class="spacer"></span>
+          <button type="button" id="previewCollapse" class="btn btn-small">Show</button>
+        </div>
+        <div id="previewWrapRight" class="hidden">
+          <pre id="previewRight" class="pre pre-box"></pre>
+        </div>
+      </section>
+
+      <section class="card card-tight">
+        <h2>Advanced</h2>
+        <details class="details">
+          <summary>Paste canonical runner command</summary>
+          <textarea
+            id="rawCommand"
+            class="textarea"
+            rows="3"
+            placeholder="python3 scripts/am_patch.py 1000 &quot;msg&quot; patches/issue_1000.zip"
+          ></textarea>
+        </details>
+        <div class="row">
+          <button type="button" id="parseBtn" class="btn btn-small">Parse</button>
+          <button type="button" id="previewToggle" class="btn btn-small">Preview</button>
+        </div>
+        <div id="parseHint" class="muted hidden"></div>
+      </section>
+    </aside>
+  </main>
+
+  <div id="gateOptionsModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card gate-options-modal-card" role="dialog" aria-modal="true">
+      <div class="gate-options-modal-head">
+        <div>
+          <h2 class="gate-options-modal-title">Gate options</h2>
+          <div class="muted">Transient overrides for the current run only</div>
+        </div>
+        <button
+          type="button"
+          id="gateOptionsCloseBtn"
+          class="zip-subset-close"
+          aria-label="Close"
+        >&times;</button>
+      </div>
+      <div id="gateOptionsList" class="gate-options-list"></div>
+      <div class="gate-options-modal-footer">
+        <button type="button" id="gateOptionsCancelBtn" class="btn btn-small">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="zipSubsetModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card zip-subset-modal-card" role="dialog" aria-modal="true">
+      <div class="zip-subset-modal-head">
+        <div>
+          <h2 id="zipSubsetModalTitle" class="zip-subset-modal-title">Select target files</h2>
+          <div id="zipSubsetModalSubtitle" class="muted">Contents of patch.zip</div>
+        </div>
+        <button
+          type="button"
+          id="zipSubsetCloseBtn"
+          class="zip-subset-close"
+          aria-label="Close"
+        >&times;</button>
+      </div>
+      <div class="row zip-subset-modal-tools">
+        <button type="button" id="zipSubsetSelectAllBtn" class="btn btn-small">Select all</button>
+        <button type="button" id="zipSubsetClearBtn" class="btn btn-small">Clear</button>
+        <button
+          type="button"
+          id="zipSubsetResetBtn"
+          class="btn btn-small"
+        >Reset to uploaded zip</button>
+      </div>
+      <div class="zip-subset-list-head">
+        <div></div>
+        <div>Repo path</div>
+      </div>
+      <div id="zipSubsetModalList" class="zip-subset-list"></div>
+      <div class="zip-subset-modal-footer">
+        <div id="zipSubsetSelectionCount" class="muted">All 0 selected</div>
+        <div class="zip-subset-modal-actions">
+          <button type="button" id="zipSubsetCancelBtn" class="btn btn-small">Cancel</button>
+          <button
+            type="button"
+            id="zipSubsetApplyBtn"
+            class="btn btn-small primary"
+          >Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="uiStatusModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card info-pool-modal-card" role="dialog" aria-modal="true">
+      <div class="info-pool-modal-head">
+        <div>
+          <h2 class="info-pool-modal-title">Operator info</h2>
+          <div class="muted">Shared pooled status and hint detail</div>
+        </div>
+        <button
+          type="button"
+          id="uiStatusModalCloseBtn"
+          class="zip-subset-close"
+          aria-label="Close"
+        >&times;</button>
+      </div>
+      <div id="uiStatusModalBody" class="info-pool-modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/patchhub_bootstrap.js?v=1.8.0"></script>
+</body>
+</html>

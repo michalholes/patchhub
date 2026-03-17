@@ -1,0 +1,17 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[[asset]]
+id = "cfg"
+kind = "toml_text"
+content = """[suite]
+runner_verbosity = "quiet"
+console_verbosity = "quiet"
+log_verbosity = "quiet"
+commit_limit = 0
+"""
+
+[[step]]
+op = "BUILD_CFG"
+input_asset = "cfg"

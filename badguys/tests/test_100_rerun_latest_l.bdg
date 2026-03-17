@@ -1,0 +1,14 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.rerun_latest_marker]
+relpath = "badguys/tmp/rerun_latest_marker.txt"
+
+[[step]]
+op = "PREPARE_UNSUCCESSFUL_PATCH"
+marker_text = "badguys rerun-latest ${issue_id}"
+marker_subject = "rerun_latest_marker"
+
+[[step]]
+op = "RUN_RUNNER"

@@ -1,0 +1,17 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[[step]]
+op = "LOCK_DELETE"
+
+[[step]]
+op = "LOCK_ACQUIRE"
+ttl_seconds = 3600
+on_conflict = "fail"
+
+[[step]]
+op = "LOCK_RELEASE"
+
+[[step]]
+op = "LOCK_DELETE"
