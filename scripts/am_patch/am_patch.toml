@@ -463,5 +463,5 @@ success_archive_keep_count = 0
 # scope_ignore_contains = ["/__pycache__/"]
 venv_bootstrap_mode = "never"  # auto|always|never
 unified_patch_continue = false
-active_target_repo_root= "/home/pi/patchhub"
+#active_target_repo_root= "/home/pi/patchhub"
 venv_bootstrap_python = ".venv/bin/python"
