@@ -69,6 +69,23 @@ def test_scripts_help_smoke(rel_script: str, extra_env: dict[str, str]) -> None:
     assert out.strip(), f"no help output for {rel_script}"
 
 
+def test_patchhub_help_smoke_direct_executable_launch() -> None:
+    repo_root = _repo_root()
+    script_path = repo_root / "scripts" / "patchhub.py"
+    assert script_path.exists(), "missing script: scripts/patchhub.py"
+    assert os.access(script_path, os.X_OK), "patchhub.py is not executable"
+
+    p = subprocess.run(
+        [str(script_path), "--help"],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+    )
+    out = (p.stdout or "") + (p.stderr or "")
+    assert p.returncode == 0, out
+    assert out.strip(), "no help output for scripts/patchhub.py"
+
+
 def test_am_patch_help_all_mentions_pytest_routing_mode() -> None:
     repo_root = _repo_root()
     script_path = repo_root / "scripts" / "am_patch.py"

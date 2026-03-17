@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """PatchHub entry point.
 
 Contract (HARD):
