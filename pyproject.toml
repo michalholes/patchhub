@@ -57,7 +57,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.mypy]
-mypy_path = "scripts/"
+mypy_path = "$MYPY_CONFIG_FILE_DIR,$MYPY_CONFIG_FILE_DIR/scripts"
 explicit_package_bases = true
 namespace_packages = true
 exclude = ["patches/", "tests/", "venv/", "__pycache__/"]
@@ -65,11 +65,11 @@ python_version = "3.11"
 strict = false
 warn_return_any = false
 warn_unused_configs = true
-disallow_untyped_defs = false      # <-- zmeň na false
-disallow_any_generics = false      # <-- zmeň na false
-disallow_subclassing_any = false   # <-- zmeň na false
-disallow_untyped_calls = false     # <-- zmeň na false
-disallow_incomplete_defs = false   # <-- zmeň na false
+disallow_untyped_defs = false
+disallow_any_generics = false
+disallow_subclassing_any = false
+disallow_untyped_calls = false
+disallow_incomplete_defs = false
 check_untyped_defs = true
 no_implicit_optional = true
 warn_redundant_casts = true
