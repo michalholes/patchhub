@@ -47,6 +47,29 @@ def resolve_repo_root(*, timeout_s: int = 0) -> Path:
         return Path.cwd()
 
 
+def resolve_repo_root_strict_from_cwd(*, timeout_s: int = 0) -> Path:
+    try:
+        return Path(
+            subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                check=True,
+                text=True,
+                capture_output=True,
+                timeout=(int(timeout_s) if int(timeout_s) > 0 else None),
+            ).stdout.strip()
+        )
+    except Exception as exc:
+        detail = (
+            "finalize-live-from-cwd selected but git rev-parse --show-toplevel failed "
+            "from current working directory"
+        )
+        stderr_text = _normalize_stderr(getattr(exc, "stderr", None)).strip()
+        detail = f"{detail}: {type(exc).__name__}: {exc}"
+        if stderr_text:
+            detail = f"{detail}; stderr={stderr_text}"
+        raise RuntimeError(detail) from exc
+
+
 def is_under(child: Path, parent: Path) -> bool:
     try:
         child.resolve().relative_to(parent.resolve())

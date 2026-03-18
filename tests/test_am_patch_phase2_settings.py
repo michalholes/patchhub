@@ -203,11 +203,13 @@ def test_parse_args_finalize_allows_flags_after_f() -> None:
     cli_before = parse_args(["--skip-docs", "-f", "msg"])
     assert cli_before.mode == "finalize"
     assert cli_before.message == "msg"
+    assert cli_before.finalize_from_cwd is False
     assert cli_before.skip_docs is True
 
     cli_after = parse_args(["-f", "msg", "--skip-docs"])
     assert cli_after.mode == "finalize"
     assert cli_after.message == "msg"
+    assert cli_after.finalize_from_cwd is False
     assert cli_after.skip_docs is True
 
 
@@ -218,6 +220,59 @@ def test_parse_args_finalize_still_rejects_positional_args() -> None:
         parse_args(["-f", "msg", "EXTRA"])
     except SystemExit as e:
         assert "finalize mode" in str(e)
+    else:
+        raise AssertionError("expected SystemExit")
+
+
+def test_parse_args_finalize_from_cwd_defaults_message() -> None:
+    _, _, _, parse_args = _import_am_patch()
+
+    cli = parse_args(["-s"])
+
+    assert cli.mode == "finalize"
+    assert cli.message == "finalize"
+    assert cli.finalize_from_cwd is True
+
+
+def test_parse_args_finalize_from_cwd_accepts_message() -> None:
+    _, _, _, parse_args = _import_am_patch()
+
+    cli = parse_args(["-s", "msg"])
+
+    assert cli.mode == "finalize"
+    assert cli.message == "msg"
+    assert cli.finalize_from_cwd is True
+
+
+def test_parse_args_finalize_from_cwd_rejects_positional_args() -> None:
+    _, _, _, parse_args = _import_am_patch()
+
+    try:
+        parse_args(["-s", "msg", "EXTRA"])
+    except SystemExit as e:
+        assert "finalize-live-from-cwd mode must not include positional args" in str(e)
+    else:
+        raise AssertionError("expected SystemExit")
+
+
+def test_parse_args_finalize_from_cwd_rejects_finalize_live() -> None:
+    _, _, _, parse_args = _import_am_patch()
+
+    try:
+        parse_args(["-s", "-f", "msg"])
+    except SystemExit as e:
+        assert "finalize-live-from-cwd mode must not use -f/--finalize-live" in str(e)
+    else:
+        raise AssertionError("expected SystemExit")
+
+
+def test_parse_args_finalize_from_cwd_rejects_finalize_workspace() -> None:
+    _, _, _, parse_args = _import_am_patch()
+
+    try:
+        parse_args(["-s", "-w", "123"])
+    except SystemExit as e:
+        assert "finalize-live-from-cwd mode must not use -w/--finalize-workspace" in str(e)
     else:
         raise AssertionError("expected SystemExit")
 

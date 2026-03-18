@@ -58,6 +58,10 @@ Options:
   -f, --finalize-live MESSAGE
       Finalize live repo using MESSAGE as commit message.
 
+  -s, --finalize-live-from-cwd [MESSAGE]
+      Finalize live repo selected from current working directory.
+      When MESSAGE is omitted, commit message defaults to "finalize".
+
   -w, --finalize-workspace ISSUE_ID
       Finalize existing workspace for ISSUE_ID; commit message is read from workspace meta.json.
 
@@ -121,6 +125,11 @@ WORKFLOW / MODES
   --finalize-live MESSAGE (-f)
       Finalize live repository using MESSAGE as commit message.
       Enables finalize mode and performs promotion, commit, and push.
+
+  --finalize-live-from-cwd [MESSAGE] (-s)
+      Resolve git top-level from current working directory and use it as explicit target root.
+      Performs the same finalize-live flow as -f for that resolved live repository.
+      When MESSAGE is omitted, commit message defaults to "finalize".
 
   -w, --finalize-workspace ISSUE_ID
       Finalize an existing workspace for ISSUE_ID, including promotion, gates, commit, and push.

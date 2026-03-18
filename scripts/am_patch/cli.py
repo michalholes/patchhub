@@ -54,6 +54,7 @@ class CliArgs:
     issue_id: str | None
     patch_script: str | None
     message: str | None
+    finalize_from_cwd: bool
 
     config_path: str | None
 
@@ -204,6 +205,15 @@ def parse_args(argv: list[str]) -> CliArgs:
         "--finalize-live",
         dest="finalize_message",
         metavar="MESSAGE",
+        default=None,
+    )
+    p.add_argument(
+        "-s",
+        "--finalize-live-from-cwd",
+        dest="finalize_from_cwd_message",
+        metavar="MESSAGE",
+        nargs="?",
+        const="",
         default=None,
     )
     p.add_argument(
@@ -871,6 +881,7 @@ def parse_args(argv: list[str]) -> CliArgs:
             issue_id=None,
             patch_script=None,
             message=None,
+            finalize_from_cwd=False,
             config_path=ns.config_path,
             verbosity=ns.verbosity,
             log_level=getattr(ns, "log_level", None),
@@ -925,24 +936,32 @@ def parse_args(argv: list[str]) -> CliArgs:
             post_success_audit=ns.post_success_audit,
         )
 
+    finalize_from_cwd = False
     if ns.finalize_workspace_issue_id is not None:
         mode = "finalize_workspace"
         issue_id = str(ns.finalize_workspace_issue_id)
         if not issue_id.isdigit():
             raise SystemExit("ISSUE_ID must be numeric")
-        patch_script = None
-        message = None
+        patch_script = message = None
         if ns.finalize_message is not None:
             raise SystemExit(
                 "finalize-workspace mode must not use -f/--finalize-live; "
                 "commit message is read from workspace meta.json"
             )
+        if ns.finalize_from_cwd_message is not None:
+            raise SystemExit("finalize-live-from-cwd mode must not use -w/--finalize-workspace")
         if ns.rest:
             raise SystemExit("finalize-workspace mode must not include positional args")
+    elif ns.finalize_from_cwd_message is not None:
+        if ns.finalize_message is not None:
+            raise SystemExit("finalize-live-from-cwd mode must not use -f/--finalize-live")
+        if ns.rest:
+            raise SystemExit("finalize-live-from-cwd mode must not include positional args")
+        mode, issue_id, patch_script = "finalize", None, None
+        message, finalize_from_cwd = ns.finalize_from_cwd_message or "finalize", True
     elif ns.finalize_message is not None:
         mode = "finalize"
-        issue_id = None
-        patch_script = None
+        issue_id = patch_script = None
         message = ns.finalize_message
         if ns.rest:
             raise SystemExit("finalize mode (-f/--finalize-live) must not include positional args")
@@ -961,6 +980,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         issue_id=issue_id,
         patch_script=patch_script,
         message=message,
+        finalize_from_cwd=finalize_from_cwd,
         config_path=ns.config_path,
         verbosity=ns.verbosity,
         log_level=getattr(ns, "log_level", None),

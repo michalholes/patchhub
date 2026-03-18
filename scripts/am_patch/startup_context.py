@@ -14,6 +14,7 @@ from am_patch.lock import FileLock
 from am_patch.log import Logger, new_log_file
 from am_patch.patch_input import PatchPlan, resolve_patch_plan
 from am_patch.paths import default_paths, ensure_dirs
+from am_patch.repo_root import resolve_repo_root_strict_from_cwd
 from am_patch.root_model import resolve_patch_root, resolve_root_model
 from am_patch.status import StatusReporter
 
@@ -60,6 +61,17 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
         except RunnerError as exc:
             if not (exc.stage == "PREFLIGHT" and exc.category == "MANIFEST"):
                 raise
+
+    if getattr(cli, "finalize_from_cwd", False):
+        try:
+            policy.active_target_repo_root = str(
+                resolve_repo_root_strict_from_cwd(
+                    timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0)
+                )
+            )
+        except RuntimeError as exc:
+            raise RunnerError("CONFIG", "INVALID", str(exc)) from exc
+        policy._src["active_target_repo_root"] = "cli"
 
     root_model = resolve_root_model(
         policy,
