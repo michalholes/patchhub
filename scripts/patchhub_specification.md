@@ -3,7 +3,7 @@ Status: AUTHORITATIVE SPECIFICATION
 Applies to: scripts/patchhub/*
 Language: ENGLISH (ASCII ONLY)
 
-Specification Version: 1.13.1-spec
+Specification Version: 1.14.0-spec
 Code Baseline: audiomason2-main.zip (as provided in this chat)
 
 -------------------------------------------------------------------------------
@@ -672,11 +672,39 @@ Default behavior is backend="asgi".
 - [indexing] poll_interval_seconds (int, default 2)
   - Polling interval for the background indexer described in 2.6.1.
 
+5.2.3 Optional keys (targeting)
+
+- [targeting] default_target_repo (string, default "patchhub")
+- [targeting] zip_target_prefill_enabled (bool, default true)
+
 5.3 Key semantics used by API
 - cfg.meta.version: shown in UI and /api/config
 - cfg.runner.command: runner prefix argv (default ["python3","scripts/am_patch.py"])
 - cfg.paths.upload_dir: destination directory for uploads (must be under patches_root)
 - cfg.autofill.*: controls /api/patches/latest scanning and filename derivation
+
+5.3.1 Targeting semantics
+
+- The canonical PatchHub target surface is the bare repo token used by the
+  AM Patch CLI key `--target-repo-name`.
+- PatchHub UI selector `targetRepo`, structured enqueue field `target_repo`,
+  zip-derived field `derived_target_repo`, job-detail fields
+  `zip_target_repo`, `selected_target_repo`, `effective_runner_target_repo`,
+  and root-level zip file `target.txt` all use that same bare-token surface.
+- PatchHub MUST derive `targeting.options` from the AM Patch runner config
+  referenced by `cfg.runner.runner_config_toml`, using canonical inversion of
+  allowed target roots matching `/home/pi/<name> -> <name>`.
+- `cfg.targeting.default_target_repo` MUST equal one entry from
+  `targeting.options`.
+- `cfg.targeting.zip_target_prefill_enabled` controls whether a valid zip
+  `target.txt` value may prefill the main-form selector automatically.
+- For structured enqueue, PatchHub MUST pass the selected target only via
+  ['--target-repo-name', target_repo].
+- Structured target selection applies to all main-form structured modes:
+  `patch`, `finalize_live`, `finalize_workspace`, and `rerun_latest`.
+- A mismatch between zip `target.txt` and selected `target_repo` is
+  informational only. PatchHub MUST NOT rewrite the uploaded zip because of
+  that mismatch and MUST NOT create a new enqueue gate from that mismatch.
 
 UI behavior toggles (additive):
 - cfg.ui.clear_output_on_autofill (bool, default true)
@@ -783,7 +811,7 @@ Debug UI per-feed controls (templates/debug.html, static/debug.js):
 
 In the main UI (templates/index.html), the Start button for launching a run
 (HTML id: enqueueBtn) MUST remain on the same row as the commit message input
-(HTML id: commitMsg).
+(HTML id: commitMsg) and the target-repo selector (HTML id: targetRepo).
 
 Approved compact-layout allowances for the run-launch card:
 - The visible card heading MAY omit the literal text "B) Start run".
@@ -800,6 +828,12 @@ Approved compact-layout allowances for the run-launch card:
   - issueId: 50 px
   - mode: 50 px
   - patchPath: 120 px
+  - targetRepo: 120 px
+- In the run-launch row, commitMsg MUST expand to fill the remaining width
+  between issueId and targetRepo.
+- targetRepo MUST be rendered as a visible selector with no label text.
+- targetRepo MUST be positioned immediately to the left of enqueueBtn on the
+  right side of the run-launch row.
 
 Result badge sizing rule (UI):
 - The result badge text (progress summary) MUST be approximately 2x the step header size,
@@ -1514,6 +1548,11 @@ Output schema (success):
   }
 }
 
+Targeting notes:
+- `targeting.options`, `targeting.default_target_repo`, and
+  `targeting.zip_target_prefill_enabled` are defined by Section 5.3.1
+  Targeting semantics.
+
 Notes:
 - success_archive_rel is computed by compute_success_archive_rel(repo_root, runner_config_toml, patches_root_rel).
 - It reads [paths].success_archive_name from runner_config_toml (default "{repo}-{branch}.zip").
@@ -1641,7 +1680,7 @@ Output (found):
   "token": "<mtime_ns>:<stored_rel_path>",
   "derived_issue": "<string|null>",                 (only if derive_enabled)
   "derived_commit_message": "<string|null>",        (only if derive_enabled)
-  "derived_target_repo": "<string|null>"            (only for zip inputs)
+  "derived_target_repo": "<string|null>"            (see Section 5.3.1; only for zip inputs)
 }
 
 7.2.6 GET /api/runs?issue_id=<int>&result=<string>&limit=<int>
@@ -1722,10 +1761,10 @@ Detail-only additive fields for patch/repair jobs:
 - original_patch_path: "<string|null>"
 - effective_patch_path: "<string|null>"
 - effective_patch_kind: "original|derived_subset|null"
-- zip_target_repo: "<string|null>"
-- selected_target_repo: "<string|null>"
-- effective_runner_target_repo: "<string|null>"
-- target_mismatch: <bool>
+- zip_target_repo: "<string|null>"              (see Section 5.3.1)
+- selected_target_repo: "<string|null>"         (see Section 5.3.1)
+- effective_runner_target_repo: "<string|null>" (see Section 5.3.1)
+- target_mismatch: <bool>                       (see Section 5.3.1)
 - selected_patch_entries: ["<zip member>", ...]
 - selected_repo_paths: ["<repo path>", ...]
 - applied_files: ["<repo path>", ...]
@@ -1749,7 +1788,7 @@ Output:
   "ok": true,
   "manifest": <ZipPatchManifest JSON>,
   "pm_validation": <PatchPmValidation JSON>,
-  "derived_target_repo": "<string|null>"
+  "derived_target_repo": "<string|null>"            (see Section 5.3.1; only for zip inputs)
 }
 Error 400 if path missing, path is not a zip, or the zip cannot be resolved.
 
@@ -2016,7 +2055,8 @@ Input JSON fields (minimum accepted by app_api_jobs.py):
 - patch_path: "<string>"         (required for patch/repair unless raw_command provides)
 - raw_command: "<string>"        (optional; if provided, it is parsed and canonicalized)
 - gate_argv: ["<flag>", ...]     (optional; patch/finalize_live/finalize_workspace/rerun_latest only)
-- target_repo: "<string>"        (optional; structured patch/rerun_latest only)
+- target_repo: "<string>"        (optional; structured patch/finalize_live/finalize_workspace/rerun_latest only;
+                                  see Section 5.3.1)
 - selected_patch_entries: ["<zip member>", ...] (optional; patch/repair zip subset only)
 
 Behavior:
@@ -2029,27 +2069,25 @@ Behavior:
   - raw_command MUST NOT be combined with target_repo
 - If raw_command is absent:
   - finalize_live requires commit_message and builds:
-    runner_prefix + ['-f', commit_message] + gate_argv
+    runner_prefix + ['-f', commit_message]
+    + optional ['--target-repo-name', target_repo]
+    + gate_argv
   - finalize_workspace requires issue_id (digits) and builds:
-    runner_prefix + ['-w', issue_id] + gate_argv
+    runner_prefix + ['-w', issue_id]
+    + optional ['--target-repo-name', target_repo]
+    + gate_argv
   - rerun_latest requires issue_id (digits) and commit_message and builds:
     runner_prefix + [issue_id, commit_message, optional patch_path, '-l']
-    + optional ['--override', 'active_target_repo_root=<target_repo>']
+    + optional ['--target-repo-name', target_repo]
     + gate_argv
   - patch/repair requires commit_message and patch_path
   - patch builds: runner_prefix + [issue_id, commit_message, patch_path]
-    + optional ['--override', 'active_target_repo_root=<target_repo>']
+    + optional ['--target-repo-name', target_repo]
     + gate_argv
-  - finalize_live and finalize_workspace MUST ignore target_repo
   - if issue_id missing, PatchHub auto-allocates it (see Section 11)
 - Gate options in the main UI are transient only; they feed gate_argv for the
   current enqueue request and MUST NOT mutate AMP config.
-- target_repo is operator-selected execution context only.
-  PatchHub MUST read root-level target.txt from zip inputs for display and prefill,
-  but MUST NOT rewrite the uploaded zip when target_repo differs.
-- target mismatch between zip target.txt and target_repo is informational only.
-  PatchHub MAY surface PM validation FAIL for the uploaded zip, but MUST NOT turn
-  that mismatch into a new enqueue gate on its own.
+- Target field semantics are defined only in Section 5.3.1.
 - Zip subset semantics for patch/repair:
   - No-subset branch is unchanged: if selected_patch_entries is absent, empty, or
     selects all selectable entries, PatchHub runs the original zip path.
@@ -2200,7 +2238,7 @@ Output (success):
   "bytes": <int>,
   "derived_issue": "<string|null>",             (only if cfg.autofill.derive_enabled)
   "derived_commit_message": "<string|null>",    (only if cfg.autofill.derive_enabled)
-  "derived_target_repo": "<string|null>"        (only for zip inputs)
+  "derived_target_repo": "<string|null>"        (see Section 5.3.1; only for zip inputs)
 }
 
 7.3.5 POST /api/fs/mkdir
