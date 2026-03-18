@@ -185,7 +185,8 @@ Quiet sinks:
   except that the final `CANCELED` summary still logs `STAGE`, `REASON`, and `LOG`.
 
 - **Workspace mode (default)**: runner creates/uses an issue workspace, runs patch + gates there, then promotes results to the live repo.
-- **Finalize mode (-f)**: runner works directly on the live repo (no workspace). Use only when you intentionally want a direct/live operation.
+- **Finalize mode (-f)**: runner works directly on the live repo (no workspace). Use this when you intentionally want a direct/live operation and you want to provide the commit message explicitly.
+- **Finalize-from-cwd shortcut (-s [MESSAGE])**: runner works directly on the live repo (no workspace), resolves git top-level from the current working directory, and uses `MESSAGE` as commit message or `finalize` when `MESSAGE` is omitted. It uses the same finalize-live execution path as `-f`.
 - **Finalize-workspace mode (--finalize-workspace)**: runner finalizes an existing issue workspace (gates in workspace, promote to live, gates in live, commit+push). Commit message is read from workspace `meta.json`.
 
 Note: All modes use a single canonical Policy->gates wiring entry point.
@@ -302,6 +303,7 @@ Short-help options (have short aliases):
 - `-g` / `--allow-gates-fail` : allow gates to fail (continue)
 - `-c` / `--show-config` : print the effective config/policy and exit
 - `-f` / `--finalize-live MESSAGE` : finalize live repo (gates + promotion by commit/push)
+- `-s` / `--finalize-live-from-cwd [MESSAGE]` : finalize live repo selected from current working directory; when `MESSAGE` is omitted, commit message defaults to `finalize`
 
 Logging / output:
 

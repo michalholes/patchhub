@@ -1,4 +1,4 @@
-# AM Patch Runner - Functional Specification v8 (UPDATED)
+# AM Patch Runner - Functional Specification v9 (UPDATED)
 
 This document is **authoritative** for the AM Patch Runner contract.
 
@@ -341,11 +341,14 @@ failures but MUST NOT override the primary PATCH_APPLY failure.
 -   Patch execution and gates run in a workspace.
 -   Promotion to live occurs only after successful validation.
 
-### 2.2 Finalize mode (`-f`)
+### 2.2 Finalize live entrypoints (`-f`, `-s`)
 
--   Operates directly on the live repository.
+-   `-f` / `--finalize-live MESSAGE` operates directly on the live repository.
+-   `-s` / `--finalize-live-from-cwd [MESSAGE]` operates directly on the live repository, resolves git top-level from the current working directory, and materializes that resolved path as CLI `active_target_repo_root` for the current run.
 -   No workspace is created or used.
--   Commit message is provided via `-f`.
+-   In `-f`, commit message is required and is provided via `-f`.
+-   In `-s`, commit message is optional; when omitted, it defaults to `finalize`.
+-   `-s` enters the same finalize-live execution path as `-f`. Everywhere else in this specification, normative statements written for `--finalize-live` also apply to `-s` unless explicitly stated otherwise in this section.
 
 ### 2.3 Finalizeworkspace mode (`--finalize-workspace ISSUE_ID`)
 
@@ -427,6 +430,10 @@ Normative meanings:
 - `target_repo_roots` is the allowlist of permitted target repository root paths.
 - `active_target_repo_root` is the explicit path selector.
 - `target_repo_name` is the bare repo-token selector input for the `/home/pi/<name>` target family.
+- `-s` / `--finalize-live-from-cwd [MESSAGE]` is not a target-selection input and is not part of override symmetry.
+- It is a finalize-live shortcut that resolves the current working directory to a git top-level via `git rev-parse --show-toplevel` using `runner_subprocess_timeout_s`, materializes that resolved path as CLI `active_target_repo_root`, and then enters this section through the existing CLI `active_target_repo_root` rule.
+- If this resolution fails or times out, the run is `CONFIG INVALID`.
+- This shortcut MUST NOT fall back to `Path.cwd()`.
 - For target-selection keys, dedicated CLI keys and `--override` are the same CLI precedence tier. For the same effective key, the last argv occurrence wins.
 - The effective `target_repo_roots` value follows normal precedence: CLI > config > defaults.
 
