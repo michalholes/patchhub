@@ -19,7 +19,6 @@ ipc_handshake_wait_s = 0
 
 [paths]
 # Canonical (optional; runner may infer)
-repo_root = "/home/pi/patchhub"
 # active_target_repo_root = "/home/pi/audiomason2"
 target_repo_roots = ["/home/pi/audiomason2", "/home/pi/patchhub"]
 # patch_dir = "/home/pi/audiomason2/patches"
