@@ -1,4 +1,4 @@
-# AM Patch Runner - Functional Specification v9 (UPDATED)
+# AM Patch Runner - Functional Specification v10 (UPDATED)
 
 This document is **authoritative** for the AM Patch Runner contract.
 
@@ -162,7 +162,7 @@ The runner prints its version: - on every invocation - in `--help`
 
 Example:
 
-    am_patch RUNNER_VERSION=4.4.4
+    am_patch RUNNER_VERSION=4.4.5
 
 Version discipline: - Any change that alters runner behavior MUST bump
 `RUNNER_VERSION`. - Any change that alters runner behavior MUST update
@@ -356,6 +356,7 @@ failures but MUST NOT override the primary PATCH_APPLY failure.
 -   No patch script is executed.
 -   Commit message is read from
     `patches/workspaces/issue_<ID>/meta.json`.
+-   Target selection in this mode is defined only by section 3.1.1.
 -   Execution order:
     1.  Gates in workspace
     2.  Promotion workspace live
@@ -423,6 +424,7 @@ Target-selection inputs:
 - Policy key `active_target_repo_root`
 - Policy key `target_repo_name`
 - patch-carried root-level `target.txt`
+- workspace `meta.json` field `target_repo_name` (finalize-workspace only)
 - dedicated CLI keys `--target-repo-name NAME`, `--active-target-repo-root PATH`, and `--target-repo-roots CSV`
 - `--override` for those same keys
 
@@ -430,6 +432,7 @@ Normative meanings:
 - `target_repo_roots` is the allowlist of permitted target repository root paths.
 - `active_target_repo_root` is the explicit path selector.
 - `target_repo_name` is the bare repo-token selector input for the `/home/pi/<name>` target family.
+- workspace `meta.json` field `target_repo_name` is not a Policy key; it is the persisted workspace binding consumed only by this section for `-w` / `--finalize-workspace`.
 - `-s` / `--finalize-live-from-cwd [MESSAGE]` is not a target-selection input and is not part of override symmetry.
 - It is a finalize-live shortcut that resolves the current working directory to a git top-level via `git rev-parse --show-toplevel` using `runner_subprocess_timeout_s`, materializes that resolved path as CLI `active_target_repo_root`, and then enters this section through the existing CLI `active_target_repo_root` rule.
 - If this resolution fails or times out, the run is `CONFIG INVALID`.
@@ -438,12 +441,30 @@ Normative meanings:
 - The effective `target_repo_roots` value follows normal precedence: CLI > config > defaults.
 
 Authoritative target-resolution rule:
-1. If CLI `active_target_repo_root` is selected, it wins.
-2. Else if CLI `target_repo_name` is selected, derive candidate target path as `/home/pi/<target_repo_name>`.
-3. Else if patch-carried root-level `target.txt` is present, treat it as `target_repo_name` and derive candidate target path as `/home/pi/<target_repo_name>`.
-4. Else if config `active_target_repo_root` is selected, it wins.
-5. Else if config `target_repo_name` is selected, derive candidate target path as `/home/pi/<target_repo_name>`.
-6. Else derive candidate target path from default `target_repo_name`.
+
+- In `-w` / `--finalize-workspace`, the runner MUST resolve the target
+  from workspace `meta.json` field `target_repo_name` before evaluating
+  normal selector inputs.
+- In this mode, CLI/config selector inputs `target_repo_name`,
+  `active_target_repo_root`, and legacy `repo_root` MUST NOT
+  participate in target selection.
+- In this mode, `target_repo_roots` remains the effective allowlist of
+  permitted target repository root paths.
+- If workspace `target_repo_name` is absent, the runner MAY perform one
+  deterministic legacy migration by reading the workspace clone origin
+  and accepting it only when that origin canonically resolves to
+  `/home/pi/<name>`.
+- On successful legacy migration, the runner MUST persist the recovered
+  token into workspace `meta.json` before continuing.
+- If no valid workspace target can be obtained, the run is `PREFLIGHT
+  WORKSPACE`.
+- In all other modes:
+  1. If CLI `active_target_repo_root` is selected, it wins.
+  2. Else if CLI `target_repo_name` is selected, derive candidate target path as `/home/pi/<target_repo_name>`.
+  3. Else if patch-carried root-level `target.txt` is present, treat it as `target_repo_name` and derive candidate target path as `/home/pi/<target_repo_name>`.
+  4. Else if config `active_target_repo_root` is selected, it wins.
+  5. Else if config `target_repo_name` is selected, derive candidate target path as `/home/pi/<target_repo_name>`.
+  6. Else derive candidate target path from default `target_repo_name`.
 
 The run MUST resolve exactly one authoritative effective target root.
 The effective target root MUST resolve either to `runner_root` or to one entry from the effective `target_repo_roots`.
@@ -461,6 +482,7 @@ Patch-carried root-level `target.txt` participates in target selection before ro
   embedded newline.
 - The default value of `target_repo_name` is `audiomason2`.
 - Patch-carried root-level `target.txt` uses the same token format and MAY include an optional trailing LF.
+- Workspace `meta.json` field `target_repo_name` uses the same token format.
 - Failure-zip root-level `target.txt` MUST contain the effective `target_repo_name` derived by section 3.1.1.
 
 ### 3.2 CLI (normative)
@@ -1307,6 +1329,25 @@ Pull/rebase only when explicitly enabled.
 -   Workspaces may be reused.
 -   Dirty workspaces are allowed.
 -   Workspace deletion occurs only on SUCCESS and only if enabled.
+
+### 9.1 Workspace metadata contract
+
+- Workspace `meta.json` is the authoritative persisted metadata file for
+  a workspace.
+- It MUST store:
+  - `base_sha`
+  - `attempt`
+  - `message`
+  - `target_repo_name`
+- On workspace creation, the runner MUST write all four fields.
+- On workspace reuse in patch workspace mode, persisted
+  `target_repo_name` MUST match the currently selected live target,
+  except for the one-time deterministic legacy migration permitted by
+  section 3.1.1.
+- A mismatch, invalid persisted target binding, or failed migration is
+  `PREFLIGHT WORKSPACE`.
+- The runner MUST surface that failure as a controlled user-facing error,
+  not as an unhandled exception or traceback.
 
 ------------------------------------------------------------------------
 
