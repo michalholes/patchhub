@@ -384,15 +384,17 @@
 		if (!preview || typeof preview !== "object") return preview;
 		if (!state.manifest || !isPatchZipMode()) return preview;
 		var selected = selectedEntries("committed");
+		var total = selectableCount();
+		if (selected.length >= total) {
+			delete preview.zip_subset;
+			return preview;
+		}
 		preview.zip_subset = {
 			selectable: state.manifest.selectable === true,
 			selection_status: selectionStatusText(),
 			selected_patch_entries: selected,
 			selected_repo_paths: selectedRepoPaths("committed"),
-			effective_patch_kind:
-				selected.length < selectableCount()
-					? "derived_subset_pending"
-					: "original",
+			effective_patch_kind: "derived_subset_pending",
 		};
 		return preview;
 	}

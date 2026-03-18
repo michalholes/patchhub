@@ -69,6 +69,15 @@ def test_zip_subset_runtime_exports_match_queue_upload_calls() -> None:
         assert capability in subset_js
 
 
+def test_zip_subset_preview_omits_metadata_for_original_zip() -> None:
+    subset_js = (
+        REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_zip_subset.js"
+    ).read_text(encoding="utf-8")
+    assert "if (selected.length >= total)" in subset_js
+    assert "delete preview.zip_subset;" in subset_js
+    assert 'effective_patch_kind: "derived_subset_pending"' in subset_js
+
+
 def test_zip_subset_modal_contract_matches_approved_layout_copy() -> None:
     subset_js = (
         REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_zip_subset.js"
