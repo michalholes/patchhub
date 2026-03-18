@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.0
+Verzia 1.2.1
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 

@@ -1,7 +1,7 @@
 verbosity = "normal" # debug | verbose | normal | quiet
 console_color = "auto" # auto | always | never
 runner_subprocess_timeout_s = 1800
-target_repo_name = "audiomason2" # ASCII-only bare repo token selector for /home/pi/<name>
+target_repo_name = "patchhub" # ASCII-only bare repo token selector for /home/pi/<name>
 
 # IPC (Unix domain socket)
 ipc_socket_enabled = true
