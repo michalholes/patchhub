@@ -307,7 +307,7 @@ gate_mypy_mode = "auto"
 gate_pytest_mode = "auto"
 gate_pytest_py_prefixes = ["badguys", "tests", "src", "plugins", "scripts"]
 gate_pytest_js_prefixes = ["scripts/patchhub/static", "plugins", "src",]
-pytest_routing_mode = "bucketed"
+pytest_routing_mode = "legacy"
 pytest_full_suite_prefixes = [
     "pyproject.toml",
     "pytest.ini",
@@ -319,7 +319,7 @@ pytest_full_suite_prefixes = [
 ]
 ruff_targets = ["src", "plugins", "badguys", "scripts", "tests"]
 pytest_targets = ["tests"]
-mypy_targets = ["src", "badguys", "plugins", "scripts"]
+mypy_targets = ["."]
 
 [pytest_roots]
 "amp.*" = "scripts/am_patch/"
