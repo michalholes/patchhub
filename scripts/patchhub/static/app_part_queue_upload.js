@@ -158,6 +158,18 @@ function enqueue() {
 	var targetRepo = String(
 		(el("targetRepo") && el("targetRepo").value) || "",
 	).trim();
+	var raw = String(body.raw_command || "");
+	if (
+		raw &&
+		!parseInFlight &&
+		lastParsed &&
+		lastParsedRaw === raw &&
+		lastParsed.parsed &&
+		lastParsed.parsed.mode
+	) {
+		body.mode = String(lastParsed.parsed.mode || mode);
+		mode = body.mode;
+	}
 
 	setUiStatus("enqueue: started mode=" + mode);
 
@@ -257,6 +269,7 @@ function uploadFile(file) {
 				setUiError(String((j && j.error) || "upload failed"));
 			}
 			if (j && j.stored_rel_path) {
+				phCall("prepareFormForNewPatchLoad");
 				const stored = String(j.stored_rel_path);
 				const n = el("patchPath");
 				if (n && shouldOverwrite("patchPath", n)) {

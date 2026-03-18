@@ -21,6 +21,7 @@
 		draftSelected: {},
 		modalOpen: false,
 		error: "",
+		requestSeq: 0,
 	};
 
 	function el(id) {
@@ -72,6 +73,19 @@
 
 	function isRawLocked() {
 		return !!currentRawCommand();
+	}
+
+	function currentPatchLoadSeq() {
+		var raw = Number(w.__ph_patch_load_seq || 0);
+		return Number.isFinite(raw) ? raw : 0;
+	}
+
+	function zipSubsetStateKey() {
+		return [currentMode(), currentPatchPath(), currentPatchLoadSeq()].join("|");
+	}
+
+	function manualPatchReloadRequested() {
+		return !!(typeof dirty === "object" && dirty && dirty.patchPath === true);
 	}
 
 	function manifestEntries() {
@@ -308,8 +322,10 @@
 		phCall("validateAndPreview");
 	}
 
-	function fetchManifestForCurrentPath() {
+	function fetchManifestForCurrentPath(requestKey) {
 		var patchPath = currentPatchPath();
+		var loadSeq = currentPatchLoadSeq();
+		var requestSeq = ++state.requestSeq;
 		state.loading = true;
 		state.error = "";
 		state.manifest = null;
@@ -320,6 +336,19 @@
 		apiGet(
 			"/api/patches/zip_manifest?path=" + encodeURIComponent(patchPath),
 		).then((r) => {
+			var targetNode = el("targetRepo");
+			var payload = {
+				stored_rel_path: patchPath,
+				derived_target_repo:
+					r && Object.hasOwn(r, "derived_target_repo")
+						? r.derived_target_repo
+						: null,
+			};
+			if (requestSeq !== state.requestSeq) return;
+			if (!isPatchZipMode()) return;
+			if (state.key !== requestKey) return;
+			if (currentPatchPath() !== patchPath) return;
+			if (currentPatchLoadSeq() !== loadSeq) return;
 			state.loading = false;
 			if (!r || r.ok === false || !r.manifest) {
 				state.error = String((r && r.error) || "cannot inspect zip patch");
@@ -335,19 +364,38 @@
 			state.draftSelected = {};
 			renderStrip();
 			if (state.modalOpen) renderModal();
+			if (typeof applyAutofillFromPayload === "function") {
+				applyAutofillFromPayload(payload);
+				return;
+			}
+			if (
+				targetNode &&
+				cfg &&
+				cfg.targeting &&
+				cfg.targeting.zip_target_prefill_enabled &&
+				payload.derived_target_repo != null &&
+				phCall("shouldOverwriteField", "targetRepo", targetNode)
+			) {
+				targetNode.value = String(payload.derived_target_repo || "");
+			}
 			phCall("validateAndPreview");
 		});
 	}
 
 	function syncFromInputs() {
+		var key = "";
 		if (!isPatchZipMode()) {
 			clearState();
 			return;
 		}
-		var key = currentMode() + "|" + currentPatchPath();
+		key = zipSubsetStateKey();
+		if (manualPatchReloadRequested()) {
+			phCall("prepareFormForNewPatchLoad");
+			key = zipSubsetStateKey();
+		}
 		if (state.key !== key) {
 			state.key = key;
-			fetchManifestForCurrentPath();
+			fetchManifestForCurrentPath(key);
 			return;
 		}
 		renderStrip();

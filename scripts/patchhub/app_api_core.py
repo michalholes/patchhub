@@ -23,7 +23,10 @@ from .app_support import (
 from .command_parse import CommandParseError, parse_runner_command
 from .indexing import compute_stats, iter_runs, runs_signature
 from .models import run_to_list_item_json
-from .targeting import validate_targeting_config
+from .targeting import (
+    resolve_targeting_runtime,
+    validate_selected_target_repo,
+)
 from .zip_commit_message import (
     ZipCommitConfig,
     ZipIssueConfig,
@@ -47,23 +50,6 @@ def _autofill_scan_dir_rel(self) -> str | None:
     if scan_dir.startswith(prefix + "/"):
         return scan_dir[len(prefix) + 1 :]
     return None
-
-
-def _targeting_default_repo(self) -> str:
-    target_cfg = getattr(self.cfg, "targeting", None)
-    value = str(getattr(target_cfg, "default_target_repo", "patchhub") or "").strip()
-    return value or "patchhub"
-
-
-def _target_options(self) -> list[str]:
-    runner_cfg_path = (self.repo_root / self.cfg.runner.runner_config_toml).resolve()
-    try:
-        return validate_targeting_config(
-            runner_config_toml=runner_cfg_path,
-            default_target_repo=_targeting_default_repo(self),
-        )
-    except (OSError, ValueError, tomllib.TOMLDecodeError):
-        return [_targeting_default_repo(self)]
 
 
 def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]:
@@ -125,10 +111,16 @@ def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]:
 
 
 def api_config(self) -> tuple[int, bytes]:
-    runner_cfg_path = (self.repo_root / self.cfg.runner.runner_config_toml).resolve()
-    target_options = _target_options(self)
+    try:
+        runtime = resolve_targeting_runtime(
+            repo_root=self.repo_root,
+            runner_config_toml=self.cfg.runner.runner_config_toml,
+            target_cfg=getattr(self.cfg, "targeting", None),
+        )
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
+        return _err(str(e), status=400)
     success_rel = compute_success_archive_rel(
-        self.repo_root, runner_cfg_path, self.cfg.paths.patches_root
+        self.repo_root, runtime.runner_config_toml, self.cfg.paths.patches_root
     )
 
     data: dict[str, Any] = {
@@ -194,8 +186,8 @@ def api_config(self) -> tuple[int, bytes]:
             "commit_default_if_no_match": self.cfg.autofill.commit_default_if_no_match,
         },
         "targeting": {
-            "options": target_options,
-            "default_target_repo": _targeting_default_repo(self),
+            "options": runtime.options,
+            "default_target_repo": runtime.default_target_repo,
             "zip_target_prefill_enabled": bool(
                 getattr(getattr(self.cfg, "targeting", None), "zip_target_prefill_enabled", True)
             ),
@@ -380,6 +372,19 @@ def api_parse_command(self, body: dict[str, Any]) -> tuple[int, bytes]:
     except CommandParseError as e:
         return _err(str(e), status=400)
 
+    if parsed.target_repo:
+        try:
+            runtime = resolve_targeting_runtime(
+                repo_root=self.repo_root,
+                runner_config_toml=self.cfg.runner.runner_config_toml,
+                target_cfg=getattr(self.cfg, "targeting", None),
+            )
+            validate_selected_target_repo(parsed.target_repo, runtime.options)
+        except AttributeError:
+            return _err("targeting runtime is unavailable", status=400)
+        except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
+            return _err(str(e), status=400)
+
     return _ok(
         {
             "status": ["parse_command: ok"],
@@ -389,6 +394,7 @@ def api_parse_command(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 "commit_message": parsed.commit_message,
                 "patch_path": parsed.patch_path,
                 "gate_argv": parsed.gate_argv,
+                "target_repo": parsed.target_repo,
             },
             "canonical": {
                 "argv": parsed.canonical_argv,

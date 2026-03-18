@@ -24,6 +24,15 @@ from scripts.patchhub.fs_jail import FsJail
 from scripts.patchhub.run_applied_files import collect_job_applied_files
 
 
+def _write_runner_config(repo_root: Path) -> None:
+    path = repo_root / "scripts" / "am_patch" / "am_patch.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[paths]\ntarget_repo_roots = ["/home/pi/audiomason2", "/home/pi/patchhub"]\n',
+        encoding="utf-8",
+    )
+
+
 def _make_pm_zip(
     path: Path,
     *,
@@ -127,6 +136,7 @@ class _SelfDummy:
 
 
 def _mk_self(tmp_path: Path) -> _SelfDummy:
+    _write_runner_config(tmp_path)
     cfg = _cfg()
     jail = FsJail(
         repo_root=tmp_path,
@@ -279,7 +289,7 @@ def test_api_jobs_enqueue_subset_preserves_target_metadata(tmp_path: Path) -> No
         "patches/per_file/scripts__patchhub__app_api_jobs.py.patch",
         "patches/per_file/scripts__patchhub__models.py.patch",
     ]
-    _make_pm_zip(zpath, patch_entries=entries, target="../patchhub")
+    _make_pm_zip(zpath, patch_entries=entries, target="patchhub")
 
     body = {
         "mode": "patch",
@@ -296,4 +306,4 @@ def test_api_jobs_enqueue_subset_preserves_target_metadata(tmp_path: Path) -> No
     with ZipFile(derived_path, "r") as zf:
         names = sorted(zf.namelist())
         assert "target.txt" in names
-        assert zf.read("target.txt") == b"../patchhub\n"
+        assert zf.read("target.txt") == b"patchhub\n"

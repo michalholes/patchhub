@@ -23,6 +23,15 @@ from scripts.patchhub.config import (
 from scripts.patchhub.fs_jail import FsJail
 
 
+def _write_runner_config(repo_root: Path) -> None:
+    path = repo_root / "scripts" / "am_patch" / "am_patch.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '[paths]\ntarget_repo_roots = ["/home/pi/audiomason2", "/home/pi/patchhub"]\n',
+        encoding="utf-8",
+    )
+
+
 def _make_zip(path: Path, commit: str, issue: str | None = None) -> None:
     bio = BytesIO()
     with ZipFile(bio, "w") as zf:
@@ -112,6 +121,7 @@ class _SelfDummy:
 
 
 def _mk_self(tmp_path: Path) -> _SelfDummy:
+    _write_runner_config(tmp_path)
     cfg = _cfg()
     jail = FsJail(
         repo_root=tmp_path,
@@ -243,3 +253,46 @@ def test_enqueue_finalize_live_accepts_gate_argv(tmp_path: Path) -> None:
         "Finalize",
         "--skip-ruff",
     ]
+
+
+def test_enqueue_raw_command_rejects_invalid_target_repo(tmp_path: Path) -> None:
+    s = _mk_self(tmp_path)
+
+    body = {
+        "mode": "patch",
+        "raw_command": 'python3 scripts/am_patch.py 1 "x" patches/x.zip --target-repo-name bogus',
+    }
+    status, raw = api_jobs_enqueue(s, body)
+    assert status == 400
+    payload = json.loads(raw.decode("utf-8"))
+    assert "target_repo" in payload["error"]
+
+
+def test_enqueue_raw_command_rejects_patch_to_finalize_live_mode_mismatch(
+    tmp_path: Path,
+) -> None:
+    s = _mk_self(tmp_path)
+
+    body = {
+        "mode": "patch",
+        "raw_command": 'python3 scripts/am_patch.py -f "Finalize"',
+    }
+    status, raw = api_jobs_enqueue(s, body)
+    assert status == 400
+    payload = json.loads(raw.decode("utf-8"))
+    assert payload["error"] == "raw_command mode does not match mode"
+
+
+def test_enqueue_raw_command_rejects_workspace_to_patch_mode_mismatch(
+    tmp_path: Path,
+) -> None:
+    s = _mk_self(tmp_path)
+
+    body = {
+        "mode": "finalize_workspace",
+        "raw_command": 'python3 scripts/am_patch.py 12 "Ship" patches/x.zip',
+    }
+    status, raw = api_jobs_enqueue(s, body)
+    assert status == 400
+    payload = json.loads(raw.decode("utf-8"))
+    assert payload["error"] == "raw_command mode does not match mode"

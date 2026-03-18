@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+@dataclass(frozen=True)
+class TargetingRuntime:
+    default_target_repo: str
+    options: list[str]
+    runner_config_toml: Path
 
 
 def validate_target_repo_token(value: str, *, field: str) -> str:
@@ -74,3 +82,30 @@ def validate_selected_target_repo(target_repo: str, options: list[str]) -> str:
     if token not in options:
         raise ValueError("target_repo must be one of targeting.options")
     return token
+
+
+def targeting_default_target_repo(target_cfg: Any) -> str:
+    value = str(getattr(target_cfg, "default_target_repo", "patchhub") or "").strip()
+    return validate_target_repo_token(value or "patchhub", field="default_target_repo")
+
+
+def resolve_targeting_runtime(
+    *,
+    repo_root: Path,
+    runner_config_toml: str,
+    target_cfg: Any,
+) -> TargetingRuntime:
+    default_target_repo = targeting_default_target_repo(target_cfg)
+    runner_rel = str(runner_config_toml or "").strip()
+    if not runner_rel:
+        raise ValueError("runner.runner_config_toml must be configured")
+    runner_cfg_path = (Path(repo_root) / runner_rel).resolve()
+    options = validate_targeting_config(
+        runner_config_toml=runner_cfg_path,
+        default_target_repo=default_target_repo,
+    )
+    return TargetingRuntime(
+        default_target_repo=default_target_repo,
+        options=options,
+        runner_config_toml=runner_cfg_path,
+    )

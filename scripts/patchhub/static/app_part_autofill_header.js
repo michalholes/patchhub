@@ -8,6 +8,28 @@ function phCall(name, ...args) {
 	return PH.call(name, ...args);
 }
 var headerDiagnosticsCache = null;
+function prepareFormForNewPatchLoad() {
+	try {
+		if (typeof dirty === "object" && dirty) {
+			dirty.issueId = false;
+			dirty.commitMsg = false;
+			dirty.patchPath = false;
+			dirty.targetRepo = false;
+		}
+	} catch (_) {}
+	PH.call("clearGateOverrides");
+	try {
+		const m = el("mode");
+		if (m) m.value = "patch";
+		const rc = el("rawCommand");
+		if (rc) rc.value = "";
+	} catch (_) {}
+	try {
+		const next = Number(__ph_w.__ph_patch_load_seq || 0) + 1;
+		__ph_w.__ph_patch_load_seq = next;
+	} catch (_) {}
+}
+
 function applyAutofillFromPayload(p) {
 	if (!cfg || !cfg.autofill || !p) return;
 
@@ -391,6 +413,7 @@ function renderIssueDetail() {
 if (PH && typeof PH.register === "function") {
 	PH.register("app_part_autofill_header", {
 		applyAutofillFromPayload,
+		prepareFormForNewPatchLoad,
 		stopAutofillPolling,
 		startAutofillPolling,
 		renderHeaderFromSummary,

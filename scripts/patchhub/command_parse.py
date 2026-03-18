@@ -3,7 +3,7 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass
 
-from .gate_argv import GateArgvError, split_gate_argv, validate_gate_argv
+from .gate_argv import GateArgvError, validate_gate_argv
 from .models import JobMode
 
 
@@ -19,6 +19,13 @@ class ParsedCommand:
     patch_path: str
     gate_argv: list[str]
     canonical_argv: list[str]
+    target_repo: str
+
+
+@dataclass(frozen=True)
+class _TailOptions:
+    target_repo: str
+    gate_argv: list[str]
 
 
 def _validated_gate_argv(tokens: list[str]) -> list[str]:
@@ -28,16 +35,29 @@ def _validated_gate_argv(tokens: list[str]) -> list[str]:
         raise CommandParseError(str(e)) from e
 
 
-def parse_runner_command(raw: str) -> ParsedCommand:
-    raw = raw.strip()
-    if not raw:
-        raise CommandParseError("Empty command")
+def _parse_tail_options(tokens: list[str]) -> _TailOptions:
+    gate_tokens: list[str] = []
+    target_repo = ""
+    idx = 0
+    while idx < len(tokens):
+        token = str(tokens[idx] or "")
+        if token == "--target-repo-name":
+            if idx + 1 >= len(tokens):
+                raise CommandParseError("--target-repo-name requires VALUE")
+            if target_repo:
+                raise CommandParseError("--target-repo-name may appear only once")
+            target_repo = str(tokens[idx + 1] or "")
+            idx += 2
+            continue
+        gate_tokens.append(token)
+        idx += 1
+    return _TailOptions(
+        target_repo=target_repo,
+        gate_argv=_validated_gate_argv(gate_tokens),
+    )
 
-    try:
-        argv = shlex.split(raw)
-    except ValueError as e:
-        raise CommandParseError(str(e)) from e
 
+def parse_runner_argv(argv: list[str]) -> ParsedCommand:
     if len(argv) < 3:
         raise CommandParseError("Command is too short")
 
@@ -59,69 +79,82 @@ def parse_runner_command(raw: str) -> ParsedCommand:
     if flag_f:
         pos = list(rest)
         pos.remove("-f")
-        try:
-            pos, gate_argv = split_gate_argv(pos)
-        except GateArgvError as e:
-            raise CommandParseError(str(e)) from e
-        if len(pos) != 1:
+        if not pos:
             raise CommandParseError("finalize_live requires exactly one MESSAGE argument")
-        message = pos[0]
+        message = str(pos[0] or "")
         if not message:
             raise CommandParseError("MESSAGE is empty")
+        tail = _parse_tail_options(pos[1:])
+        if len(pos[:1]) != 1:
+            raise CommandParseError("finalize_live requires exactly one MESSAGE argument")
         return ParsedCommand(
             mode="finalize_live",
             issue_id="",
             commit_message=message,
             patch_path="",
-            gate_argv=gate_argv,
+            gate_argv=tail.gate_argv,
             canonical_argv=build_canonical_command(
                 prefix,
                 "finalize_live",
                 "",
                 message,
                 "",
-                gate_argv,
+                tail.gate_argv,
+                target_repo=tail.target_repo,
             ),
+            target_repo=tail.target_repo,
         )
 
     if flag_w:
         pos = list(rest)
         pos.remove("-w")
-        pos, gate_argv = split_gate_argv(pos)
-        if len(pos) != 1:
+        if not pos:
             raise CommandParseError("finalize_workspace requires exactly one ISSUE_ID argument")
-        issue_id = pos[0]
+        issue_id = str(pos[0] or "")
         if not issue_id.isdigit():
             raise CommandParseError("ISSUE_ID must be digits")
+        tail = _parse_tail_options(pos[1:])
         return ParsedCommand(
             mode="finalize_workspace",
             issue_id=issue_id,
             commit_message="",
             patch_path="",
-            gate_argv=gate_argv,
-            canonical_argv=prefix + ["-w", issue_id] + gate_argv,
+            gate_argv=tail.gate_argv,
+            canonical_argv=build_canonical_command(
+                prefix,
+                "finalize_workspace",
+                issue_id,
+                "",
+                "",
+                tail.gate_argv,
+                target_repo=tail.target_repo,
+            ),
+            target_repo=tail.target_repo,
         )
 
     pos = list(rest)
     if flag_l:
         pos.remove("-l")
-    try:
-        pos, gate_argv = split_gate_argv(pos)
-    except GateArgvError as e:
-        raise CommandParseError(str(e)) from e
-
-    if len(pos) not in (2, 3):
+    if len(pos) < 2:
         raise CommandParseError('Expected: ISSUE_ID "commit message" PATCH')
 
-    issue_id = pos[0]
-    commit_message = pos[1]
-    patch_path = pos[2] if len(pos) == 3 else ""
+    issue_id = str(pos[0] or "")
+    commit_message = str(pos[1] or "")
     if not issue_id.isdigit():
         raise CommandParseError("ISSUE_ID must be digits")
     if not commit_message:
         raise CommandParseError("Commit message is empty")
-    if len(pos) == 3 and not patch_path:
-        raise CommandParseError("PATCH is empty")
+
+    patch_path = ""
+    tail_tokens = pos[2:]
+    if tail_tokens and not str(tail_tokens[0] or "").startswith("-"):
+        patch_path = str(tail_tokens[0] or "")
+        tail_tokens = tail_tokens[1:]
+    if flag_l and not patch_path:
+        patch_path = ""
+    elif not flag_l and not patch_path:
+        raise CommandParseError('Expected: ISSUE_ID "commit message" PATCH')
+    tail = _parse_tail_options(tail_tokens)
 
     mode: JobMode = "rerun_latest" if flag_l else "patch"
     canonical = build_canonical_command(
@@ -130,16 +163,30 @@ def parse_runner_command(raw: str) -> ParsedCommand:
         issue_id,
         commit_message,
         patch_path,
-        gate_argv,
+        tail.gate_argv,
+        target_repo=tail.target_repo,
     )
     return ParsedCommand(
         mode=mode,
         issue_id=issue_id,
         commit_message=commit_message,
         patch_path=patch_path,
-        gate_argv=gate_argv,
+        gate_argv=tail.gate_argv,
         canonical_argv=canonical,
+        target_repo=tail.target_repo,
     )
+
+
+def parse_runner_command(raw: str) -> ParsedCommand:
+    raw = raw.strip()
+    if not raw:
+        raise CommandParseError("Empty command")
+
+    try:
+        argv = shlex.split(raw)
+    except ValueError as e:
+        raise CommandParseError(str(e)) from e
+    return parse_runner_argv(argv)
 
 
 def build_canonical_command(

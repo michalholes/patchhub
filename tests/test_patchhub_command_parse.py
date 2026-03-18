@@ -76,3 +76,23 @@ class TestCommandParse(unittest.TestCase):
     def test_missing_runner(self) -> None:
         with self.assertRaises(CommandParseError):
             parse_runner_command("python3 x.py 1 a b")
+
+    def test_parse_patch_with_target_repo_name(self) -> None:
+        c = (
+            'python3 scripts/am_patch.py 1000 "Issue #1000: test" '
+            "patches/x.zip --target-repo-name patchhub"
+        )
+        p = parse_runner_command(c)
+        self.assertEqual(p.target_repo, "patchhub")
+        self.assertEqual(
+            p.canonical_argv,
+            [
+                "python3",
+                "scripts/am_patch.py",
+                "1000",
+                "Issue #1000: test",
+                "patches/x.zip",
+                "--target-repo-name",
+                "patchhub",
+            ],
+        )

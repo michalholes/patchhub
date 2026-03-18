@@ -8,10 +8,12 @@ from typing import Any, cast
 from .app_support import _err, _ok, _utc_now, read_tail
 from .command_parse import (
     CommandParseError,
+    ParsedCommand,
     build_canonical_command,
+    parse_runner_argv,
     parse_runner_command,
 )
-from .gate_argv import GateArgvError, split_gate_argv, validate_gate_argv
+from .gate_argv import GateArgvError, validate_gate_argv
 from .issue_alloc import allocate_next_issue_id
 from .job_ids import new_job_id
 from .models import (
@@ -23,7 +25,7 @@ from .models import (
 )
 from .pm_validation_runtime import build_patch_zip_pm_validation
 from .run_applied_files import collect_job_applied_files
-from .targeting import validate_selected_target_repo, validate_targeting_config
+from .targeting import resolve_targeting_runtime, validate_selected_target_repo
 from .web_jobs_db import WebJobsDatabase
 from .web_jobs_derived import read_effective_log_tail
 from .web_jobs_legacy_fs import list_legacy_job_jsons, load_legacy_job_record
@@ -95,31 +97,44 @@ def _try_fill_issue_from_zip(self, patch_path: str) -> str:
     return zid or ""
 
 
-def _runner_target_options(self) -> list[str]:
-    target_cfg = getattr(self.cfg, "targeting", None)
-    default_target_repo = (
-        str(getattr(target_cfg, "default_target_repo", "patchhub") or "").strip() or "patchhub"
+def _targeting_runtime(self):
+    return resolve_targeting_runtime(
+        repo_root=self.repo_root,
+        runner_config_toml=self.cfg.runner.runner_config_toml,
+        target_cfg=getattr(self.cfg, "targeting", None),
     )
-    runner_cfg_path = (self.repo_root / self.cfg.runner.runner_config_toml).resolve()
-    try:
-        return validate_targeting_config(
-            runner_config_toml=runner_cfg_path,
-            default_target_repo=default_target_repo,
-        )
-    except (OSError, ValueError):
-        return [default_target_repo]
 
 
-def _target_flag_from_argv(argv: list[str]) -> str | None:
-    items = [str(item or "") for item in list(argv or [])]
+def _parsed_canonical_command(job: JobRecord) -> ParsedCommand | None:
+    argv = [str(item or "") for item in list(job.canonical_command or [])]
+    if not argv:
+        return None
     try:
-        idx = items.index("--target-repo-name")
-    except ValueError:
+        return parse_runner_argv(argv)
+    except CommandParseError:
         return None
-    if idx + 1 >= len(items):
+
+
+def _target_flag_from_job(job: JobRecord) -> str | None:
+    parsed = _parsed_canonical_command(job)
+    if parsed is None:
         return None
-    token = str(items[idx + 1] or "").strip()
+    token = str(parsed.target_repo or "").strip()
     return token or None
+
+
+def _canonical_tail_parts(job: JobRecord) -> tuple[list[str], list[str]]:
+    parsed = _parsed_canonical_command(job)
+    if parsed is None:
+        return [], []
+    if parsed.mode == "finalize_live":
+        return [parsed.commit_message], list(parsed.gate_argv)
+    if parsed.mode == "finalize_workspace":
+        return [parsed.issue_id], list(parsed.gate_argv)
+    parts = [parsed.issue_id, parsed.commit_message]
+    if parsed.patch_path:
+        parts.append(parsed.patch_path)
+    return parts, list(parsed.gate_argv)
 
 
 def _zip_target_config() -> ZipTargetConfig:
@@ -183,64 +198,6 @@ def _gate_argv_from_body(body: dict[str, Any]) -> list[str]:
         return validate_gate_argv([str(item or "") for item in raw])
     except GateArgvError as e:
         raise ValueError(str(e)) from e
-
-
-def _strip_target_flag(argv: list[str]) -> list[str]:
-    items = list(argv)
-    try:
-        idx = items.index("--target-repo-name")
-    except ValueError:
-        return items
-    if idx + 1 >= len(items):
-        return items[:idx]
-    return items[:idx] + items[idx + 2 :]
-
-
-def _canonical_tail_parts(job: JobRecord) -> tuple[list[str], list[str]]:
-    argv = [str(item or "") for item in list(job.canonical_command or [])]
-    if not argv:
-        return [], []
-    try:
-        idx = argv.index("scripts/am_patch.py")
-    except ValueError:
-        return [], []
-    rest = argv[idx + 1 :]
-    if job.mode == "finalize_live":
-        pos = _strip_target_flag(list(rest))
-        try:
-            pos.remove("-f")
-        except ValueError:
-            return [], []
-        try:
-            return split_gate_argv(pos)
-        except GateArgvError:
-            return [], []
-    if job.mode == "finalize_workspace":
-        pos = _strip_target_flag(list(rest))
-        try:
-            pos.remove("-w")
-        except ValueError:
-            return [], []
-        try:
-            return split_gate_argv(pos)
-        except GateArgvError:
-            return [], []
-    if job.mode == "rerun_latest":
-        pos = _strip_target_flag(list(rest))
-        try:
-            pos.remove("-l")
-        except ValueError:
-            return [], []
-        try:
-            return split_gate_argv(pos)
-        except GateArgvError:
-            return [], []
-    if job.mode in ("patch", "repair"):
-        try:
-            return split_gate_argv(_strip_target_flag(list(rest)))
-        except GateArgvError:
-            return [], []
-    return [], []
 
 
 def _job_commit_message_from_canonical(job: JobRecord) -> str:
@@ -340,13 +297,9 @@ def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
             payload["effective_patch_path"] = patch_path
     if not payload.get("effective_patch_kind") and payload.get("effective_patch_path"):
         payload["effective_patch_kind"] = "original"
-    effective_target = payload.get("effective_runner_target_repo") or _target_flag_from_argv(
-        list(job.canonical_command or [])
-    )
+    effective_target = payload.get("effective_runner_target_repo") or _target_flag_from_job(job)
     if effective_target:
         payload["effective_runner_target_repo"] = effective_target
-    if not payload.get("selected_target_repo") and effective_target:
-        payload["selected_target_repo"] = effective_target
     if not payload.get("zip_target_repo"):
         patch_path = str(
             payload.get("effective_patch_path") or payload.get("original_patch_path") or ""
@@ -432,7 +385,8 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
     raw_command = str(body.get("raw_command", ""))
     target_repo = str(body.get("target_repo", "")).strip()
     try:
-        target_options = _runner_target_options(self)
+        runtime = _targeting_runtime(self)
+        target_options = runtime.options
         selected_patch_entries = _selected_patch_entries_from_body(body)
         gate_argv = _gate_argv_from_body(body)
     except (OSError, ValueError) as e:
@@ -464,17 +418,25 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
             parsed = parse_runner_command(raw_command)
         except CommandParseError as e:
             return _err(str(e), status=400)
-        if parsed.mode != mode and parsed.mode != "patch":
-            pass
+        if parsed.mode != mode:
+            return _err("raw_command mode does not match mode", status=400)
+        mode = parsed.mode
         canonical = parsed.canonical_argv
         gate_argv = parsed.gate_argv
-        issue_id = parsed.issue_id or issue_id
-        commit_message = parsed.commit_message or commit_message
-        patch_path = parsed.patch_path or patch_path
+        issue_id = parsed.issue_id
+        commit_message = parsed.commit_message
+        patch_path = parsed.patch_path
         original_patch_path = patch_path or None
         effective_patch_path = patch_path or None
         effective_patch_kind = "original" if patch_path else None
-        effective_runner_target_repo = _target_flag_from_argv(canonical)
+        if parsed.target_repo:
+            try:
+                effective_runner_target_repo = validate_selected_target_repo(
+                    parsed.target_repo,
+                    target_options,
+                )
+            except ValueError as e:
+                return _err(str(e), status=400)
         zip_target_repo = _read_zip_target_from_patch_path(self, patch_path)
     else:
         if mode == "finalize_live":

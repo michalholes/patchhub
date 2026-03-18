@@ -763,3 +763,44 @@ process.stdout.write(JSON.stringify({
     assert result["uiStatus"][-1] == (
         "rerun_latest: prepared form from selected jobs item job_id=job-eligible"
     )
+
+
+def test_use_for_latest_preserves_effective_target_from_raw_command_job() -> None:
+    script_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_jobs.js"
+    script = (
+        _node_prelude(script_path)
+        + """
+global.apiGet = (path) => {
+  if (path === "/api/fs/stat?path=issue_311_v1.zip") {
+    return Promise.resolve({ ok: true, exists: true });
+  }
+  return Promise.resolve({ ok: false, error: "unexpected path: " + path });
+};
+const values = extractRerunLatestValues({
+  job_id: "job-raw",
+  mode: "patch",
+  issue_id: "311",
+  commit_message: "Spec update",
+  effective_patch_path: "patches/issue_311_v1.zip",
+  effective_runner_target_repo: "audiomason2",
+  canonical_command: [
+    "python3",
+    "scripts/am_patch.py",
+    "311",
+    "Spec update",
+    "patches/issue_311_v1.zip",
+    "--target-repo-name",
+    "audiomason2",
+  ],
+});
+document.getElementById("targetRepo").value = "patchhub";
+applyRerunLatestValues(values, "selected");
+process.stdout.write(JSON.stringify({
+  targetRepo: document.getElementById("targetRepo").value,
+  valuesTarget: values && values.targetRepo,
+}));
+"""
+    )
+    result = _run_node(script)
+    assert result["valuesTarget"] == "audiomason2"
+    assert result["targetRepo"] == "audiomason2"
