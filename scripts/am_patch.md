@@ -187,7 +187,7 @@ Quiet sinks:
 - **Workspace mode (default)**: runner creates/uses an issue workspace, runs patch + gates there, then promotes results to the live repo.
 - **Finalize mode (-f)**: runner works directly on the live repo (no workspace). Use this when you intentionally want a direct/live operation and you want to provide the commit message explicitly.
 - **Finalize-from-cwd shortcut (-s [MESSAGE])**: runner works directly on the live repo (no workspace), resolves git top-level from the current working directory, and uses `MESSAGE` as commit message or `finalize` when `MESSAGE` is omitted. It uses the same finalize-live execution path as `-f`.
-- **Finalize-workspace mode (--finalize-workspace)**: runner finalizes an existing issue workspace (gates in workspace, promote to live, gates in live, commit+push). Commit message is read from workspace `meta.json`.
+- **Finalize-workspace mode (--finalize-workspace)**: runner finalizes an existing issue workspace (gates in workspace, promote to live, gates in live, commit+push). Commit message and target repo binding are read from workspace `meta.json`; target semantics are defined in `scripts/am_patch_specification.md` section 3.1.1.
 
 Note: All modes use a single canonical Policy->gates wiring entry point.
 Direct calls to run_gates outside scripts/am_patch/gates_policy_wiring.py are forbidden

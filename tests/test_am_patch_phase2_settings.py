@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 def _import_am_patch():
@@ -350,3 +353,71 @@ def test_target_repo_name_rejects_non_ascii_override() -> None:
         assert "ASCII-only" in str(e)
     else:
         raise AssertionError("expected failure")
+
+
+def test_finalize_workspace_ignores_selector_inputs_when_workspace_binding_exists(
+    monkeypatch, tmp_path: Path
+) -> None:
+    scripts_dir = Path(__file__).parent.parent / "scripts"
+    sys.path.insert(0, str(scripts_dir))
+    from am_patch.config import Policy
+    from am_patch.engine import build_paths_and_logger
+
+    monkeypatch.setattr(
+        "am_patch.startup_context.load_or_migrate_workspace_target_repo_name",
+        lambda *args, **kwargs: "phase2_binding",
+    )
+    policy = Policy()
+    policy.patch_dir = str(tmp_path / "patches")
+    policy.target_repo_name = "rogue"
+    policy.active_target_repo_root = "/home/pi/rogue"
+    policy.repo_root = "/home/pi/rogue"
+    policy.target_repo_roots = ["/home/pi/phase2_binding"]
+    policy.current_log_symlink_enabled = False
+    policy.verbosity = "quiet"
+    policy.log_level = "quiet"
+    policy.json_out = False
+    policy.ipc_socket_enabled = False
+    cli = SimpleNamespace(issue_id="999", mode="finalize_workspace", finalize_from_cwd=False)
+    cfg = tmp_path / "am_patch_test.toml"
+    cfg.write_text("", encoding="utf-8")
+    ctx = build_paths_and_logger(cli, policy, cfg, "test")
+    try:
+        assert ctx.repo_root == Path("/home/pi/phase2_binding")
+        assert ctx.effective_target_repo_name == "phase2_binding"
+    finally:
+        if ctx.ipc is not None:
+            ctx.ipc.stop()
+        ctx.status.stop()
+        ctx.logger.close()
+
+
+def test_finalize_workspace_allowlist_still_applies_with_workspace_binding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    scripts_dir = Path(__file__).parent.parent / "scripts"
+    sys.path.insert(0, str(scripts_dir))
+    from am_patch.config import Policy
+    from am_patch.engine import build_paths_and_logger
+    from am_patch.errors import RunnerError
+
+    monkeypatch.setattr(
+        "am_patch.startup_context.load_or_migrate_workspace_target_repo_name",
+        lambda *args, **kwargs: "phase2_binding",
+    )
+    policy = Policy()
+    policy.patch_dir = str(tmp_path / "patches")
+    policy.target_repo_roots = ["/home/pi/other"]
+    policy.current_log_symlink_enabled = False
+    policy.verbosity = "quiet"
+    policy.log_level = "quiet"
+    policy.json_out = False
+    policy.ipc_socket_enabled = False
+    cli = SimpleNamespace(issue_id="999", mode="finalize_workspace", finalize_from_cwd=False)
+    cfg = tmp_path / "am_patch_test.toml"
+    cfg.write_text("", encoding="utf-8")
+    with pytest.raises(RunnerError) as excinfo:
+        build_paths_and_logger(cli, policy, cfg, "test")
+    assert excinfo.value.stage == "CONFIG"
+    assert excinfo.value.category == "INVALID"
+    assert "traceback" not in str(excinfo.value).lower()

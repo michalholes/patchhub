@@ -63,7 +63,8 @@ Options:
       When MESSAGE is omitted, commit message defaults to "finalize".
 
   -w, --finalize-workspace ISSUE_ID
-      Finalize existing workspace for ISSUE_ID; commit message is read from workspace meta.json.
+      Finalize existing workspace for ISSUE_ID;
+      commit message and target repo binding are read from workspace meta.json.
 
   -o, --allow-no-op
       Allow no-op patches (override default FAIL).
@@ -133,7 +134,7 @@ WORKFLOW / MODES
 
   -w, --finalize-workspace ISSUE_ID
       Finalize an existing workspace for ISSUE_ID, including promotion, gates, commit, and push.
-      Commit message is read from workspace meta.json.
+      Commit message and target repo binding are read from workspace meta.json.
 
   --rerun-latest (-l)
       Rerun the latest archived patch for the given ISSUE_ID.

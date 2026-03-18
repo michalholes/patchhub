@@ -105,6 +105,7 @@ def _choose_target_root(
     runner_root: Path,
     registry: tuple[Path, ...],
     patch_target_repo_name: str | None,
+    workspace_target_repo_name: str | None,
 ) -> Path:
     active_target = _resolve_runner_relative(
         getattr(policy, "active_target_repo_root", None), runner_root=runner_root
@@ -117,6 +118,8 @@ def _choose_target_root(
     repo_src = _selected_source(policy, "repo_root")
     target_src = _selected_source(policy, "target_repo_name")
 
+    if workspace_target_repo_name is not None:
+        return _candidate_target_root(workspace_target_repo_name)
     if active_target is not None and active_src == "cli":
         return active_target
     if repo_root_alias is not None and repo_src == "cli":
@@ -141,6 +144,7 @@ def resolve_root_model(
     *,
     runner_root: Path,
     patch_target_repo_name: str | None = None,
+    workspace_target_repo_name: str | None = None,
 ) -> RootModel:
     runner_root = runner_root.resolve()
     artifacts_root, patch_root = resolve_patch_root(policy, runner_root=runner_root)
@@ -152,6 +156,7 @@ def resolve_root_model(
         runner_root=runner_root,
         registry=registry,
         patch_target_repo_name=patch_target_repo_name,
+        workspace_target_repo_name=workspace_target_repo_name,
     )
     if active_target != runner_root and active_target not in registry:
         raise RunnerError(

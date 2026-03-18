@@ -17,6 +17,7 @@ from am_patch.paths import default_paths, ensure_dirs
 from am_patch.repo_root import resolve_repo_root_strict_from_cwd
 from am_patch.root_model import resolve_patch_root, resolve_root_model
 from am_patch.status import StatusReporter
+from am_patch.workspace import load_or_migrate_workspace_target_repo_name
 
 
 @dataclass
@@ -62,6 +63,18 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
             if not (exc.stage == "PREFLIGHT" and exc.category == "MANIFEST"):
                 raise
 
+    workspace_target_repo_name: str | None = None
+    if cli.mode == "finalize_workspace" and cli.issue_id is not None:
+        workspace_target_repo_name = load_or_migrate_workspace_target_repo_name(
+            patch_root / policy.patch_layout_workspaces_dir,
+            str(cli.issue_id),
+            issue_dir_template=policy.workspace_issue_dir_template,
+            repo_dir_name=policy.workspace_repo_dir_name,
+            meta_filename=policy.workspace_meta_filename,
+            timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
+            write_back=False,
+        )
+
     if getattr(cli, "finalize_from_cwd", False):
         try:
             policy.active_target_repo_root = str(
@@ -79,6 +92,7 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
         patch_target_repo_name=(
             patch_plan.patch_target_repo_name if patch_plan is not None else None
         ),
+        workspace_target_repo_name=workspace_target_repo_name,
     )
     repo_root = root_model.active_target_repo_root
     patch_root = root_model.patch_root
