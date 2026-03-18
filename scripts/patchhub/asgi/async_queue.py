@@ -173,7 +173,7 @@ class AsyncJobQueue:
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._mu = asyncio.Lock()
         self._stop = asyncio.Event()
-        self._q: asyncio.Queue[str] = asyncio.Queue()
+        self._q: asyncio.Queue[str | None] = asyncio.Queue()
         self._jobs: dict[str, JobRecord] = {}
         self._task: asyncio.Task[None] | None = None
         self._brokers: dict[str, JobEventBroker] = {}
@@ -294,10 +294,17 @@ class AsyncJobQueue:
 
     async def stop(self) -> None:
         self._stop.set()
-        if self._task is not None:
-            self._task.cancel()
+        task = self._task
+        if task is None:
+            return
+        with contextlib.suppress(asyncio.QueueFull):
+            self._q.put_nowait(None)
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
+        except TimeoutError:
+            task.cancel()
             with contextlib.suppress(Exception):
-                await self._task
+                await task
 
     async def _state_local(self) -> QueueState:
         async with self._mu:
@@ -488,6 +495,10 @@ class AsyncJobQueue:
     async def _run_loop(self) -> None:
         while not self._stop.is_set():
             job_id = await self._q.get()
+            if job_id is None:
+                if self._stop.is_set():
+                    return
+                continue
             result: ExecResult | None = None
             pump_tail_timed_out = False
 
