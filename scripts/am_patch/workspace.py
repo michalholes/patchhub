@@ -106,9 +106,7 @@ def _meta_attempt(meta: dict[str, Any]) -> int:
 
 def _meta_base_sha(meta: dict[str, Any]) -> str:
     value = meta.get("base_sha", "")
-    if value is None:
-        return ""
-    if not isinstance(value, str):
+    if not isinstance(value, str) or not value.strip():
         raise RunnerError(
             "PREFLIGHT",
             "WORKSPACE",
@@ -128,6 +126,33 @@ def _meta_message(meta: dict[str, Any]) -> str | None:
             "workspace meta.json has invalid message",
         )
     return value
+
+
+def _require_workspace_meta_field(meta: dict[str, Any], field: str) -> None:
+    if field not in meta:
+        raise RunnerError(
+            "PREFLIGHT",
+            "WORKSPACE",
+            f"workspace meta.json missing required {field}",
+        )
+
+
+def _validate_workspace_meta_contract(
+    meta: dict[str, Any],
+    *,
+    require_target_repo_name: bool,
+) -> tuple[str, int, str | None, str | None]:
+    _require_workspace_meta_field(meta, "base_sha")
+    _require_workspace_meta_field(meta, "attempt")
+    _require_workspace_meta_field(meta, "message")
+    base_sha = _meta_base_sha(meta)
+    attempt = _meta_attempt(meta)
+    message = _meta_message(meta)
+    target_repo_name: str | None = None
+    if require_target_repo_name:
+        _require_workspace_meta_field(meta, "target_repo_name")
+        target_repo_name = _validate_target_repo_name(meta["target_repo_name"])
+    return base_sha, attempt, message, target_repo_name
 
 
 def _validate_target_repo_name(value: Any) -> str:
@@ -279,9 +304,8 @@ def load_or_migrate_workspace_target_repo_name(
     if not repo_dir.exists():
         raise RunnerError("PREFLIGHT", "WORKSPACE", f"workspace not found: {repo_dir}")
     meta = _read_workspace_meta_strict(meta_path)
-    target_value = meta.get("target_repo_name")
-    if target_value is not None:
-        return _validate_target_repo_name(target_value)
+    if "target_repo_name" in meta:
+        return _validate_target_repo_name(meta["target_repo_name"])
     origin = _read_repo_origin_url(repo_dir, logger=logger, timeout_s=timeout_s)
     target_repo_name = _target_repo_name_from_origin(
         origin,
@@ -324,9 +348,10 @@ def open_existing_workspace(
     if not repo_dir.exists():
         raise RunnerError("PREFLIGHT", "WORKSPACE", f"workspace not found: {repo_dir}")
     meta = _read_workspace_meta_strict(meta_path)
-    target_value = meta.get("target_repo_name")
-    if target_value is None:
-        target_repo_name = load_or_migrate_workspace_target_repo_name(
+    target_missing = "target_repo_name" not in meta
+    if target_missing:
+        _validate_workspace_meta_contract(meta, require_target_repo_name=False)
+        load_or_migrate_workspace_target_repo_name(
             workspaces_dir,
             issue_id,
             issue_dir_template=issue_dir_template,
@@ -336,15 +361,17 @@ def open_existing_workspace(
             write_back=True,
         )
         meta = _read_workspace_meta_strict(meta_path)
-    else:
-        target_repo_name = _validate_target_repo_name(target_value)
+    base_sha, attempt, message, target_repo_name = _validate_workspace_meta_contract(
+        meta,
+        require_target_repo_name=True,
+    )
     return Workspace(
         root=ws_root,
         repo=repo_dir,
         meta_path=meta_path,
-        base_sha=_meta_base_sha(meta),
-        attempt=_meta_attempt(meta),
-        message=_meta_message(meta),
+        base_sha=base_sha,
+        attempt=attempt,
+        message=message,
         target_repo_name=target_repo_name,
     )
 
@@ -379,6 +406,27 @@ def ensure_workspace(
     repo_dir = ws_root / repo_dir_name
     meta_path = ws_root / meta_filename
 
+    repo_exists = repo_dir.exists()
+    expected_target_repo_name: str | None = None
+    meta: dict[str, Any] = {}
+    if repo_exists:
+        meta = _read_workspace_meta_strict(meta_path)
+        _, existing_attempt, _, _ = _validate_workspace_meta_contract(
+            meta,
+            require_target_repo_name=False,
+        )
+        expected_target_repo_name = _expected_workspace_target_repo_name(
+            live_repo,
+            logger=logger,
+        )
+        attempt = existing_attempt + 1
+    else:
+        expected_target_repo_name = _expected_workspace_target_repo_name(
+            live_repo,
+            logger=logger,
+        )
+        attempt = 1
+
     # Per-issue history (kept until workspace deletion on successful runs).
     # - logs/: current run log only
     # - oldlogs/: prior run logs
@@ -389,12 +437,7 @@ def ensure_workspace(
     (ws_root / history_patches_dir).mkdir(parents=True, exist_ok=True)
     (ws_root / history_oldpatches_dir).mkdir(parents=True, exist_ok=True)
 
-    meta: dict[str, Any] = {}
-    if repo_dir.exists():
-        meta = _read_workspace_meta_strict(meta_path)
-    attempt = _meta_attempt(meta) + 1 if meta else 1
-
-    if not repo_dir.exists():
+    if not repo_exists:
         logger.section("WORKSPACE CREATE")
         logger.info_core(f"workspace=create issue={issue_id} base_sha={base_sha}")
         ws_root.mkdir(parents=True, exist_ok=True)
@@ -405,18 +448,16 @@ def ensure_workspace(
         if r2.returncode != 0:
             raise RunnerError("PREFLIGHT", "GIT", f"git checkout {base_sha} failed in workspace")
 
-        target_repo_name = _expected_workspace_target_repo_name(live_repo, logger=logger)
         meta = {
             "base_sha": base_sha,
             "attempt": attempt,
             "message": message,
-            "target_repo_name": target_repo_name,
+            "target_repo_name": expected_target_repo_name,
         }
         _write_meta(meta_path, meta)
     else:
         logger.section("WORKSPACE REUSE")
         logger.info_core(f"workspace=reuse issue={issue_id} base_sha={base_sha}")
-        expected_target_repo_name = _expected_workspace_target_repo_name(live_repo, logger=logger)
         persisted_target_repo_name = load_or_migrate_workspace_target_repo_name(
             workspaces_dir,
             issue_id,
@@ -426,14 +467,17 @@ def ensure_workspace(
             logger=logger,
             write_back=True,
         )
+        meta = _read_workspace_meta_strict(meta_path)
+        persisted, _, _, _ = _validate_workspace_meta_contract(
+            meta,
+            require_target_repo_name=True,
+        )
         if persisted_target_repo_name != expected_target_repo_name:
             raise RunnerError(
                 "PREFLIGHT",
                 "WORKSPACE",
                 "workspace target_repo_name does not match selected live target",
             )
-        meta.setdefault("message", meta.get("message"))
-        persisted = _meta_base_sha(meta) or base_sha
 
         if soft_reset:
             r = logger.run_logged(["git", "reset", "--hard", persisted], cwd=repo_dir)
@@ -457,17 +501,18 @@ def ensure_workspace(
         _write_meta(meta_path, meta)
 
     meta2 = _read_workspace_meta_strict(meta_path)
-    target_value = meta2.get("target_repo_name")
+    base_sha2, attempt2, message2, target_repo_name2 = _validate_workspace_meta_contract(
+        meta2,
+        require_target_repo_name=True,
+    )
     return Workspace(
         root=ws_root,
         repo=repo_dir,
         meta_path=meta_path,
-        base_sha=_meta_base_sha(meta2) or base_sha,
-        attempt=attempt,
-        message=_meta_message(meta2),
-        target_repo_name=(
-            _validate_target_repo_name(target_value) if target_value is not None else None
-        ),
+        base_sha=base_sha2,
+        attempt=attempt2,
+        message=message2,
+        target_repo_name=target_repo_name2,
     )
 
 
