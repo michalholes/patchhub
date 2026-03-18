@@ -206,9 +206,7 @@ def enforce_scope_delta(
             )
         ]
         if outside and not allow_outside_files:
-            raise RunnerError(
-                "SCOPE", "SCOPE", "touched undeclared paths: " + ", ".join(outside)
-            )
+            raise RunnerError("SCOPE", "SCOPE", "touched undeclared paths: " + ", ".join(outside))
     else:
         if no_op_fail and not allow_no_op:
             raise RunnerError("SCOPE", "NOOP", "no changes made")
@@ -216,8 +214,6 @@ def enforce_scope_delta(
     if declared_untouched_fail and not allow_declared_untouched:
         untouched = [p for p in sorted(declared) if p not in set(touched)]
         if untouched:
-            raise RunnerError(
-                "SCOPE", "SCOPE", "declared but not touched: " + ", ".join(untouched)
-            )
+            raise RunnerError("SCOPE", "SCOPE", "declared but not touched: " + ", ".join(untouched))
 
     return touched

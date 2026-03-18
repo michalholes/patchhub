@@ -102,9 +102,7 @@ def test_normalize_failure_summary_maps_audit_failures() -> None:
     ) = _import_am_patch()
 
     stage, reason = _normalize_failure_summary(
-        error=runner_error_cls(
-            "AUDIT", "AUDIT_REPORT_FAILED", "audit/audit_report.py failed"
-        ),
+        error=runner_error_cls("AUDIT", "AUDIT_REPORT_FAILED", "audit/audit_report.py failed"),
         primary_fail_stage=None,
         secondary_failures=[],
         parse_gate_list=parse_gate_list,

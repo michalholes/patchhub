@@ -38,9 +38,7 @@ class AppendOverride(argparse.Action):
             ov = []
             namespace.overrides = ov
         if values is None or (
-            not isinstance(values, str)
-            and isinstance(values, Sequence)
-            and len(values) == 0
+            not isinstance(values, str) and isinstance(values, Sequence) and len(values) == 0
         ):
             v = self._const_value if self._const_value is not None else "true"
         elif isinstance(values, str):
@@ -189,9 +187,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         action="store_true",
         default=None,
     )
-    p.add_argument(
-        "-r", "--run-all-gates", dest="run_all_tests", action="store_true", default=None
-    )
+    p.add_argument("-r", "--run-all-gates", dest="run_all_tests", action="store_true", default=None)
     p.add_argument(
         "-g",
         "--allow-gates-fail",
@@ -199,18 +195,10 @@ def parse_args(argv: list[str]) -> CliArgs:
         action="store_true",
         default=None,
     )
-    p.add_argument(
-        "-o", "--allow-no-op", dest="allow_no_op", action="store_true", default=None
-    )
-    p.add_argument(
-        "-u", "--unified-patch", dest="unified_patch", action="store_true", default=None
-    )
-    p.add_argument(
-        "-p", "--patch-strip", dest="patch_strip", metavar="N", type=int, default=None
-    )
-    p.add_argument(
-        "-c", "--show-config", dest="show_config", action="store_true", default=False
-    )
+    p.add_argument("-o", "--allow-no-op", dest="allow_no_op", action="store_true", default=None)
+    p.add_argument("-u", "--unified-patch", dest="unified_patch", action="store_true", default=None)
+    p.add_argument("-p", "--patch-strip", dest="patch_strip", metavar="N", type=int, default=None)
+    p.add_argument("-c", "--show-config", dest="show_config", action="store_true", default=False)
     p.add_argument(
         "-f",
         "--finalize-live",
@@ -344,9 +332,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         key="patch_layout_unsuccessful_dir",
         dest="overrides",
     )
-    p.add_argument(
-        "--lockfile-name", action=AppendOverride, key="lockfile_name", dest="overrides"
-    )
+    p.add_argument("--lockfile-name", action=AppendOverride, key="lockfile_name", dest="overrides")
     p.add_argument(
         "--current-log-symlink-name",
         action=AppendOverride,
@@ -370,9 +356,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         nargs=0,
     )
 
-    p.add_argument(
-        "--log-ts-format", action=AppendOverride, key="log_ts_format", dest="overrides"
-    )
+    p.add_argument("--log-ts-format", action=AppendOverride, key="log_ts_format", dest="overrides")
     p.add_argument(
         "--log-template-issue",
         action=AppendOverride,
@@ -524,13 +508,9 @@ def parse_args(argv: list[str]) -> CliArgs:
         const_value="overwrite_workspace",
         nargs=0,
     )
-    p.add_argument(
-        "--keep-workspace", dest="keep_workspace", action="store_true", default=None
-    )
+    p.add_argument("--keep-workspace", dest="keep_workspace", action="store_true", default=None)
     p.add_argument("--test-mode", dest="test_mode", action="store_true", default=None)
-    p.add_argument(
-        "--no-compile-check", dest="compile_check", action="store_false", default=None
-    )
+    p.add_argument("--no-compile-check", dest="compile_check", action="store_false", default=None)
     p.add_argument(
         "--success-archive-name",
         dest="success_archive_name",
@@ -561,18 +541,10 @@ def parse_args(argv: list[str]) -> CliArgs:
     )
 
     vg = p.add_mutually_exclusive_group()
-    vg.add_argument(
-        "-q", dest="verbosity", action="store_const", const="quiet", default=None
-    )
-    vg.add_argument(
-        "-v", dest="verbosity", action="store_const", const="verbose", default=None
-    )
-    vg.add_argument(
-        "-n", dest="verbosity", action="store_const", const="normal", default=None
-    )
-    vg.add_argument(
-        "-d", dest="verbosity", action="store_const", const="debug", default=None
-    )
+    vg.add_argument("-q", dest="verbosity", action="store_const", const="quiet", default=None)
+    vg.add_argument("-v", dest="verbosity", action="store_const", const="verbose", default=None)
+    vg.add_argument("-n", dest="verbosity", action="store_const", const="normal", default=None)
+    vg.add_argument("-d", dest="verbosity", action="store_const", const="debug", default=None)
     vg.add_argument(
         "--verbosity",
         dest="verbosity",
@@ -614,23 +586,15 @@ def parse_args(argv: list[str]) -> CliArgs:
     )
 
     p.add_argument("--skip-ruff", dest="skip_ruff", action="store_true", default=None)
-    p.add_argument(
-        "--skip-pytest", dest="skip_pytest", action="store_true", default=None
-    )
+    p.add_argument("--skip-pytest", dest="skip_pytest", action="store_true", default=None)
     p.add_argument("--skip-mypy", dest="skip_mypy", action="store_true", default=None)
     p.add_argument("--skip-js", dest="skip_js", action="store_true", default=None)
     p.add_argument("--skip-docs", dest="skip_docs", action="store_true", default=None)
-    p.add_argument(
-        "--skip-monolith", dest="skip_monolith", action="store_true", default=None
-    )
-    p.add_argument(
-        "--skip-dont-touch", dest="skip_dont_touch", action="store_true", default=None
-    )
+    p.add_argument("--skip-monolith", dest="skip_monolith", action="store_true", default=None)
+    p.add_argument("--skip-dont-touch", dest="skip_dont_touch", action="store_true", default=None)
 
     p.add_argument("--skip-biome", dest="skip_biome", action="store_true", default=None)
-    p.add_argument(
-        "--skip-typescript", dest="skip_typescript", action="store_true", default=None
-    )
+    p.add_argument("--skip-typescript", dest="skip_typescript", action="store_true", default=None)
 
     p.add_argument(
         "--biome-autofix",
@@ -722,15 +686,9 @@ def parse_args(argv: list[str]) -> CliArgs:
         default=None,
         metavar="{never,always,repair_only}",
     )
-    p.add_argument(
-        "--docs-include", dest="docs_include", nargs="?", const="", default=None
-    )
-    p.add_argument(
-        "--docs-exclude", dest="docs_exclude", nargs="?", const="", default=None
-    )
-    p.add_argument(
-        "--gates-order", dest="gates_order", nargs="?", const="", default=None
-    )
+    p.add_argument("--docs-include", dest="docs_include", nargs="?", const="", default=None)
+    p.add_argument("--docs-exclude", dest="docs_exclude", nargs="?", const="", default=None)
+    p.add_argument("--gates-order", dest="gates_order", nargs="?", const="", default=None)
 
     p.add_argument(
         "--ruff-autofix-legalize-outside",
@@ -825,15 +783,9 @@ def parse_args(argv: list[str]) -> CliArgs:
         default=None,
     )
 
-    p.add_argument(
-        "--skip-up-to-date", dest="skip_up_to_date", action="store_true", default=None
-    )
-    p.add_argument(
-        "--allow-non-main", dest="allow_non_main", action="store_true", default=None
-    )
-    p.add_argument(
-        "--update-workspace", dest="update_workspace", action="store_true", default=None
-    )
+    p.add_argument("--skip-up-to-date", dest="skip_up_to_date", action="store_true", default=None)
+    p.add_argument("--allow-non-main", dest="allow_non_main", action="store_true", default=None)
+    p.add_argument("--update-workspace", dest="update_workspace", action="store_true", default=None)
     p.add_argument(
         "--soft-reset-workspace",
         dest="soft_reset_workspace",
@@ -961,9 +913,7 @@ def parse_args(argv: list[str]) -> CliArgs:
             apply_failure_partial_gates_policy=getattr(
                 ns, "apply_failure_partial_gates_policy", None
             ),
-            apply_failure_zero_gates_policy=getattr(
-                ns, "apply_failure_zero_gates_policy", None
-            ),
+            apply_failure_zero_gates_policy=getattr(ns, "apply_failure_zero_gates_policy", None),
             docs_include=getattr(ns, "docs_include", None),
             docs_exclude=getattr(ns, "docs_exclude", None),
             gates_order=ns.gates_order,
@@ -995,9 +945,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         patch_script = None
         message = ns.finalize_message
         if ns.rest:
-            raise SystemExit(
-                "finalize mode (-f/--finalize-live) must not include positional args"
-            )
+            raise SystemExit("finalize mode (-f/--finalize-live) must not include positional args")
     else:
         mode = "workspace"
         if len(ns.rest) < 2:
@@ -1052,12 +1000,8 @@ def parse_args(argv: list[str]) -> CliArgs:
         skip_js=getattr(ns, "skip_js", None),
         skip_docs=getattr(ns, "skip_docs", None),
         skip_monolith=getattr(ns, "skip_monolith", None),
-        apply_failure_partial_gates_policy=getattr(
-            ns, "apply_failure_partial_gates_policy", None
-        ),
-        apply_failure_zero_gates_policy=getattr(
-            ns, "apply_failure_zero_gates_policy", None
-        ),
+        apply_failure_partial_gates_policy=getattr(ns, "apply_failure_partial_gates_policy", None),
+        apply_failure_zero_gates_policy=getattr(ns, "apply_failure_zero_gates_policy", None),
         docs_include=getattr(ns, "docs_include", None),
         docs_exclude=getattr(ns, "docs_exclude", None),
         gates_order=ns.gates_order,

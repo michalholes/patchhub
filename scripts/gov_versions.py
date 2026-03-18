@@ -89,9 +89,7 @@ def load_versions(repo_root: Path) -> list[DocVersion]:
             raise GovVersionError(f"failed to read {p}: {e}") from e
         ver, count = read_version_line(text)
         if count > 1:
-            raise GovVersionError(
-                f"ambiguous Version: line (multiple matches in header) in {p}"
-            )
+            raise GovVersionError(f"ambiguous Version: line (multiple matches in header) in {p}")
         out.append(DocVersion(path=p, version=ver))
     return out
 
@@ -111,15 +109,11 @@ def validate(versions: list[DocVersion], mode: str) -> None:
         assert dv.version is not None
 
     invalid = [
-        dv
-        for dv in versions
-        if dv.version is not None and not VERSION_VALUE_RE.match(dv.version)
+        dv for dv in versions if dv.version is not None and not VERSION_VALUE_RE.match(dv.version)
     ]
     if invalid:
         pairs = ", ".join(f"{dv.path.name}={dv.version}" for dv in invalid)
-        raise GovVersionError(
-            f"invalid Version: format (expected X.Y or vX.Y): {pairs}"
-        )
+        raise GovVersionError(f"invalid Version: format (expected X.Y or vX.Y): {pairs}")
 
     uniq = sorted({dv.version for dv in versions if dv.version is not None})
     if len(uniq) != 1:
@@ -151,9 +145,7 @@ def cmd_list(repo_root: Path, versions: list[DocVersion]) -> int:
 def set_version(repo_root: Path, new_version: str, dry_run: bool) -> int:
     # Ensure --set-version accepts exactly the same formats as --check.
     if not VERSION_VALUE_RE.match(new_version):
-        raise GovVersionError(
-            f"invalid Version: format (expected X.Y or vX.Y): {new_version}"
-        )
+        raise GovVersionError(f"invalid Version: format (expected X.Y or vX.Y): {new_version}")
 
     # Normalization rule: --set-version accepts X.Y or vX.Y, but always writes vX.Y.
     write_version = new_version if new_version.startswith("v") else f"v{new_version}"
@@ -228,9 +220,7 @@ def run(argv: list[str]) -> int:
     try:
         ns = parse_args(argv)
         repo_root = (
-            Path(ns.repo_root).resolve()
-            if ns.repo_root
-            else autodetect_repo_root(Path.cwd())
+            Path(ns.repo_root).resolve() if ns.repo_root else autodetect_repo_root(Path.cwd())
         )
 
         if ns.set_version:

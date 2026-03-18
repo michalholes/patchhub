@@ -40,11 +40,7 @@ def _bootstrap_venv_policy(argv: list[str]) -> tuple[str, str]:
 
     # CLI-only config selection for bootstrap.
     cfg_arg = _bootstrap_get_arg(argv, "--config")
-    cfg_path = (
-        Path(cfg_arg)
-        if cfg_arg
-        else (_REPO_ROOT / "scripts" / "am_patch" / "am_patch.toml")
-    )
+    cfg_path = Path(cfg_arg) if cfg_arg else (_REPO_ROOT / "scripts" / "am_patch" / "am_patch.toml")
     if cfg_path and not cfg_path.is_absolute():
         cfg_path = _REPO_ROOT / cfg_path
 
@@ -175,12 +171,8 @@ def _is_under(child: Path, parent: Path) -> bool:
     return is_under(child, parent)
 
 
-def _select_latest_issue_patch(
-    *, patch_dir: Path, issue_id: str, hint_name: str | None
-) -> Path:
-    return select_latest_issue_patch(
-        patch_dir=patch_dir, issue_id=issue_id, hint_name=hint_name
-    )
+def _select_latest_issue_patch(*, patch_dir: Path, issue_id: str, hint_name: str | None) -> Path:
+    return select_latest_issue_patch(patch_dir=patch_dir, issue_id=issue_id, hint_name=hint_name)
 
 
 def _workspace_history_dirs(
@@ -297,9 +289,7 @@ def main(argv: list[str]) -> int:
                 delay = (
                     int(getattr(policy, "ipc_socket_cleanup_delay_success_s", 0) or 0)
                     if exit_code == 0
-                    else int(
-                        getattr(policy, "ipc_socket_cleanup_delay_failure_s", 0) or 0
-                    )
+                    else int(getattr(policy, "ipc_socket_cleanup_delay_failure_s", 0) or 0)
                 )
                 if delay > 0:
                     threading.Event().wait(float(delay))

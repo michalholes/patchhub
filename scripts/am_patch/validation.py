@@ -93,18 +93,14 @@ def _run_badguys(
     if not command:
         command = ["badguys/badguys.py", "-q"]
 
-    cwd_mode = (
-        str(getattr(policy, "gate_badguys_cwd", "auto") or "auto").strip().lower()
-    )
+    cwd_mode = str(getattr(policy, "gate_badguys_cwd", "auto") or "auto").strip().lower()
     if cwd_mode not in ("auto", "workspace", "clone", "live"):
         cwd_mode = "auto"
     logger.line(f"gate_badguys_cwd={cwd_mode}")
 
     run_cwd = cwd
     isolated_repo: Path | None = None
-    if cwd_mode == "clone" or (
-        cwd_mode == "auto" and cwd.resolve() == repo_root.resolve()
-    ):
+    if cwd_mode == "clone" or (cwd_mode == "auto" and cwd.resolve() == repo_root.resolve()):
         tag = f"{cli_mode}_{issue_id or 'noissue'}"
         isolated_repo = paths.workspaces_dir / "_badguys_gate" / tag
         if isolated_repo.exists():

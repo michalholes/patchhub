@@ -40,9 +40,7 @@ def _copy_dict(value: Any) -> dict[str, Any]:
     return deepcopy(value)
 
 
-def ensure_allowed_keys(
-    *, table: dict[str, Any], allowed: set[str], label: str
-) -> None:
+def ensure_allowed_keys(*, table: dict[str, Any], allowed: set[str], label: str) -> None:
     extra = sorted(set(table) - allowed)
     if extra:
         joined = ", ".join(extra)
@@ -79,11 +77,7 @@ def step_recipe(
     steps = recipe.get("steps", {})
     if not isinstance(steps, dict):
         return {}
-    item = (
-        steps.get(str(step_index))
-        if str(step_index) in steps
-        else steps.get(step_index)
-    )
+    item = steps.get(str(step_index)) if str(step_index) in steps else steps.get(step_index)
     if item is None:
         return {}
     if not isinstance(item, dict):
@@ -108,9 +102,7 @@ def _legacy_assets(raw: dict[str, Any], test_id: str) -> dict[str, Any]:
     if assets is None:
         return {}
     if not isinstance(assets, dict):
-        raise SystemExit(
-            f"FAIL: bdg recipe: recipes.tests.{test_id}.assets must be a table"
-        )
+        raise SystemExit(f"FAIL: bdg recipe: recipes.tests.{test_id}.assets must be a table")
     return _copy_dict(assets)
 
 
@@ -152,9 +144,7 @@ def validate_test_config_boundary(
     )
     steps = recipe.get("steps", {})
     if not isinstance(steps, dict):
-        raise SystemExit(
-            f"FAIL: bdg recipe: recipes.tests.{test_id}.steps must be a table"
-        )
+        raise SystemExit(f"FAIL: bdg recipe: recipes.tests.{test_id}.steps must be a table")
 
     for key, item in steps.items():
         if isinstance(key, str) and key.isdigit():

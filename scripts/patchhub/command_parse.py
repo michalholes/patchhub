@@ -64,9 +64,7 @@ def parse_runner_command(raw: str) -> ParsedCommand:
         except GateArgvError as e:
             raise CommandParseError(str(e)) from e
         if len(pos) != 1:
-            raise CommandParseError(
-                "finalize_live requires exactly one MESSAGE argument"
-            )
+            raise CommandParseError("finalize_live requires exactly one MESSAGE argument")
         message = pos[0]
         if not message:
             raise CommandParseError("MESSAGE is empty")
@@ -91,9 +89,7 @@ def parse_runner_command(raw: str) -> ParsedCommand:
         pos.remove("-w")
         pos, gate_argv = split_gate_argv(pos)
         if len(pos) != 1:
-            raise CommandParseError(
-                "finalize_workspace requires exactly one ISSUE_ID argument"
-            )
+            raise CommandParseError("finalize_workspace requires exactly one ISSUE_ID argument")
         issue_id = pos[0]
         if not issue_id.isdigit():
             raise CommandParseError("ISSUE_ID must be digits")

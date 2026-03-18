@@ -55,14 +55,10 @@ def _subject_relpath(
     field_name: str,
 ) -> str:
     if not isinstance(subject_name, str) or not subject_name:
-        raise SystemExit(
-            f"FAIL: bdg: {test_id}.{asset_id}.{field_name} must be a string"
-        )
+        raise SystemExit(f"FAIL: bdg: {test_id}.{asset_id}.{field_name} must be a string")
     rel_path = subjects.get(subject_name)
     if rel_path is None:
-        raise SystemExit(
-            f"FAIL: bdg: missing subject '{subject_name}' for {test_id}.{asset_id}"
-        )
+        raise SystemExit(f"FAIL: bdg: missing subject '{subject_name}' for {test_id}.{asset_id}")
     return rel_path
 
 
@@ -74,9 +70,7 @@ def _string_list(
     field_name: str,
 ) -> list[str]:
     if not (isinstance(value, list) and all(isinstance(item, str) for item in value)):
-        raise SystemExit(
-            f"FAIL: bdg: {test_id}.{asset_id}.{field_name} must be list[str]"
-        )
+        raise SystemExit(f"FAIL: bdg: {test_id}.{asset_id}.{field_name} must be list[str]")
     return list(value)
 
 
@@ -164,9 +158,7 @@ def _format_toml_value(value: object) -> str:
         return json.dumps(value)
     if isinstance(value, list):
         return "[" + ", ".join(_format_toml_value(item) for item in value) + "]"
-    raise SystemExit(
-        f"FAIL: bdg materializer: unsupported TOML value: {type(value).__name__}"
-    )
+    raise SystemExit(f"FAIL: bdg materializer: unsupported TOML value: {type(value).__name__}")
 
 
 def _dump_toml_sections(data: dict[str, Any]) -> str:
@@ -174,9 +166,7 @@ def _dump_toml_sections(data: dict[str, Any]) -> str:
     for section in ("suite", "lock", "guard", "filters", "runner"):
         table = data.get(section, {})
         if not isinstance(table, dict):
-            raise SystemExit(
-                f"FAIL: bdg materializer: section '{section}' must be a table"
-            )
+            raise SystemExit(f"FAIL: bdg materializer: section '{section}' must be a table")
         parts.append(f"[{section}]")
         for key in sorted(table.keys()):
             parts.append(f"{key} = {_format_toml_value(table[key])}")
@@ -192,13 +182,7 @@ def materialize_assets(
     bdg: BdgTest,
 ) -> MaterializedAssets:
     validate_test_config_boundary(repo_root=repo_root, config_path=config_path, bdg=bdg)
-    root = (
-        repo_root
-        / "patches"
-        / "badguys_artifacts"
-        / f"issue_{subst.issue_id}"
-        / bdg.test_id
-    )
+    root = repo_root / "patches" / "badguys_artifacts" / f"issue_{subst.issue_id}" / bdg.test_id
     root.mkdir(parents=True, exist_ok=True)
     files: dict[str, Path] = {}
     subjects = dict(bdg.subjects)
@@ -268,9 +252,7 @@ def _materialize_patch_asset(
     safe_id = _safe_name(asset.asset_id)
     path = patches_dir / f"issue_{subst.issue_id}__bdg__{safe_test}__{safe_id}.patch"
     content = subst_text(asset.content or "", ctx=subst)
-    path.write_text(
-        _build_git_add_file_patch(rel_path=rel_path, text=content), encoding="utf-8"
-    )
+    path.write_text(_build_git_add_file_patch(rel_path=rel_path, text=content), encoding="utf-8")
     return path
 
 
@@ -284,9 +266,7 @@ def _zip_entry_bytes(
 ) -> tuple[str, bytes]:
     zip_name = entry.zip_name
     if not isinstance(zip_name, str) or not zip_name:
-        raise SystemExit(
-            f"FAIL: bdg: missing zip_name for {test_id}.{asset_id}.{entry.name}"
-        )
+        raise SystemExit(f"FAIL: bdg: missing zip_name for {test_id}.{asset_id}.{entry.name}")
     if entry.kind == "git_patch_text":
         rel_path = _subject_relpath(
             subjects=subjects,
@@ -316,9 +296,7 @@ def _zip_entry_bytes(
             asset_id=f"{asset_id}.{entry.name}",
         ).encode("utf-8")
         return zip_name, data
-    raise SystemExit(
-        f"FAIL: bdg: unsupported zip entry kind for {test_id}.{asset_id}.{entry.name}"
-    )
+    raise SystemExit(f"FAIL: bdg: unsupported zip entry kind for {test_id}.{asset_id}.{entry.name}")
 
 
 def _materialize_zip_asset(
@@ -374,9 +352,7 @@ def _materialize_one(
         delta_raw = subst_text(asset.content or "", ctx=subst)
         delta = tomllib.loads(delta_raw) if delta_raw.strip() else {}
         if not isinstance(delta, dict):
-            raise SystemExit(
-                "FAIL: bdg materializer: toml_text delta must decode to a table"
-            )
+            raise SystemExit("FAIL: bdg materializer: toml_text delta must decode to a table")
         merged = _deep_merge(base, delta)
         path.write_text(_dump_toml_sections(merged), encoding="utf-8")
         return path

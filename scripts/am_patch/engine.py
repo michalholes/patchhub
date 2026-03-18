@@ -64,9 +64,7 @@ def _detect_engine_roots(module_file: str | Path | None = None) -> tuple[Path, P
     module_path = Path(module_file) if module_file is not None else Path(__file__)
     package_dir = module_path.resolve().parent
     if package_dir.name != "am_patch":
-        raise RunnerError(
-            "CONFIG", "INVALID", f"unexpected am_patch package path: {package_dir}"
-        )
+        raise RunnerError("CONFIG", "INVALID", f"unexpected am_patch package path: {package_dir}")
     import_root = package_dir.parent
     if import_root.name == "scripts" and (import_root / "am_patch").is_dir():
         runner_root = import_root.parent
@@ -88,12 +86,8 @@ def _is_under(child: Path, parent: Path) -> bool:
     return is_under(child, parent)
 
 
-def _select_latest_issue_patch(
-    *, patch_dir: Path, issue_id: str, hint_name: str | None
-) -> Path:
-    return select_latest_issue_patch(
-        patch_dir=patch_dir, issue_id=issue_id, hint_name=hint_name
-    )
+def _select_latest_issue_patch(*, patch_dir: Path, issue_id: str, hint_name: str | None) -> Path:
+    return select_latest_issue_patch(patch_dir=patch_dir, issue_id=issue_id, hint_name=hint_name)
 
 
 def build_effective_policy(argv: list[str]) -> int | tuple[Any, Policy, Path, str]:
@@ -138,13 +132,7 @@ def build_effective_policy(argv: list[str]) -> int | tuple[Any, Policy, Path, st
                     getattr(cli, "gates_order", None) is not None
                     and str(cli.gates_order).strip() == ""
                 )
-                else (
-                    [
-                        s.strip().lower()
-                        for s in str(cli.gates_order).split(",")
-                        if s.strip()
-                    ]
-                )
+                else ([s.strip().lower() for s in str(cli.gates_order).split(",") if s.strip()])
                 if getattr(cli, "gates_order", None) is not None
                 else None
             ),
@@ -154,9 +142,7 @@ def build_effective_policy(argv: list[str]) -> int | tuple[Any, Policy, Path, st
                     getattr(cli, "docs_include", None) is not None
                     and str(cli.docs_include).strip() == ""
                 )
-                else (
-                    [s.strip() for s in str(cli.docs_include).split(",") if s.strip()]
-                )
+                else ([s.strip() for s in str(cli.docs_include).split(",") if s.strip()])
                 if getattr(cli, "docs_include", None) is not None
                 else None
             ),
@@ -166,21 +152,15 @@ def build_effective_policy(argv: list[str]) -> int | tuple[Any, Policy, Path, st
                     getattr(cli, "docs_exclude", None) is not None
                     and str(cli.docs_exclude).strip() == ""
                 )
-                else (
-                    [s.strip() for s in str(cli.docs_exclude).split(",") if s.strip()]
-                )
+                else ([s.strip() for s in str(cli.docs_exclude).split(",") if s.strip()])
                 if getattr(cli, "docs_exclude", None) is not None
                 else None
             ),
-            "ruff_autofix_legalize_outside": getattr(
-                cli, "ruff_autofix_legalize_outside", None
-            ),
+            "ruff_autofix_legalize_outside": getattr(cli, "ruff_autofix_legalize_outside", None),
             "soft_reset_workspace": cli.soft_reset_workspace,
             "enforce_allowed_files": cli.enforce_allowed_files,
             # New safety + gate controls
-            "rollback_workspace_on_fail": getattr(
-                cli, "rollback_workspace_on_fail", None
-            ),
+            "rollback_workspace_on_fail": getattr(cli, "rollback_workspace_on_fail", None),
             "live_repo_guard": getattr(cli, "live_repo_guard", None),
             "patch_jail": getattr(cli, "patch_jail", None),
             "patch_jail_unshare_net": getattr(cli, "patch_jail_unshare_net", None),
@@ -346,15 +326,11 @@ def run_mode(ctx: RunContext) -> RunResult:
             )
 
             changed_after_finalize_gates = changed_paths(logger, repo_root)
-            issue_diff_paths = sorted(
-                set(issue_diff_paths) | set(changed_after_finalize_gates)
-            )
+            issue_diff_paths = sorted(set(issue_diff_paths) | set(changed_after_finalize_gates))
 
             _maybe_run_badguys(cwd=repo_root, decision_paths=decision_paths_finalize)
             if policy.commit_and_push:
-                commit_sha = git_ops.commit(
-                    logger, repo_root, cli.message or "finalize"
-                )
+                commit_sha = git_ops.commit(logger, repo_root, cli.message or "finalize")
                 push_ok = git_ops.push(
                     logger,
                     repo_root,
@@ -500,9 +476,7 @@ def run_mode(ctx: RunContext) -> RunResult:
 
             else:
                 try:
-                    run_patch(
-                        logger, patch_script, workspace_repo=ws.repo, policy=policy
-                    )
+                    run_patch(logger, patch_script, workspace_repo=ws.repo, policy=policy)
                     patch_applied_any = True
                     applied_ok_count = 1
                 except RunnerError as e:
@@ -588,9 +562,7 @@ def run_mode(ctx: RunContext) -> RunResult:
         if policy.allow_outside_files:
             # Spec: -a must also legalize any touched paths into allowed_union for this ISSUE_ID.
             st = update_union(st, touched)
-            logger.line(
-                f"legalized_outside_files={sorted(set(touched) - set(files_current))}"
-            )
+            logger.line(f"legalized_outside_files={sorted(set(touched) - set(files_current))}")
         save_state(ws.root, st)
         logger.section("ISSUE STATE (after)")
         logger.line(f"allowed_union={sorted(st.allowed_union)}")
@@ -617,9 +589,7 @@ def run_mode(ctx: RunContext) -> RunResult:
 
             # Apply failed but gates were explicitly requested by policy.
             # Emit exactly one line (screen-visible only at verbose/debug).
-            logger.line(
-                "continuing_to_workspace_gates_due_to_patch_apply_failure_policy"
-            )
+            logger.line("continuing_to_workspace_gates_due_to_patch_apply_failure_policy")
             defer_patch_apply_failure = True
 
         # Gates in workspace (NO rollback)
@@ -671,9 +641,7 @@ def run_mode(ctx: RunContext) -> RunResult:
 
         # Ruff autofix may introduce additional changes after the patch. When enabled,
         # automatically legalize ruff-only changes outside FILES (bounded to ruff_targets).
-        if policy.ruff_autofix and getattr(
-            policy, "ruff_autofix_legalize_outside", True
-        ):
+        if policy.ruff_autofix and getattr(policy, "ruff_autofix_legalize_outside", True):
             patch_set = set(dirty_after_patch)
             now_set = set(dirty_all)
             ruff_only = sorted(p for p in (now_set - patch_set) if p)
@@ -683,9 +651,7 @@ def run_mode(ctx: RunContext) -> RunResult:
                     st = update_union(st, legalized)
                     save_state(ws.root, st)
                     logger.line(f"legalized_ruff_autofix_files={legalized}")
-        if policy.biome_format and getattr(
-            policy, "biome_format_legalize_outside", True
-        ):
+        if policy.biome_format and getattr(policy, "biome_format_legalize_outside", True):
             patch_set = set(dirty_after_patch)
             now_set = set(dirty_all)
             biome_only = sorted(p for p in (now_set - patch_set) if p)
@@ -698,9 +664,7 @@ def run_mode(ctx: RunContext) -> RunResult:
                     st = update_union(st, legalized)
                     save_state(ws.root, st)
                     logger.line(f"legalized_biome_format_files={legalized}")
-        if policy.biome_autofix and getattr(
-            policy, "biome_autofix_legalize_outside", True
-        ):
+        if policy.biome_autofix and getattr(policy, "biome_autofix_legalize_outside", True):
             patch_set = set(dirty_after_patch)
             now_set = set(dirty_all)
             biome_only = sorted(p for p in (now_set - patch_set) if p)
@@ -716,9 +680,7 @@ def run_mode(ctx: RunContext) -> RunResult:
         if defer_patch_apply_failure:
             # Ensure failure archive includes any gate-induced changes.
             files_for_fail_zip = sorted(set(files_for_fail_zip) | set(dirty_all))
-            raise RunnerError(
-                "PATCH", "PATCH_APPLY", primary_fail_reason or "patch apply failed"
-            )
+            raise RunnerError("PATCH", "PATCH_APPLY", primary_fail_reason or "patch apply failed")
 
         promotion_plan = build_allowed_union_promotion_plan(
             logger=logger,
@@ -750,9 +712,7 @@ def run_mode(ctx: RunContext) -> RunResult:
         push_ok_for_posthook = promotion_summary.push_ok_for_posthook
         final_commit_sha = promotion_summary.final_commit_sha
         final_pushed_files = promotion_summary.final_pushed_files
-        delete_workspace_after_archive = (
-            promotion_summary.delete_workspace_after_archive
-        )
+        delete_workspace_after_archive = promotion_summary.delete_workspace_after_archive
 
         used_patch_for_zip = archive_patch(logger, patch_script, paths.successful_dir)
         drop_checkpoint(logger, ws.repo, ckpt)

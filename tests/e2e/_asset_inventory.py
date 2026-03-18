@@ -30,15 +30,11 @@ def _js_loaded_script_paths(path: Path) -> set[str]:
 
 
 def active_web_interface_paths() -> set[str]:
-    return _html_script_paths(
-        REPO_ROOT / "plugins" / "web_interface" / "ui" / "index.html"
-    )
+    return _html_script_paths(REPO_ROOT / "plugins" / "web_interface" / "ui" / "index.html")
 
 
 def active_import_ui_paths() -> set[str]:
-    return _html_script_paths(
-        REPO_ROOT / "plugins" / "import" / "ui" / "web" / "index.html"
-    )
+    return _html_script_paths(REPO_ROOT / "plugins" / "import" / "ui" / "web" / "index.html")
 
 
 def active_patchhub_main_paths() -> set[str]:
@@ -48,16 +44,12 @@ def active_patchhub_main_paths() -> set[str]:
     bootstrap_paths = _js_loaded_script_paths(
         REPO_ROOT / "scripts" / "patchhub" / "static" / "patchhub_bootstrap.js"
     )
-    app_paths = _js_loaded_script_paths(
-        REPO_ROOT / "scripts" / "patchhub" / "static" / "app.js"
-    )
+    app_paths = _js_loaded_script_paths(REPO_ROOT / "scripts" / "patchhub" / "static" / "app.js")
     return index_paths | bootstrap_paths | app_paths
 
 
 def active_patchhub_debug_paths() -> set[str]:
-    return _html_script_paths(
-        REPO_ROOT / "scripts" / "patchhub" / "templates" / "debug.html"
-    )
+    return _html_script_paths(REPO_ROOT / "scripts" / "patchhub" / "templates" / "debug.html")
 
 
 def active_patchhub_all_paths() -> set[str]:

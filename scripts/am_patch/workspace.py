@@ -131,14 +131,10 @@ def ensure_workspace(
         ws_root.mkdir(parents=True, exist_ok=True)
         r = logger.run_logged(["git", "clone", str(live_repo), str(repo_dir)])
         if r.returncode != 0:
-            raise RunnerError(
-                "PREFLIGHT", "GIT", "git clone failed while creating workspace"
-            )
+            raise RunnerError("PREFLIGHT", "GIT", "git clone failed while creating workspace")
         r2 = logger.run_logged(["git", "checkout", base_sha], cwd=repo_dir)
         if r2.returncode != 0:
-            raise RunnerError(
-                "PREFLIGHT", "GIT", f"git checkout {base_sha} failed in workspace"
-            )
+            raise RunnerError("PREFLIGHT", "GIT", f"git checkout {base_sha} failed in workspace")
 
         meta = {"base_sha": base_sha, "attempt": attempt, "message": message}
         _write_meta(meta_path, meta)
@@ -186,9 +182,7 @@ def delete_workspace(logger: Logger, ws: Workspace) -> None:
     shutil.rmtree(ws.root, ignore_errors=True)
 
 
-def create_checkpoint(
-    logger: Logger, repo: Path, *, enabled: bool
-) -> WorkspaceCheckpoint | None:
+def create_checkpoint(logger: Logger, repo: Path, *, enabled: bool) -> WorkspaceCheckpoint | None:
     if not enabled:
         logger.section("WORKSPACE CHECKPOINT")
         logger.warning_core("checkpoint=SKIP (disabled)")
@@ -197,13 +191,9 @@ def create_checkpoint(
     logger.section("WORKSPACE CHECKPOINT")
 
     # If workspace is clean, do not create a stash; rollback can restore via reset+clean.
-    r0 = logger.run_logged(
-        ["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo
-    )
+    r0 = logger.run_logged(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo)
     if r0.returncode != 0:
-        raise RunnerError(
-            "PREFLIGHT", "GIT", "failed to read workspace status for checkpoint"
-        )
+        raise RunnerError("PREFLIGHT", "GIT", "failed to read workspace status for checkpoint")
     if not (r0.stdout or "").strip():
         logger.line("checkpoint=CLEAN (workspace clean; no stash)")
         logger.info_core("checkpoint=CLEAN")
@@ -229,25 +219,19 @@ def create_checkpoint(
             stash_ref = ln.split(":", 1)[0].strip()
             break
     if not stash_ref:
-        raise RunnerError(
-            "PREFLIGHT", "GIT", "workspace checkpoint stash not found after creation"
-        )
+        raise RunnerError("PREFLIGHT", "GIT", "workspace checkpoint stash not found after creation")
 
     # Restore state (stash remains for later rollback).
     r3 = logger.run_logged(["git", "stash", "apply", "--index", stash_ref], cwd=repo)
     if r3.returncode != 0:
-        raise RunnerError(
-            "PREFLIGHT", "GIT", "failed to re-apply workspace checkpoint stash"
-        )
+        raise RunnerError("PREFLIGHT", "GIT", "failed to re-apply workspace checkpoint stash")
 
     logger.line(f"checkpoint_stash_ref={stash_ref}")
     logger.info_core(f"checkpoint=STASH ref={stash_ref}")
     return WorkspaceCheckpoint(kind="stash", stash_ref=stash_ref)
 
 
-def drop_checkpoint(
-    logger: Logger, repo: Path, ckpt: WorkspaceCheckpoint | None
-) -> None:
+def drop_checkpoint(logger: Logger, repo: Path, ckpt: WorkspaceCheckpoint | None) -> None:
     if not ckpt:
         return
     if ckpt.kind != "stash" or not ckpt.stash_ref:
@@ -260,9 +244,7 @@ def drop_checkpoint(
     )
 
 
-def rollback_to_checkpoint(
-    logger: Logger, repo: Path, ckpt: WorkspaceCheckpoint | None
-) -> None:
+def rollback_to_checkpoint(logger: Logger, repo: Path, ckpt: WorkspaceCheckpoint | None) -> None:
     if not ckpt:
         logger.section("WORKSPACE ROLLBACK")
         logger.info_core("rollback=SKIP (no checkpoint)")
@@ -280,17 +262,11 @@ def rollback_to_checkpoint(
         raise RunnerError("ROLLBACK", "GIT", "git clean -fd failed during rollback")
     if ckpt.kind == "stash":
         if not ckpt.stash_ref:
-            raise RunnerError(
-                "ROLLBACK", "GIT", "missing stash_ref for stash checkpoint"
-            )
+            raise RunnerError("ROLLBACK", "GIT", "missing stash_ref for stash checkpoint")
         logger.line(f"rollback_to={ckpt.stash_ref}")
-        r3 = logger.run_logged(
-            ["git", "stash", "apply", "--index", ckpt.stash_ref], cwd=repo
-        )
+        r3 = logger.run_logged(["git", "stash", "apply", "--index", ckpt.stash_ref], cwd=repo)
         if r3.returncode != 0:
-            raise RunnerError(
-                "ROLLBACK", "GIT", "git stash apply failed during rollback"
-            )
+            raise RunnerError("ROLLBACK", "GIT", "git stash apply failed during rollback")
         _ = logger.run_logged(
             ["git", "stash", "drop", ckpt.stash_ref],
             cwd=repo,

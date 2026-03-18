@@ -11,10 +11,9 @@ from pathlib import Path
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
-from starlette.requests import Request
-
 from patchhub.asgi.async_jobs_runs_indexer import IndexerSnapshot
 from patchhub.asgi.route_workspaces import handle_api_workspaces
+from starlette.requests import Request
 
 
 class _DummyIndexer:

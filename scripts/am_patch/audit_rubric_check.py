@@ -31,9 +31,7 @@ def _parse_registry_domains(
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == "list_domains":
             for inner in ast.walk(node):
-                if isinstance(inner, ast.Return) and isinstance(
-                    inner.value, (ast.Tuple, ast.Call)
-                ):
+                if isinstance(inner, ast.Return) and isinstance(inner.value, (ast.Tuple, ast.Call)):
                     tup = inner.value
                     if isinstance(tup, ast.Call):
                         # Unlikely but tolerate direct return DomainSpec(...)
@@ -42,31 +40,22 @@ def _parse_registry_domains(
                         calls = [e for e in tup.elts if isinstance(e, ast.Call)]
                     for call in calls:
                         # match DomainSpec(...)
-                        if (
-                            not isinstance(call.func, ast.Name)
-                            or call.func.id != "DomainSpec"
-                        ):
+                        if not isinstance(call.func, ast.Name) or call.func.id != "DomainSpec":
                             continue
                         kw = {k.arg: k.value for k in call.keywords if k.arg}
                         domain_v = kw.get("domain")
                         cli_v = kw.get("cli_name")
                         cap_v = kw.get("capabilities")
                         if not (
-                            isinstance(domain_v, ast.Constant)
-                            and isinstance(domain_v.value, str)
+                            isinstance(domain_v, ast.Constant) and isinstance(domain_v.value, str)
                         ):
                             continue
-                        if not (
-                            isinstance(cli_v, ast.Constant)
-                            and isinstance(cli_v.value, str)
-                        ):
+                        if not (isinstance(cli_v, ast.Constant) and isinstance(cli_v.value, str)):
                             continue
                         caps: list[str] = []
                         if isinstance(cap_v, (ast.Tuple, ast.List)):
                             for c in cap_v.elts:
-                                if isinstance(c, ast.Constant) and isinstance(
-                                    c.value, str
-                                ):
+                                if isinstance(c, ast.Constant) and isinstance(c.value, str):
                                     caps.append(c.value)
                         domains.append((domain_v.value, cli_v.value, tuple(caps)))
             break

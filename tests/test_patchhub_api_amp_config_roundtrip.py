@@ -58,15 +58,10 @@ class TestAmpConfigRoundtrip(unittest.TestCase):
             (root / "scripts" / "am_patch").mkdir(parents=True)
 
             repo_cfg_path = (
-                Path(__file__).resolve().parents[1]
-                / "scripts"
-                / "am_patch"
-                / "am_patch.toml"
+                Path(__file__).resolve().parents[1] / "scripts" / "am_patch" / "am_patch.toml"
             )
             cfg_path = root / "scripts" / "am_patch" / "am_patch.toml"
-            cfg_path.write_text(
-                repo_cfg_path.read_text(encoding="utf-8"), encoding="utf-8"
-            )
+            cfg_path.write_text(repo_cfg_path.read_text(encoding="utf-8"), encoding="utf-8")
 
             dummy = _Dummy(repo_root=root)
 
@@ -96,9 +91,7 @@ class TestAmpConfigRoundtrip(unittest.TestCase):
                 ["", "", "plugins.<name>", "", ""],
             )
 
-            st2, data2 = api_amp_config_post(
-                dummy, {"values": payload, "dry_run": True}
-            )
+            st2, data2 = api_amp_config_post(dummy, {"values": payload, "dry_run": True})
             self.assertEqual(st2, 200)
             obj2 = json.loads(data2.decode("utf-8"))
             self.assertTrue(obj2.get("ok"))
@@ -112,9 +105,7 @@ class TestAmpConfigRoundtrip(unittest.TestCase):
             payload["verbosity"] = "quiet"
             payload["pytest_routing_mode"] = "legacy"
             payload["pytest_full_suite_prefixes"] = ["pyproject.toml"]
-            st3, data3 = api_amp_config_post(
-                dummy, {"values": payload, "dry_run": False}
-            )
+            st3, data3 = api_amp_config_post(dummy, {"values": payload, "dry_run": False})
             self.assertEqual(st3, 200)
             obj3 = json.loads(data3.decode("utf-8"))
             self.assertTrue(obj3.get("ok"))
@@ -125,9 +116,7 @@ class TestAmpConfigRoundtrip(unittest.TestCase):
             obj4 = json.loads(data4.decode("utf-8"))
             self.assertTrue(obj4.get("ok"))
             self.assertEqual(obj4.get("values", {}).get("verbosity"), "quiet")
-            self.assertEqual(
-                obj4.get("values", {}).get("pytest_routing_mode"), "legacy"
-            )
+            self.assertEqual(obj4.get("values", {}).get("pytest_routing_mode"), "legacy")
             self.assertEqual(
                 obj4.get("values", {}).get("pytest_full_suite_prefixes"),
                 ["pyproject.toml"],

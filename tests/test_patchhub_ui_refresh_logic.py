@@ -12,9 +12,7 @@ def test_idle_overview_refresh_uses_snapshot_endpoint() -> None:
     src = _read("scripts/patchhub/static/app_part_jobs.js")
     assert "function refreshOverviewSnapshot(opts)" in src
     assert 'apiGetETag("ui_snapshot", "/api/ui_snapshot" + qs' in src
-    assert (
-        'phCall("renderHeaderFromSummary", snap.header || {}, headerBaseLabel())' in src
-    )
+    assert 'phCall("renderHeaderFromSummary", snap.header || {}, headerBaseLabel())' in src
 
 
 def test_runs_refresh_uses_etag_single_flight_wrapper() -> None:
@@ -48,9 +46,7 @@ def test_live_progress_stays_on_structured_stream_sources() -> None:
     app_src = _read("scripts/patchhub/static/app.js")
     assert 'String(ev.event || "") === "stream_end"' in progress_src
     assert "function updateProgressPanelFromTailText(text, opts)" not in progress_src
-    assert (
-        'PH.call("setVisibleDurationSurface", "progress_card_duration"' in progress_src
-    )
+    assert 'PH.call("setVisibleDurationSurface", "progress_card_duration"' in progress_src
     assert 'phCall("setVisibleDurationSurface", "jobs_list_duration"' in jobs_src
     assert 'PH.register("visible_duration"' in duration_src
     assert '"/static/patchhub_visible_duration.js"' in app_src

@@ -13,9 +13,7 @@ from .log import Logger
 def _git(logger: Logger, repo: Path, args: list[str]) -> str:
     r = logger.run_logged(["git", *args], cwd=repo, timeout_stage="PREFLIGHT")
     if r.returncode != 0:
-        raise RunnerError(
-            "PREFLIGHT", "GIT", f"git {' '.join(args)} failed (rc={r.returncode})"
-        )
+        raise RunnerError("PREFLIGHT", "GIT", f"git {' '.join(args)} failed (rc={r.returncode})")
     return (r.stdout or "").strip()
 
 
@@ -36,9 +34,7 @@ def head_commit_epoch_s(logger: Logger, repo_root: Path) -> int:
     try:
         return int(out)
     except ValueError as err:
-        raise RunnerError(
-            "PREFLIGHT", "GIT", f"unexpected %ct output: {out!r}"
-        ) from err
+        raise RunnerError("PREFLIGHT", "GIT", f"unexpected %ct output: {out!r}") from err
 
 
 def format_epoch_utc_ts(epoch_s: int) -> str:
@@ -52,9 +48,7 @@ def origin_ahead_count(logger: Logger, repo: Path, branch: str) -> int:
     try:
         return int(out)
     except ValueError as err:
-        raise RunnerError(
-            "PREFLIGHT", "GIT", f"unexpected rev-list output: {out!r}"
-        ) from err
+        raise RunnerError("PREFLIGHT", "GIT", f"unexpected rev-list output: {out!r}") from err
 
 
 def require_branch(logger: Logger, repo: Path, branch: str) -> None:
@@ -66,14 +60,10 @@ def require_branch(logger: Logger, repo: Path, branch: str) -> None:
 def require_up_to_date(logger: Logger, repo: Path, branch: str) -> None:
     ahead = origin_ahead_count(logger, repo, branch)
     if ahead > 0:
-        raise RunnerError(
-            "PREFLIGHT", "GIT", f"origin/{branch} is ahead by {ahead} commits"
-        )
+        raise RunnerError("PREFLIGHT", "GIT", f"origin/{branch} is ahead by {ahead} commits")
 
 
-def file_diff_since(
-    logger: Logger, repo: Path, base_sha: str, paths: list[str]
-) -> list[str]:
+def file_diff_since(logger: Logger, repo: Path, base_sha: str, paths: list[str]) -> list[str]:
     # return list of files that changed in repo since base_sha (repo-relative)
     r = logger.run_logged(
         ["git", "diff", "--name-only", f"{base_sha}..HEAD", "--", *paths],
@@ -111,9 +101,7 @@ def commit(logger: Logger, repo: Path, message: str, *, stage_all: bool = True) 
             raise RunnerError("PROMOTION", "GIT", "git status failed")
         if not (r1.stdout or "").strip():
             raise RunnerError("PROMOTION", "NOOP", "no changes to commit")
-        r2 = logger.run_logged(
-            ["git", "add", "-A"], cwd=repo, timeout_stage="PROMOTION"
-        )
+        r2 = logger.run_logged(["git", "add", "-A"], cwd=repo, timeout_stage="PROMOTION")
         if r2.returncode != 0:
             raise RunnerError("PROMOTION", "GIT", "git add failed")
     else:
@@ -128,18 +116,14 @@ def commit(logger: Logger, repo: Path, message: str, *, stage_all: bool = True) 
         if not (r_cached.stdout or "").strip():
             raise RunnerError("PROMOTION", "NOOP", "no staged changes to commit")
 
-    r3 = logger.run_logged(
-        ["git", "commit", "-m", message], cwd=repo, timeout_stage="PROMOTION"
-    )
+    r3 = logger.run_logged(["git", "commit", "-m", message], cwd=repo, timeout_stage="PROMOTION")
     if r3.returncode != 0:
         raise RunnerError("PROMOTION", "GIT", "git commit failed")
     return head_sha(logger, repo)
 
 
 def push(logger: Logger, repo: Path, branch: str, *, allow_fail: bool = True) -> bool:
-    r = logger.run_logged(
-        ["git", "push", "origin", branch], cwd=repo, timeout_stage="PROMOTION"
-    )
+    r = logger.run_logged(["git", "push", "origin", branch], cwd=repo, timeout_stage="PROMOTION")
     if r.returncode == 0:
         return True
     if allow_fail:
@@ -148,9 +132,7 @@ def push(logger: Logger, repo: Path, branch: str, *, allow_fail: bool = True) ->
     raise RunnerError("PROMOTION", "GIT", "git push failed")
 
 
-def files_changed_since(
-    logger: Logger, repo: Path, base_sha: str, files: list[str]
-) -> list[str]:
+def files_changed_since(logger: Logger, repo: Path, base_sha: str, files: list[str]) -> list[str]:
     changed: list[str] = []
     for f in files:
         r = logger.run_logged(
@@ -165,9 +147,7 @@ def files_changed_since(
     return changed
 
 
-def git_archive(
-    logger: Logger, repo: Path, out_zip: Path, treeish: str = "HEAD"
-) -> None:
+def git_archive(logger: Logger, repo: Path, out_zip: Path, treeish: str = "HEAD") -> None:
     out_zip.parent.mkdir(parents=True, exist_ok=True)
 
     tmp_path = _tmp_path_for_atomic_write(out_zip)
@@ -181,9 +161,7 @@ def git_archive(
             timeout_stage="ARCHIVE",
         )
         if r.returncode != 0:
-            raise RunnerError(
-                "ARCHIVE", "GIT", f"git archive failed (rc={r.returncode})"
-            )
+            raise RunnerError("ARCHIVE", "GIT", f"git archive failed (rc={r.returncode})")
 
         _fsync_file(tmp_path)
         os.replace(tmp_path, out_zip)
@@ -210,9 +188,7 @@ def commit_changed_files_name_status(
         timeout_stage="PROMOTION",
     )
     if r.returncode != 0:
-        raise RunnerError(
-            "PROMOTION", "GIT", f"git show name-status failed (rc={r.returncode})"
-        )
+        raise RunnerError("PROMOTION", "GIT", f"git show name-status failed (rc={r.returncode})")
 
     out: list[tuple[str, str]] = []
     for raw in (r.stdout or "").splitlines():

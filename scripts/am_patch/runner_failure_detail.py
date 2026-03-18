@@ -4,13 +4,7 @@ from am_patch.errors import RunnerError, fingerprint
 
 
 def _single_line(message: str) -> str:
-    return (
-        str(message)
-        .replace("\r\n", "\n")
-        .replace("\r", "\n")
-        .replace("\n", " | ")
-        .strip()
-    )
+    return str(message).replace("\r\n", "\n").replace("\r", "\n").replace("\n", " | ").strip()
 
 
 def render_runner_error_detail(error: RunnerError) -> str:

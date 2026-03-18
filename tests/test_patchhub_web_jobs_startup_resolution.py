@@ -17,9 +17,7 @@ from patchhub.web_jobs_db import WebJobsDatabase, load_web_jobs_db_config
 
 
 def _load_core_cfg() -> object:
-    cfg_path = (
-        Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
-    )
+    cfg_path = Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
     return load_config(cfg_path)
 
 
@@ -112,9 +110,7 @@ async def test_async_core_startup_restores_corrupted_main_db_before_runtime_wiri
         assert core.backend_mode_state.last_recovery["recovery_action"] == (
             "restored_from_verified_backup"
         )
-        assert core.backend_mode_state.last_recovery["used_backup_path"] == str(
-            backup.path
-        )
+        assert core.backend_mode_state.last_recovery["used_backup_path"] == str(backup.path)
         restored = core.web_jobs_db.load_job_record("job-515-startup")
         assert restored is not None
         assert restored.status == "success"

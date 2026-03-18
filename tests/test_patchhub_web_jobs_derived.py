@@ -77,9 +77,7 @@ def test_terminal_success_materializes_low_churn_derived_payload(
     assert derived is not None
     assert derived["applied_files"] == ["scripts/patchhub/app_api_jobs.py"]
     assert derived["applied_files_source"] == "final_summary"
-    assert (
-        derived["compact_log_tail_text"] == "FILES:\nscripts/patchhub/app_api_jobs.py"
-    )
+    assert derived["compact_log_tail_text"] == "FILES:\nscripts/patchhub/app_api_jobs.py"
     assert derived["compact_event_tail_text"] == '{"type":"status","event":"done"}'
 
     with db._store._connect() as conn:  # noqa: SLF001

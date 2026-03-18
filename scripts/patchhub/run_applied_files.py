@@ -142,6 +142,4 @@ def collect_job_applied_files(
         log_text = log_path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         log_text = ""
-    return derive_applied_files_from_log_text(
-        patches_root=patches_root, log_text=log_text
-    )
+    return derive_applied_files_from_log_text(patches_root=patches_root, log_text=log_text)

@@ -42,9 +42,7 @@ def choose_default_patch_input(patch_dir: Path, issue_id: int) -> Path:
         return present[0]
     if len(present) > 1:
         names = ", ".join(str(p) for p in present)
-        raise PatchSelectError(
-            f"ambiguous default patch input; multiple exist: {names}"
-        )
+        raise PatchSelectError(f"ambiguous default patch input; multiple exist: {names}")
     return cands[-1]
 
 
@@ -61,9 +59,7 @@ def decide_unified_mode(patch_input: Path, *, explicit_unified: bool) -> bool:
     p = patch_input.resolve()
     if explicit_unified:
         if p.suffix not in (".patch", ".zip"):
-            raise PatchSelectError(
-                f"unified patch input must be .patch or .zip (got {p})"
-            )
+            raise PatchSelectError(f"unified patch input must be .patch or .zip (got {p})")
         if p.suffix == ".zip" and not _zip_contains_patch_entries(p):
             raise PatchSelectError(f"zip contains no .patch entries: {p}")
         return True

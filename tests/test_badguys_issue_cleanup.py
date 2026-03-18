@@ -119,9 +119,7 @@ def test_cleanup_issue_artifacts_preserves_other_issue_artifacts(
     assert (patches_dir / f"am_patch_ipc_{OTHER_ISSUE_ID}.sock").exists()
     assert (patches_dir / "logs" / f"issue_{OTHER_ISSUE_ID}_runner.log").exists()
     assert (patches_dir / "successful" / f"issue_{OTHER_ISSUE_ID}_success.zip").exists()
-    assert (
-        patches_dir / "unsuccessful" / f"issue_{OTHER_ISSUE_ID}_failure.zip"
-    ).exists()
+    assert (patches_dir / "unsuccessful" / f"issue_{OTHER_ISSUE_ID}_failure.zip").exists()
     assert (patches_dir / f"patched_issue{OTHER_ISSUE_ID}_v01.zip").exists()
     assert (patches_dir / f"issue_{OTHER_ISSUE_ID}__bdg__test_probe.json").exists()
     assert (patches_dir / "workspaces" / f"issue_{OTHER_ISSUE_ID}").exists()

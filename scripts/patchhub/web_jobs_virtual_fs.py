@@ -80,8 +80,7 @@ class WebJobsVirtualFs:
             return [{"name": "web_jobs", "is_dir": True}]
         if parts == _BASE.parts:
             return [
-                {"name": job_id, "is_dir": True}
-                for job_id in self._db.list_job_ids(limit=10000)
+                {"name": job_id, "is_dir": True} for job_id in self._db.list_job_ids(limit=10000)
             ]
         if len(parts) == 3 and parts[:2] == _BASE.parts:
             job_id = parts[2]

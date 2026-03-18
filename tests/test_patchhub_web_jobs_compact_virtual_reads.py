@@ -87,10 +87,7 @@ def test_virtual_fs_reads_compact_compatibility_text_after_raw_rows_are_pruned(
     assert raw_events == 0
 
     assert vfs.read_text(f"artifacts/web_jobs/{job_id}/runner.log") == "beta\ngamma"
-    assert (
-        vfs.read_text(f"artifacts/web_jobs/{job_id}/runner.log", tail_lines=1)
-        == "gamma"
-    )
+    assert vfs.read_text(f"artifacts/web_jobs/{job_id}/runner.log", tail_lines=1) == "gamma"
     assert vfs.read_text(f"artifacts/web_jobs/{job_id}/am_patch_issue_516.jsonl") == (
         '{"type":"log","msg":"alpha"}\n{"type":"summary","msg":"gamma"}'
     )

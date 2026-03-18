@@ -52,9 +52,7 @@ class ValidationError(Exception):
 
 
 def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        cmd, cwd=str(cwd), capture_output=True, text=True, check=False
-    )
+    return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, check=False)
 
 
 def _read_zip(path: Path) -> tuple[list[str], dict[str, bytes]]:
@@ -120,9 +118,7 @@ def _is_ascii_bytes(raw: bytes) -> bool:
 def _validate_basename(path: Path, issue_id: str) -> RuleResult:
     match = PATCH_RE.fullmatch(path.name)
     if match is None:
-        return RuleResult(
-            "PATCH_BASENAME", "FAIL", f"invalid_patch_basename:{path.name}"
-        )
+        return RuleResult("PATCH_BASENAME", "FAIL", f"invalid_patch_basename:{path.name}")
     actual = match.group("issue")
     if actual != issue_id:
         detail = f"issue_mismatch:expected={issue_id}:actual={actual}:name={path.name}"
@@ -244,9 +240,7 @@ def _collect_patch_members(
         return results, [], [], None
     non_dirs = [name for name in names if not name.endswith("/")]
     members = [
-        name
-        for name in non_dirs
-        if name.startswith(PATCH_PREFIX) and name.endswith(PATCH_SUFFIX)
+        name for name in non_dirs if name.startswith(PATCH_PREFIX) and name.endswith(PATCH_SUFFIX)
     ]
     if not members:
         return (
@@ -324,24 +318,18 @@ def _collect_patch_members(
                 )
         patch_members.append((member, items[member]))
         decision_paths.append(repo_path)
-    results.append(
-        RuleResult("PATCH_MEMBER_PATHS", "PASS", f"paths={len(decision_paths)}")
-    )
+    results.append(RuleResult("PATCH_MEMBER_PATHS", "PASS", f"paths={len(decision_paths)}"))
     results.append(RuleResult("PATCH_ASCII", "PASS", "patch_members_ascii_only"))
     results.append(RuleResult("LINE_LENGTH", "PASS", "py_js_added_lines<=100"))
     return results, patch_members, decision_paths, patch_target
 
 
 def _docs_gate(decision_paths: list[str]) -> RuleResult:
-    if not any(
-        path.startswith(("src/", "plugins/", "docs/")) for path in decision_paths
-    ):
+    if not any(path.startswith(("src/", "plugins/", "docs/")) for path in decision_paths):
         return RuleResult("DOCS_GATE", "PASS", "not_triggered")
     if any(path == "docs/changes.md" for path in decision_paths):
         return RuleResult("DOCS_GATE", "FAIL", "direct_changes_md_edit")
-    has_fragment = any(
-        path.startswith("docs/change_fragments/") for path in decision_paths
-    )
+    has_fragment = any(path.startswith("docs/change_fragments/") for path in decision_paths)
     detail = "fragment_present" if has_fragment else "missing_change_fragment"
     return RuleResult("DOCS_GATE", "PASS" if has_fragment else "FAIL", detail)
 
@@ -377,16 +365,12 @@ def _authority_files(
         raise ValidationError("supplemental_requires_workspace_snapshot")
     snapshot = _iter_zip_files(Path(args.workspace_snapshot))
     allowed = set(args.supplemental_file)
-    undeclared = [
-        path for path in decision_paths if path not in baseline and path not in allowed
-    ]
+    undeclared = [path for path in decision_paths if path not in baseline and path not in allowed]
     if undeclared:
         raise ValidationError(f"repair_requires_supplemental_file:{undeclared}")
     missing = [path for path in allowed if path not in snapshot]
     if missing:
-        raise ValidationError(
-            f"supplemental_file_missing_in_snapshot:{sorted(missing)}"
-        )
+        raise ValidationError(f"supplemental_file_missing_in_snapshot:{sorted(missing)}")
     for path in decision_paths:
         if path in allowed and path in snapshot:
             baseline[path] = snapshot[path]
@@ -400,9 +384,7 @@ def _write_tree(root: Path, files: dict[str, bytes]) -> None:
         dst.write_bytes(data)
 
 
-def _apply_patches(
-    root: Path, patch_members: list[tuple[str, bytes]]
-) -> list[RuleResult]:
+def _apply_patches(root: Path, patch_members: list[tuple[str, bytes]]) -> list[RuleResult]:
     out: list[RuleResult] = []
     for member, data in patch_members:
         patch_file = root / ".pm_validator" / Path(member).name
@@ -410,9 +392,7 @@ def _apply_patches(
         patch_file.write_bytes(data)
         proc = _run(["git", "apply", "--check", str(patch_file)], cwd=root)
         detail = (
-            "ok"
-            if proc.returncode == 0
-            else (proc.stderr.strip() or proc.stdout.strip() or "fail")
+            "ok" if proc.returncode == 0 else (proc.stderr.strip() or proc.stdout.strip() or "fail")
         )
         status = "PASS" if proc.returncode == 0 else "FAIL"
         out.append(RuleResult(f"GIT_APPLY_CHECK:{member}", status, detail))
@@ -659,9 +639,7 @@ def _js_metrics(relpath: str, text: str, known_paths: set[str]) -> MonolithMetri
     )
 
 
-def _metrics_for_path(
-    relpath: str, text: str, known_paths: set[str]
-) -> MonolithMetrics:
+def _metrics_for_path(relpath: str, text: str, known_paths: set[str]) -> MonolithMetrics:
     suffix = Path(relpath).suffix
     if suffix == ".py":
         return _py_metrics(relpath, text)
@@ -682,9 +660,7 @@ def _resolve_fan_target(mod: str, module_to_rel: dict[str, str]) -> str | None:
         current = current.rsplit(".", 1)[0]
 
 
-def _fan_graph(
-    texts: dict[str, str], relpaths: list[str]
-) -> tuple[dict[str, int], dict[str, int]]:
+def _fan_graph(texts: dict[str, str], relpaths: list[str]) -> tuple[dict[str, int], dict[str, int]]:
     module_to_rel = {
         module: relpath
         for relpath in relpaths
@@ -735,26 +711,18 @@ def _hub_failure(
     return None
 
 
-def _monolith(
-    root: Path, baseline: dict[str, bytes], decision_paths: list[str]
-) -> RuleResult:
+def _monolith(root: Path, baseline: dict[str, bytes], decision_paths: list[str]) -> RuleResult:
     targets = [
-        path
-        for path in decision_paths
-        if Path(path).suffix in LINE_EXTS and (root / path).exists()
+        path for path in decision_paths if Path(path).suffix in LINE_EXTS and (root / path).exists()
     ]
     if not targets:
         return RuleResult("MONOLITH", "SKIP", "no_modified_python_or_javascript_files")
     areas = {_area(path) for path in targets}
     if len(areas) >= 3:
-        return RuleResult(
-            "MONOLITH", "FAIL", f"cross_area_threshold:areas={sorted(areas)}"
-        )
+        return RuleResult("MONOLITH", "FAIL", f"cross_area_threshold:areas={sorted(areas)}")
 
     new_texts = {path: (root / path).read_text(encoding="utf-8") for path in targets}
-    old_texts = {
-        path: baseline[path].decode("utf-8") for path in targets if path in baseline
-    }
+    old_texts = {path: baseline[path].decode("utf-8") for path in targets if path in baseline}
     known_paths = set(targets)
     new_fanin, new_fanout = _fan_graph(new_texts, targets)
     old_fanin, old_fanout = _fan_graph(old_texts, targets)
@@ -799,9 +767,7 @@ def _monolith(
             tier = "large"
         if tier == "huge" and grew:
             return RuleResult("MONOLITH", "FAIL", f"huge_file_growth:{path}")
-        if tier == "large" and (
-            loc_delta > 20 or exports_delta > 2 or imports_delta > 1
-        ):
+        if tier == "large" and (loc_delta > 20 or exports_delta > 2 or imports_delta > 1):
             return RuleResult("MONOLITH", "FAIL", f"large_file_growth:{path}")
         hub_failure = _hub_failure(
             path=path,
@@ -818,16 +784,12 @@ def _monolith(
 def _format(results: list[RuleResult]) -> str:
     overall = "FAIL" if any(item.status == "FAIL" for item in results) else "PASS"
     lines = [f"RESULT: {overall}"]
-    lines.extend(
-        f"RULE {item.rule_id}: {item.status} - {item.detail}" for item in results
-    )
+    lines.extend(f"RULE {item.rule_id}: {item.status} - {item.detail}" for item in results)
     return "\n".join(lines) + "\n"
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Single-file PM validator for patch artifacts."
-    )
+    parser = argparse.ArgumentParser(description="Single-file PM validator for patch artifacts.")
     parser.add_argument("issue_id")
     parser.add_argument("commit_message")
     parser.add_argument("patch")
@@ -876,9 +838,7 @@ def main(argv: list[str] | None = None) -> int:
         if patch_target is None:
             raise ValidationError("patch_target_missing_after_validation")
         if args.repair_overlay:
-            repair_rule, overlay_target = _repair_overlay_target_rule(
-                Path(args.repair_overlay)
-            )
+            repair_rule, overlay_target = _repair_overlay_target_rule(Path(args.repair_overlay))
             results.append(repair_rule)
             if overlay_target is not None:
                 results.append(
@@ -902,9 +862,7 @@ def main(argv: list[str] | None = None) -> int:
             results.append(initial_rule)
             if initial_target is not None:
                 results.append(
-                    _target_match_rule(
-                        "INITIAL_TARGET_MATCH", initial_target, patch_target
-                    )
+                    _target_match_rule("INITIAL_TARGET_MATCH", initial_target, patch_target)
                 )
         if any(item.status == "FAIL" for item in results):
             sys.stdout.write(_format(results))

@@ -23,9 +23,7 @@ def _cancel_payload(cmd_id: str) -> bytes:
         "cmd": "cancel",
         "args": {},
     }
-    return (json.dumps(req, ensure_ascii=True, separators=(",", ":")) + "\n").encode(
-        "utf-8"
-    )
+    return (json.dumps(req, ensure_ascii=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
 async def send_cancel_async(socket_path: str) -> bool:

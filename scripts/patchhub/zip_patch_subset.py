@@ -29,9 +29,7 @@ def resolve_patch_zip_path(
     patches_root_rel: str,
     patch_path: str,
 ) -> tuple[str, Path]:
-    rel = normalize_patch_rel_path(
-        patches_root_rel=patches_root_rel, patch_path=patch_path
-    )
+    rel = normalize_patch_rel_path(patches_root_rel=patches_root_rel, patch_path=patch_path)
     zpath = jail.resolve_rel(rel)
     if not zpath.exists() or not zpath.is_file():
         raise ValueError("Patch zip not found")

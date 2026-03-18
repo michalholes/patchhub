@@ -110,9 +110,7 @@ def test_db_primary_jobs_routes_survive_queue_bound_to_foreign_running_loop(
         db.append_log_line("job-514-cross-loop", "done")
 
         with _background_loop() as loop:
-            future = asyncio.run_coroutine_threadsafe(
-                app.state.core.queue.list_jobs(), loop
-            )
+            future = asyncio.run_coroutine_threadsafe(app.state.core.queue.list_jobs(), loop)
             assert future.result(timeout=2.0) == []
 
             rescan_resp = client.post("/api/debug/indexer/force_rescan")
@@ -121,9 +119,7 @@ def test_db_primary_jobs_routes_survive_queue_bound_to_foreign_running_loop(
             jobs_resp = client.get("/api/jobs")
             while time.monotonic() < deadline:
                 jobs_body = jobs_resp.json()
-                if [job["job_id"] for job in jobs_body.get("jobs", [])] == [
-                    "job-514-cross-loop"
-                ]:
+                if [job["job_id"] for job in jobs_body.get("jobs", [])] == ["job-514-cross-loop"]:
                     break
                 time.sleep(0.05)
                 jobs_resp = client.get("/api/jobs")

@@ -59,9 +59,7 @@ def build_startup_logger_and_ipc(
     ipc: IpcController | None = None
     startup_handshake_enabled = bool(getattr(policy, "ipc_handshake_enabled", False))
     startup_ready = False
-    sock_path = resolve_socket_path(
-        policy=policy, patch_dir=patch_dir, issue_id=cli.issue_id
-    )
+    sock_path = resolve_socket_path(policy=policy, patch_dir=patch_dir, issue_id=cli.issue_id)
     if sock_path is not None:
         ipc = IpcController(
             socket_path=sock_path,

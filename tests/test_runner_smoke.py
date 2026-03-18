@@ -20,7 +20,5 @@ def test_am_patch_runs_and_prints_version():
         text=True,
     )
 
-    assert proc.returncode == 0, (
-        f"runner exited with {proc.returncode}, stderr={proc.stderr!r}"
-    )
+    assert proc.returncode == 0, f"runner exited with {proc.returncode}, stderr={proc.stderr!r}"
     assert proc.stdout.strip(), "runner --version produced empty output"

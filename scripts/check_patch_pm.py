@@ -97,9 +97,7 @@ class MonolithLogger:
 
 
 def _run(cmd: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        cmd, cwd=str(cwd), capture_output=True, text=True, check=False
-    )
+    return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, check=False)
 
 
 def _resolve_patch_path(repo_root: Path, patch_arg: str) -> tuple[Path, bool]:
@@ -124,9 +122,7 @@ def _resolve_patch_path(repo_root: Path, patch_arg: str) -> tuple[Path, bool]:
 def _validate_patch_basename(zpath: Path, issue_id: str) -> RuleResult:
     match = PATCH_BASENAME_RE.fullmatch(zpath.name)
     if match is None:
-        return RuleResult(
-            "PATCH_BASENAME", "FAIL", f"invalid_patch_basename:{zpath.name}"
-        )
+        return RuleResult("PATCH_BASENAME", "FAIL", f"invalid_patch_basename:{zpath.name}")
     if match.group("issue") != issue_id:
         return RuleResult(
             "PATCH_BASENAME",
@@ -243,9 +239,7 @@ def _build_members(
         RuleResult(
             "PER_FILE_LAYOUT",
             "PASS" if reason == "ok" else "FAIL",
-            reason
-            if reason != "ok"
-            else f"entries={int(manifest.get('patch_entry_count') or 0)}",
+            reason if reason != "ok" else f"entries={int(manifest.get('patch_entry_count') or 0)}",
         )
     )
     if reason != "ok":
@@ -263,9 +257,7 @@ def _build_members(
 
     allowed = {"COMMIT_MESSAGE.txt", "ISSUE_NUMBER.txt", TARGET_FILE_NAME}
     allowed.update(str(item["zip_member"]) for item in manifest["entries"])
-    extras = sorted(
-        name for name in names if not name.endswith("/") and name not in allowed
-    )
+    extras = sorted(name for name in names if not name.endswith("/") and name not in allowed)
     if extras:
         results.append(RuleResult("ZIP_ENTRY_SET", "FAIL", f"extra_entries={extras}"))
         return results, members, decision_paths
@@ -276,45 +268,33 @@ def _build_members(
         member = str(item["zip_member"])
         repo_path = str(item["repo_path"])
         if repo_path in seen:
-            results.append(
-                RuleResult("PATCH_MEMBER_PATHS", "FAIL", "duplicate_repo_path")
-            )
+            results.append(RuleResult("PATCH_MEMBER_PATHS", "FAIL", "duplicate_repo_path"))
             return results, members, decision_paths
         seen.add(repo_path)
         data = zip_data[member]
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError as exc:
-            results.append(
-                RuleResult("PATCH_MEMBER_PATHS", "FAIL", f"utf8_decode_failed:{exc}")
-            )
+            results.append(RuleResult("PATCH_MEMBER_PATHS", "FAIL", f"utf8_decode_failed:{exc}"))
             return results, members, decision_paths
         header_err = _validate_patch_headers(repo_path, text)
         if header_err is not None:
-            results.append(
-                RuleResult("PATCH_MEMBER_PATHS", "FAIL", f"{member}:{header_err}")
-            )
+            results.append(RuleResult("PATCH_MEMBER_PATHS", "FAIL", f"{member}:{header_err}"))
             return results, members, decision_paths
         if _line_length_scope_for_repo_path(repo_path):
             length_err = _check_line_lengths(text)
             if length_err is not None:
-                results.append(
-                    RuleResult("LINE_LENGTH", "FAIL", f"{member}:{length_err}")
-                )
+                results.append(RuleResult("LINE_LENGTH", "FAIL", f"{member}:{length_err}"))
                 return results, members, decision_paths
         members.append((member, data))
         decision_paths.append(repo_path)
 
-    results.append(
-        RuleResult("PATCH_MEMBER_PATHS", "PASS", f"paths={len(decision_paths)}")
-    )
+    results.append(RuleResult("PATCH_MEMBER_PATHS", "PASS", f"paths={len(decision_paths)}"))
     results.append(RuleResult("LINE_LENGTH", "PASS", "py_js_added_lines<=100"))
     return results, members, decision_paths
 
 
-def _git_apply_check(
-    repo_root: Path, members: list[tuple[str, bytes]]
-) -> list[RuleResult]:
+def _git_apply_check(repo_root: Path, members: list[tuple[str, bytes]]) -> list[RuleResult]:
     out: list[RuleResult] = []
     for member, data in members:
         with tempfile.TemporaryDirectory() as td:
@@ -322,11 +302,7 @@ def _git_apply_check(
             patch_path.write_bytes(data)
             proc = _run(["git", "apply", "--check", str(patch_path)], cwd=repo_root)
         status = "PASS" if proc.returncode == 0 else "FAIL"
-        detail = (
-            "ok"
-            if status == "PASS"
-            else proc.stderr.strip() or proc.stdout.strip() or "fail"
-        )
+        detail = "ok" if status == "PASS" else proc.stderr.strip() or proc.stdout.strip() or "fail"
         out.append(RuleResult(f"GIT_APPLY_CHECK:{member}", status, detail))
         if status == "FAIL":
             break
@@ -355,16 +331,10 @@ def _populate_tree(
 
 
 def _compile_python(root: Path, decision_paths: list[str]) -> RuleResult:
-    targets = [
-        root / rp
-        for rp in decision_paths
-        if rp.endswith(".py") and (root / rp).exists()
-    ]
+    targets = [root / rp for rp in decision_paths if rp.endswith(".py") and (root / rp).exists()]
     if not targets:
         return RuleResult("PY_COMPILE", "SKIP", "no_modified_python_files")
-    proc = _run(
-        [sys.executable, "-m", "compileall", "-q", *map(str, targets)], cwd=root
-    )
+    proc = _run([sys.executable, "-m", "compileall", "-q", *map(str, targets)], cwd=root)
     if proc.returncode == 0:
         return RuleResult("PY_COMPILE", "PASS", f"files={len(targets)}")
     return RuleResult(
@@ -399,11 +369,7 @@ def _check_js(root: Path, decision_paths: list[str]) -> RuleResult:
 def _run_monolith(
     root: Path, repo_root: Path, config_path: Path, decision_paths: list[str]
 ) -> RuleResult:
-    targets = [
-        rp
-        for rp in decision_paths
-        if rp.endswith((".py", ".js")) and (root / rp).exists()
-    ]
+    targets = [rp for rp in decision_paths if rp.endswith((".py", ".js")) and (root / rp).exists()]
     if not targets:
         return RuleResult("MONOLITH", "SKIP", "no_modified_python_or_javascript_files")
     cfg, _used = load_config(config_path)
@@ -417,9 +383,7 @@ def _run_monolith(
         decision_paths=targets,
         **kwargs,
     )
-    detail = (
-        "gate_passed" if ok else (logger.lines[-1] if logger.lines else "gate_failed")
-    )
+    detail = "gate_passed" if ok else (logger.lines[-1] if logger.lines else "gate_failed")
     return RuleResult("MONOLITH", "PASS" if ok else "FAIL", detail)
 
 
@@ -452,9 +416,7 @@ def run_validation(args: argparse.Namespace) -> tuple[int, list[RuleResult]]:
     else:
         patch_display = str(zpath)
     results = [
-        RuleResult(
-            "PATCH_LOCATION_SCOPE", "PASS" if in_patch_dir else "FAIL", patch_display
-        )
+        RuleResult("PATCH_LOCATION_SCOPE", "PASS" if in_patch_dir else "FAIL", patch_display)
     ]
     if not zpath.exists() or not zpath.is_file():
         results.append(RuleResult("PATCH_LOCATION", "FAIL", "patch_not_found"))
@@ -504,9 +466,7 @@ def _parser() -> argparse.ArgumentParser:
         default=str(_REPO_ROOT / "scripts" / "am_patch" / "am_patch.toml"),
         help="am_patch TOML used for monolith policy.",
     )
-    parser.add_argument(
-        "--json", action="store_true", help="Emit JSON instead of text output."
-    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON instead of text output.")
     return parser
 
 

@@ -161,9 +161,7 @@ def complete_workspace_promotion_pipeline(
                     repo_root,
                     commit_sha,
                 )
-                final_pushed_files = [
-                    f"{status} {path}" for (status, path) in name_status
-                ]
+                final_pushed_files = [f"{status} {path}" for (status, path) in name_status]
             except Exception:
                 final_pushed_files = None
 

@@ -53,9 +53,7 @@ def apply_gate_execution_cfg(
     )
     mark_cfg(p, cfg, "apply_failure_zero_gates_policy")
 
-    p.gates_skip_dont_touch = as_bool(
-        cfg, "gates_skip_dont_touch", p.gates_skip_dont_touch
-    )
+    p.gates_skip_dont_touch = as_bool(cfg, "gates_skip_dont_touch", p.gates_skip_dont_touch)
     mark_cfg(p, cfg, "gates_skip_dont_touch")
     p.dont_touch_paths = as_list_str(cfg, "dont_touch_paths", p.dont_touch_paths)
     mark_cfg(p, cfg, "dont_touch_paths")
@@ -71,14 +69,10 @@ def apply_gate_execution_cfg(
 
     p.gates_skip_monolith = as_bool(cfg, "gates_skip_monolith", p.gates_skip_monolith)
     mark_cfg(p, cfg, "gates_skip_monolith")
-    p.gate_monolith_enabled = as_bool(
-        cfg, "gate_monolith_enabled", p.gate_monolith_enabled
-    )
+    p.gate_monolith_enabled = as_bool(cfg, "gate_monolith_enabled", p.gate_monolith_enabled)
     mark_cfg(p, cfg, "gate_monolith_enabled")
 
-    p.gate_monolith_mode = str(
-        cfg.get("gate_monolith_mode", p.gate_monolith_mode)
-    ).strip()
+    p.gate_monolith_mode = str(cfg.get("gate_monolith_mode", p.gate_monolith_mode)).strip()
     mark_cfg(p, cfg, "gate_monolith_mode")
     if p.gate_monolith_mode not in ("strict", "warn_only", "report_only"):
         raise RunnerError(
@@ -106,9 +100,7 @@ def apply_gate_execution_cfg(
 
     if "gate_monolith_extensions" in cfg:
         raw_ext = cfg["gate_monolith_extensions"]
-        if not isinstance(raw_ext, list) or not all(
-            isinstance(x, str) for x in raw_ext
-        ):
+        if not isinstance(raw_ext, list) or not all(isinstance(x, str) for x in raw_ext):
             raise RunnerError(
                 "CONFIG",
                 "INVALID",
@@ -216,9 +208,7 @@ def apply_gate_execution_cfg(
         elif isinstance(raw_cmd, list) and all(isinstance(x, str) for x in raw_cmd):
             cmd_list = raw_cmd
         else:
-            raise RunnerError(
-                "CONFIG", "INVALID", "gate_js_command must be a string or list[str]"
-            )
+            raise RunnerError("CONFIG", "INVALID", "gate_js_command must be a string or list[str]")
         if not cmd_list:
             raise RunnerError("CONFIG", "INVALID", "gate_js_command must be non-empty")
         p.gate_js_command = cmd_list
@@ -226,9 +216,7 @@ def apply_gate_execution_cfg(
 
     p.gates_skip_biome = as_bool(cfg, "gates_skip_biome", p.gates_skip_biome)
     mark_cfg(p, cfg, "gates_skip_biome")
-    p.gate_biome_extensions = as_list_str(
-        cfg, "gate_biome_extensions", p.gate_biome_extensions
-    )
+    p.gate_biome_extensions = as_list_str(cfg, "gate_biome_extensions", p.gate_biome_extensions)
     mark_cfg(p, cfg, "gate_biome_extensions")
 
     p.biome_autofix = as_bool(cfg, "biome_autofix", p.biome_autofix)
@@ -264,9 +252,7 @@ def apply_gate_execution_cfg(
         setattr(p, k, cmd_list0)
         mark_cfg(p, cfg, k)
 
-    p.gates_skip_typescript = as_bool(
-        cfg, "gates_skip_typescript", p.gates_skip_typescript
-    )
+    p.gates_skip_typescript = as_bool(cfg, "gates_skip_typescript", p.gates_skip_typescript)
     mark_cfg(p, cfg, "gates_skip_typescript")
     p.gate_typescript_extensions = as_list_str(
         cfg, "gate_typescript_extensions", p.gate_typescript_extensions
@@ -286,9 +272,7 @@ def apply_gate_execution_cfg(
                 "gate_typescript_command must be a string or list[str]",
             )
         if not cmd_list:
-            raise RunnerError(
-                "CONFIG", "INVALID", "gate_typescript_command must be non-empty"
-            )
+            raise RunnerError("CONFIG", "INVALID", "gate_typescript_command must be non-empty")
         p.gate_typescript_command = cmd_list
         mark_cfg(p, cfg, "gate_typescript_command")
 
@@ -326,9 +310,7 @@ def apply_gate_execution_cfg(
                 "gate_badguys_command must be a string or list[str]",
             )
         if not cmd_list:
-            raise RunnerError(
-                "CONFIG", "INVALID", "gate_badguys_command must be non-empty"
-            )
+            raise RunnerError("CONFIG", "INVALID", "gate_badguys_command must be non-empty")
         p.gate_badguys_command = cmd_list
         mark_cfg(p, cfg, "gate_badguys_command")
 
@@ -353,9 +335,7 @@ def apply_gate_execution_cfg(
     mark_cfg(p, cfg, "ruff_targets")
     p.pytest_targets = as_list_str(cfg, "pytest_targets", p.pytest_targets)
     mark_cfg(p, cfg, "pytest_targets")
-    p.pytest_routing_mode = str(
-        cfg.get("pytest_routing_mode", p.pytest_routing_mode)
-    ).strip()
+    p.pytest_routing_mode = str(cfg.get("pytest_routing_mode", p.pytest_routing_mode)).strip()
     mark_cfg(p, cfg, "pytest_routing_mode")
     if p.pytest_routing_mode not in ("legacy", "bucketed"):
         raise RunnerError(
@@ -415,9 +395,7 @@ def apply_gate_execution_cfg(
     mark_cfg(p, cfg, "typescript_targets")
 
     if "gate_typescript_base_tsconfig" in cfg:
-        p.gate_typescript_base_tsconfig = str(
-            cfg["gate_typescript_base_tsconfig"]
-        ).strip()
+        p.gate_typescript_base_tsconfig = str(cfg["gate_typescript_base_tsconfig"]).strip()
         mark_cfg(p, cfg, "gate_typescript_base_tsconfig")
 
     apply_gate_modes(cfg, p, mark_cfg)

@@ -95,9 +95,7 @@ def split_and_sort(
     open_issues = [i for i in issues if i.get("state") == "OPEN"]
     closed_issues = [i for i in issues if i.get("state") == "CLOSED"]
     open_issues.sort(key=lambda x: int(x["number"]))
-    closed_issues.sort(
-        key=lambda x: ((x.get("closedAt") or ""), int(x["number"])), reverse=True
-    )
+    closed_issues.sort(key=lambda x: ((x.get("closedAt") or ""), int(x["number"])), reverse=True)
     return open_issues, closed_issues
 
 
@@ -168,9 +166,7 @@ def _gh_api_json(
     try:
         return json.loads(raw)
     except json.JSONDecodeError as err:
-        raise SystemExit(
-            f"ERROR: failed to parse gh api output as JSON for {path}"
-        ) from err
+        raise SystemExit(f"ERROR: failed to parse gh api output as JSON for {path}") from err
 
 
 def _gh_api_paginated_list(
@@ -241,9 +237,7 @@ def _issue_core_export(issue: dict[str, Any]) -> dict[str, Any]:
             for label in (issue.get("labels") or [])
             if isinstance(label, dict) and label.get("name")
         ],
-        "assignees": [
-            _user_stub(a) for a in (issue.get("assignees") or []) if _user_stub(a)
-        ],
+        "assignees": [_user_stub(a) for a in (issue.get("assignees") or []) if _user_stub(a)],
         "milestone": None,
         "body": issue.get("body"),
     }
@@ -387,9 +381,7 @@ def main(
     argv: list[str] | None = None,
     *,
     _run: Callable[[list[str]], str] = run,
-    _load_issues: Callable[
-        [str, Callable[[list[str]], str]], list[dict[str, Any]]
-    ] = load_issues,
+    _load_issues: Callable[[str, Callable[[list[str]], str]], list[dict[str, Any]]] = load_issues,
     _autodetect_repo: Callable[[Callable[[list[str]], str]], str] = autodetect_repo,
 ) -> int:
     ap = argparse.ArgumentParser()

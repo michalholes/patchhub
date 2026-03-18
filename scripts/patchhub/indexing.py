@@ -27,11 +27,7 @@ def strip_ansi(s: str) -> str:
 def parse_run_result_from_log_text(
     text: str,
 ) -> tuple[Literal["success", "fail", "unknown"], str | None]:
-    lines = [
-        strip_ansi(line_text).strip()
-        for line_text in text.splitlines()
-        if line_text.strip()
-    ]
+    lines = [strip_ansi(line_text).strip() for line_text in text.splitlines() if line_text.strip()]
     result_line: str | None = None
     for line in reversed(lines[-200:]):
         if line.startswith("RESULT:"):
@@ -205,9 +201,7 @@ def _iter_runs_and_sig(
             return sig, list(cached_runs)
 
     runs: list[RunEntry] = []
-    for log_path, issue_id, mtime_s, mtime_ns, _size in sorted(
-        infos, key=lambda x: x[0].name
-    ):
+    for log_path, issue_id, mtime_s, mtime_ns, _size in sorted(infos, key=lambda x: x[0].name):
         tail = _ensure_sanitized_tail_text(log_path, log_mtime_ns=mtime_ns)
         result, result_line = parse_run_result_from_sanitized_text(tail)
         runs.append(

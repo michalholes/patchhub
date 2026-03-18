@@ -75,7 +75,4 @@ def test_degraded_mode_exposes_banner_and_builtin_fallbacks() -> None:
     assert "__ph_w.PH_APP_FALLBACKS" in fallback_src
     assert "startAppWireInit: fallbackStartAppWireInit" in fallback_src
     assert '"wire init module missing; built-in fallback active"' in app_src
-    assert (
-        'return runFallback(cap, args, "fallback_missing", "capability missing")'
-        in runtime_src
-    )
+    assert 'return runFallback(cap, args, "fallback_missing", "capability missing")' in runtime_src

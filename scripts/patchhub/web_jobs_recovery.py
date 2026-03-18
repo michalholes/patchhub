@@ -135,9 +135,7 @@ def begin_startup_session(patches_root: Path) -> tuple[str, bool, Path, dict[str
     return session_id, previous_clean, marker_path, previous
 
 
-def mark_shutdown_clean(
-    patches_root: Path, session_id: str, recovery: dict[str, Any]
-) -> None:
+def mark_shutdown_clean(patches_root: Path, session_id: str, recovery: dict[str, Any]) -> None:
     path = runtime_state_path(patches_root)
     previous = read_runtime_state_file(path)
     payload = {
@@ -272,9 +270,7 @@ def resolve_web_jobs_backend(
         patches_root,
         db_cfg,
     )
-    session_id, previous_clean, marker_path, _previous = begin_startup_session(
-        patches_root
-    )
+    session_id, previous_clean, marker_path, _previous = begin_startup_session(patches_root)
     recovery: dict[str, Any] = {
         "status": "resolving",
         "marker_path": str(marker_path),
@@ -307,9 +303,7 @@ def resolve_web_jobs_backend(
         recovery["status"] = "ok"
         recovery["selected_mode"] = "db_primary"
         recovery["recovery_action"] = (
-            "clean_start_db_primary"
-            if previous_clean
-            else "validated_after_unclean_shutdown"
+            "clean_start_db_primary" if previous_clean else "validated_after_unclean_shutdown"
         )
         return WebJobsRecoveryResolution(
             mode="db_primary",
@@ -318,9 +312,7 @@ def resolve_web_jobs_backend(
             recovery=recovery,
         )
 
-    latest_backup = latest_verified_backup(
-        patches_root=patches_root, settings=backup_settings
-    )
+    latest_backup = latest_verified_backup(patches_root=patches_root, settings=backup_settings)
     if latest_backup is not None:
         try:
             verify_sqlite_backup(latest_backup)
@@ -353,9 +345,7 @@ def resolve_web_jobs_backend(
         if ok:
             recovery["status"] = "ok"
             recovery["selected_mode"] = "file_emergency"
-            recovery["recovery_action"] = (
-                "exported_legacy_and_switched_to_file_emergency"
-            )
+            recovery["recovery_action"] = "exported_legacy_and_switched_to_file_emergency"
             recovery["used_backup_path"] = (
                 str(latest_backup) if candidate == latest_backup else None
             )

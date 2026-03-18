@@ -33,9 +33,7 @@ def _safe_unlink(path: Path) -> None:
 
 
 def _json_line(obj: dict[str, Any]) -> bytes:
-    return (json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n").encode(
-        "utf-8"
-    )
+    return (json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
 def _system_runtime_dir() -> Path:
@@ -179,9 +177,7 @@ class IpcController:
                         "ipc_socket_on_startup_exists=unlink_if_stale."
                     ),
                 )
-        self._thread = threading.Thread(
-            target=self._serve, name="am_patch_ipc", daemon=True
-        )
+        self._thread = threading.Thread(target=self._serve, name="am_patch_ipc", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
@@ -252,9 +248,7 @@ class IpcController:
         with self._lock:
             self._state.pause_after_step = str(step).strip() if step else None
 
-    def set_verbosity(
-        self, *, verbosity: str | None = None, log_level: str | None = None
-    ) -> None:
+    def set_verbosity(self, *, verbosity: str | None = None, log_level: str | None = None) -> None:
         if verbosity is not None:
             self._logger.screen_level = _normalize_level(verbosity)
         if log_level is not None:
@@ -369,9 +363,7 @@ class IpcController:
         for client in failed:
             self._drop_client(client)
 
-    def _reply_ok(
-        self, *, cmd_id: str, data: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def _reply_ok(self, *, cmd_id: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
         return {
             "type": "reply",
             "cmd_id": cmd_id,
@@ -432,9 +424,7 @@ class IpcController:
 
             self._write_client_line(
                 client,
-                _json_line(
-                    {"type": "control", "event": "connected", **self.snapshot()}
-                ),
+                _json_line({"type": "control", "event": "connected", **self.snapshot()}),
             )
 
             try:
@@ -521,9 +511,7 @@ class IpcController:
                         continue
 
                     if cmd == "ping":
-                        self._send_reply(
-                            client, cmd_id=cmd_id, ok=True, data={"pong": True}
-                        )
+                        self._send_reply(client, cmd_id=cmd_id, ok=True, data={"pong": True})
                         continue
 
                     if cmd == "get_state":
@@ -542,17 +530,13 @@ class IpcController:
 
                     if cmd == "stop_after_step":
                         step = args.get("step")
-                        self.set_stop_after_step(
-                            str(step) if step is not None else None
-                        )
+                        self.set_stop_after_step(str(step) if step is not None else None)
                         self._send_reply(client, cmd_id=cmd_id, ok=True)
                         continue
 
                     if cmd == "pause_after_step":
                         step = args.get("step")
-                        self.set_pause_after_step(
-                            str(step) if step is not None else None
-                        )
+                        self.set_pause_after_step(str(step) if step is not None else None)
                         self._send_reply(client, cmd_id=cmd_id, ok=True)
                         continue
 
@@ -584,12 +568,8 @@ class IpcController:
                             cmd_id=cmd_id,
                             ok=True,
                             data={
-                                "verbosity": getattr(
-                                    self._logger, "screen_level", "verbose"
-                                ),
-                                "log_level": getattr(
-                                    self._logger, "log_level", "verbose"
-                                ),
+                                "verbosity": getattr(self._logger, "screen_level", "verbose"),
+                                "log_level": getattr(self._logger, "log_level", "verbose"),
                             },
                         )
                         continue
@@ -709,15 +689,10 @@ class IpcController:
         _safe_unlink(sock_path)
 
 
-def resolve_socket_path(
-    *, policy: Any, patch_dir: Path, issue_id: str | None
-) -> Path | None:
+def resolve_socket_path(*, policy: Any, patch_dir: Path, issue_id: str | None) -> Path | None:
     global _STARTUP_EXISTS_MODE, _STARTUP_WAIT_S
     _STARTUP_EXISTS_MODE = (
-        str(
-            getattr(policy, "ipc_socket_on_startup_exists", _STARTUP_EXISTS_MODE)
-        ).strip()
-        or "fail"
+        str(getattr(policy, "ipc_socket_on_startup_exists", _STARTUP_EXISTS_MODE)).strip() or "fail"
     )
     try:
         _STARTUP_WAIT_S = int(getattr(policy, "ipc_socket_on_startup_wait_s", 0) or 0)
@@ -732,11 +707,7 @@ def resolve_socket_path(
     if explicit:
         return Path(str(explicit))
 
-    mode = (
-        str(getattr(policy, "ipc_socket_mode", "patch_dir") or "patch_dir")
-        .strip()
-        .lower()
-    )
+    mode = str(getattr(policy, "ipc_socket_mode", "patch_dir") or "patch_dir").strip().lower()
     tpl = str(getattr(policy, "ipc_socket_name_template", "") or "").strip()
     if not tpl:
         tpl = "am_patch_ipc_{issue}_{pid}.sock"

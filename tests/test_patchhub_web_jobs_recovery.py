@@ -65,9 +65,7 @@ def test_recovery_initializes_new_db_primary_when_main_db_is_absent(
 
     mark_shutdown_clean(patches_root, resolution.session_id, resolution.recovery)
     marker = json.loads(
-        (patches_root / "artifacts" / "web_jobs_runtime_state.json").read_text(
-            encoding="utf-8"
-        )
+        (patches_root / "artifacts" / "web_jobs_runtime_state.json").read_text(encoding="utf-8")
     )
     assert marker["state"] == "clean"
 

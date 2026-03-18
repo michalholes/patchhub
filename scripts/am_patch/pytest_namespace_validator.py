@@ -177,11 +177,7 @@ def _namespace_rules(
 
 def _has_descendants(namespace: str, namespaces: Sequence[str]) -> bool:
     prefix = namespace + "."
-    return any(
-        candidate.startswith(prefix)
-        for candidate in namespaces
-        if candidate != namespace
-    )
+    return any(candidate.startswith(prefix) for candidate in namespaces if candidate != namespace)
 
 
 def _python_paths_under(repo_root: Path, path_prefix: str) -> list[Path]:
@@ -215,10 +211,7 @@ def _leaf_namespaces(namespaces: Sequence[str]) -> set[str]:
 def _reduce_namespaces(namespaces: set[str]) -> set[str]:
     out: set[str] = set()
     for candidate in sorted(namespaces, key=lambda item: (-len(item), item)):
-        if any(
-            existing == candidate or existing.startswith(candidate + ".")
-            for existing in out
-        ):
+        if any(existing == candidate or existing.startswith(candidate + ".") for existing in out):
             continue
         out.add(candidate)
     return out
@@ -271,9 +264,7 @@ def collect_repo_namespace_dependency_evidence(
             for target_namespace, target_rule in rules.items():
                 if target_namespace == namespace or target_namespace not in target_set:
                     continue
-                if any(
-                    _matches_module_ref(ref, target_rule) for ref in refs.module_refs
-                ):
+                if any(_matches_module_ref(ref, target_rule) for ref in refs.module_refs):
                     matched.add(target_namespace)
                     continue
                 if any(_matches_path_ref(ref, target_rule) for ref in refs.path_refs):
@@ -338,9 +329,7 @@ def validate_namespace_policy(
                 errors.append(f"missing_{mapping_name}_endpoint:{namespace}")
             for provider in providers:
                 if provider not in endpoints:
-                    errors.append(
-                        f"missing_{mapping_name}_endpoint:{namespace}->{provider}"
-                    )
+                    errors.append(f"missing_{mapping_name}_endpoint:{namespace}->{provider}")
 
     for namespace, providers in sorted(dependencies.items()):
         external = set(external_dependencies.get(namespace, ()))
@@ -371,9 +360,7 @@ def validate_namespace_policy(
         }
         for provider in external_providers:
             if provider in repo_provider_set:
-                errors.append(
-                    f"external_override_conflicts_repo:{namespace}->{provider}"
-                )
+                errors.append(f"external_override_conflicts_repo:{namespace}->{provider}")
 
     if errors:
         raise ValueError("; ".join(errors))

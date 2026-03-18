@@ -68,9 +68,7 @@ def test_export_legacy_tree_uses_compact_compatibility_text_after_compaction(
     export_root = tmp_path / "legacy_export"
     db.export_legacy_tree(export_root)
 
-    assert (export_root / job.job_id / "runner.log").read_text(
-        encoding="utf-8"
-    ) == "alpha\nbeta"
+    assert (export_root / job.job_id / "runner.log").read_text(encoding="utf-8") == "alpha\nbeta"
     assert (export_root / job.job_id / "am_patch_issue_516.jsonl").read_text(
         encoding="utf-8"
     ) == '{"type":"log","msg":"alpha"}\n{"type":"summary","msg":"beta"}'

@@ -87,9 +87,7 @@ def test_make_failure_zip_writes_root_target_txt(tmp_path: Path) -> None:
     workspace_repo = tmp_path / "repo"
     workspace_repo.mkdir()
     (workspace_repo / "scripts").mkdir()
-    (workspace_repo / "scripts" / "sample.py").write_text(
-        "print('ok')\n", encoding="utf-8"
-    )
+    (workspace_repo / "scripts" / "sample.py").write_text("print('ok')\n", encoding="utf-8")
 
     log_path = tmp_path / "run.log"
     log_path.write_text("log\n", encoding="utf-8")
@@ -131,9 +129,7 @@ def test_failure_zip_target_is_derived_from_selected_effective_root(
     workspace_repo = tmp_path / "repo"
     workspace_repo.mkdir()
     (workspace_repo / "scripts").mkdir()
-    (workspace_repo / "scripts" / "sample.py").write_text(
-        "print('ok')\n", encoding="utf-8"
-    )
+    (workspace_repo / "scripts" / "sample.py").write_text("print('ok')\n", encoding="utf-8")
 
     patch_dir = tmp_path / "patches"
     artifacts_dir = patch_dir / "artifacts"
@@ -152,9 +148,7 @@ def test_failure_zip_target_is_derived_from_selected_effective_root(
         logger=_LoggerStub(),
         cli=_CliStub(),
         policy=policy,
-        paths=_PathsStub(
-            patch_dir=patch_dir, artifacts_dir=artifacts_dir, logs_dir=logs_dir
-        ),
+        paths=_PathsStub(patch_dir=patch_dir, artifacts_dir=artifacts_dir, logs_dir=logs_dir),
         repo_root=Path("/home/pi/patchhub"),
         log_path=log_path,
         exit_code=1,

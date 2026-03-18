@@ -13,9 +13,7 @@ def _run_node_scenario(body: str) -> dict[str, object]:
     if not node:
         pytest.skip("node not installed")
     repo_root = Path(__file__).resolve().parents[1]
-    progress_path = (
-        repo_root / "scripts" / "patchhub" / "static" / "patchhub_progress_ui.js"
-    )
+    progress_path = repo_root / "scripts" / "patchhub" / "static" / "patchhub_progress_ui.js"
     live_path = repo_root / "scripts" / "patchhub" / "static" / "patchhub_live_ui.js"
     script = f"""
 const fs = require("fs");

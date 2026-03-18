@@ -29,9 +29,7 @@ def _is_lock_held(lock_path: Path) -> bool:
 
 
 def _runner_config_path(repo_root: Path, cfg: Any) -> Path:
-    rel = str(
-        getattr(getattr(cfg, "runner", object()), "runner_config_toml", "")
-    ).strip()
+    rel = str(getattr(getattr(cfg, "runner", object()), "runner_config_toml", "")).strip()
     if not rel:
         raise ValueError("missing runner_config_toml")
     return (repo_root / rel).resolve()
@@ -159,9 +157,7 @@ def api_amp_config_get(self) -> tuple[int, bytes]:
 
 def api_amp_config_post(self, body: dict[str, Any]) -> tuple[int, bytes]:
     if _is_lock_held(self.jail.lock_path()):
-        return _json_bytes(
-            {"ok": False, "error": "Runner active (lock held)"}, status=409
-        )
+        return _json_bytes({"ok": False, "error": "Runner active (lock held)"}, status=409)
 
     values = body.get("values")
     if not isinstance(values, dict):
@@ -183,9 +179,7 @@ def api_amp_config_post(self, body: dict[str, Any]) -> tuple[int, bytes]:
         updates_typed = validate_patchhub_update(values, schema)
 
         cfg_path = _runner_config_path(self.repo_root, self.cfg)
-        original_text = (
-            cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
-        )
+        original_text = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
 
         new_text = apply_update_to_config_text(original_text, updates_typed, schema)
         validate_config_text_roundtrip(new_text)

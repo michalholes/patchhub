@@ -80,9 +80,7 @@ def load_web_jobs_db_config(repo_root: Path, patches_root: Path) -> WebJobsDbCon
         ),
         busy_timeout_ms=max(1, int(db_raw.get("busy_timeout_ms", 5000))),
         connect_timeout_s=max(0.1, float(db_raw.get("connect_timeout_s", 5.0))),
-        startup_migration_enabled=bool(
-            migration_raw.get("startup_migration_enabled", False)
-        ),
+        startup_migration_enabled=bool(migration_raw.get("startup_migration_enabled", False)),
         startup_verify_enabled=bool(migration_raw.get("startup_verify_enabled", False)),
         cleanup_enabled=bool(migration_raw.get("cleanup_enabled", False)),
         backup_destination_template=str(
@@ -111,9 +109,7 @@ def load_web_jobs_db_config(repo_root: Path, patches_root: Path) -> WebJobsDbCon
         },
         retention_thresholds={
             "compact_after_jobs": int(retention_raw.get("compact_after_jobs", 10000)),
-            "compact_after_log_lines": int(
-                retention_raw.get("compact_after_log_lines", 100000)
-            ),
+            "compact_after_log_lines": int(retention_raw.get("compact_after_log_lines", 100000)),
             "compact_after_event_lines": int(
                 retention_raw.get("compact_after_event_lines", 100000)
             ),
@@ -170,9 +166,7 @@ class WebJobsDatabase:
 
     def jobs_signature(self) -> tuple[int, int]:
         with self._store._connect() as conn:
-            meta = conn.execute(
-                "SELECT jobs_rev FROM web_jobs_meta WHERE singleton = 1"
-            ).fetchone()
+            meta = conn.execute("SELECT jobs_rev FROM web_jobs_meta WHERE singleton = 1").fetchone()
             count_row = conn.execute("SELECT COUNT(*) FROM web_jobs").fetchone()
         rev = int(meta["jobs_rev"]) if meta is not None else 0
         count = int(count_row[0]) if count_row is not None else 0
@@ -223,19 +217,12 @@ class WebJobsDatabase:
                 event_count=len(event_lines),
                 row_rev=row_rev,
             )
-            conn.execute(
-                "DELETE FROM web_job_log_lines WHERE job_id = ?", (str(job.job_id),)
-            )
-            conn.execute(
-                "DELETE FROM web_job_event_lines WHERE job_id = ?", (str(job.job_id),)
-            )
+            conn.execute("DELETE FROM web_job_log_lines WHERE job_id = ?", (str(job.job_id),))
+            conn.execute("DELETE FROM web_job_event_lines WHERE job_id = ?", (str(job.job_id),))
             if log_lines:
                 conn.executemany(
                     "INSERT INTO web_job_log_lines(job_id, seq, line) VALUES (?, ?, ?)",
-                    [
-                        (str(job.job_id), idx + 1, str(line))
-                        for idx, line in enumerate(log_lines)
-                    ],
+                    [(str(job.job_id), idx + 1, str(line)) for idx, line in enumerate(log_lines)],
                 )
             if event_lines:
                 items = []
@@ -247,15 +234,9 @@ class WebJobsDatabase:
                             str(job.job_id),
                             idx,
                             text,
-                            _int_or_none(parsed.get("seq"))
-                            if parsed is not None
-                            else None,
-                            _none_if_blank(parsed.get("type"))
-                            if parsed is not None
-                            else None,
-                            _none_if_blank(parsed.get("event"))
-                            if parsed is not None
-                            else None,
+                            _int_or_none(parsed.get("seq")) if parsed is not None else None,
+                            _none_if_blank(parsed.get("type")) if parsed is not None else None,
+                            _none_if_blank(parsed.get("event")) if parsed is not None else None,
                         )
                     )
                 conn.executemany(
@@ -334,9 +315,7 @@ class WebJobsDatabase:
         parsed = _read_event_frame(text)
         ipc_seq = _int_or_none(parsed.get("seq")) if parsed is not None else None
         frame_type = _none_if_blank(parsed.get("type")) if parsed is not None else None
-        frame_event = (
-            _none_if_blank(parsed.get("event")) if parsed is not None else None
-        )
+        frame_event = _none_if_blank(parsed.get("event")) if parsed is not None else None
         with self._store._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
@@ -416,9 +395,7 @@ class WebJobsDatabase:
             ).fetchall()
         return [_event_row_from_sql(row) for row in rows]
 
-    def read_event_tail(
-        self, job_id: str, *, lines: int = 500
-    ) -> tuple[list[EventRow], int]:
+    def read_event_tail(self, job_id: str, *, lines: int = 500) -> tuple[list[EventRow], int]:
         limit = clamp_live_event_retention(lines)
         with self._store._connect() as conn:
             rows = conn.execute(
@@ -486,9 +463,7 @@ class WebJobsDatabase:
             job_text = self.legacy_job_json_text(job_id)
             if job_text is not None:
                 (job_dir / "job.json").write_text(job_text + "\n", encoding="utf-8")
-            (job_dir / "runner.log").write_text(
-                self.read_full_log(job_id), encoding="utf-8"
-            )
+            (job_dir / "runner.log").write_text(self.read_full_log(job_id), encoding="utf-8")
             (job_dir / self.legacy_event_filename(job_id)).write_text(
                 self.legacy_event_text(job_id),
                 encoding="utf-8",
@@ -515,9 +490,7 @@ class WebJobsDatabase:
         if keep <= 0:
             return
         stem = Path(template).name.split("{timestamp}")[0]
-        candidates = [
-            p for p in backup_dir.iterdir() if p.is_file() and p.name.startswith(stem)
-        ]
+        candidates = [p for p in backup_dir.iterdir() if p.is_file() and p.name.startswith(stem)]
         candidates.sort(key=lambda p: p.stat().st_mtime_ns, reverse=True)
         for path in candidates[keep:]:
             path.unlink(missing_ok=True)

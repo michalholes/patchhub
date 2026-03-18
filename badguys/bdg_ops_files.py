@@ -78,9 +78,7 @@ def _resolve_step_path(
     if root is None:
         return None, err
     path = root / _normalize_relpath(
-        relpath=_expand_relpath_vars(
-            relpath=relpath, repo_root=repo_root, issue_id=issue_id
-        ),
+        relpath=_expand_relpath_vars(relpath=relpath, repo_root=repo_root, issue_id=issue_id),
         label="relpath",
     )
     return path, None
@@ -145,9 +143,7 @@ def execute_read_step_log(
     log_dir = logs_dir(repo_root=repo_root, config_path=config_path)
     log_path = log_dir / test_name / "badguys.test.jsonl"
     if not log_path.exists():
-        return StepResult(
-            rc=1, stdout=None, stderr=f"missing log: {log_path}", value=""
-        )
+        return StepResult(rc=1, stdout=None, stderr=f"missing log: {log_path}", value="")
     return StepResult(
         rc=0,
         stdout=None,

@@ -100,9 +100,7 @@ def ensure_job_derived_row(
     existing_rev = int(existing["derived_rev"]) if existing is not None else 0
     now_utc, now_unix_ms = _utc_now_parts()
     created_utc = str(existing["created_utc"]) if existing is not None else now_utc
-    created_unix_ms = (
-        int(existing["created_unix_ms"]) if existing is not None else now_unix_ms
-    )
+    created_unix_ms = int(existing["created_unix_ms"]) if existing is not None else now_unix_ms
     updated_utc, updated_unix_ms = now_utc, now_unix_ms
 
     compact_log_tail_text = _preserved_tail(
@@ -110,9 +108,7 @@ def ensure_job_derived_row(
         job_id=job.job_id,
         table="web_job_log_lines",
         column="line",
-        current_text=(
-            existing["compact_log_tail_text"] if existing is not None else None
-        ),
+        current_text=(existing["compact_log_tail_text"] if existing is not None else None),
         fallback_lines=keep_tail_lines,
     )
     compact_event_tail_text = _preserved_tail(
@@ -120,9 +116,7 @@ def ensure_job_derived_row(
         job_id=job.job_id,
         table="web_job_event_lines",
         column="raw_line",
-        current_text=(
-            existing["compact_event_tail_text"] if existing is not None else None
-        ),
+        current_text=(existing["compact_event_tail_text"] if existing is not None else None),
         fallback_lines=keep_tail_lines,
     )
 
@@ -269,9 +263,7 @@ def read_effective_event_tail_text(
     )
 
 
-def read_effective_applied_files(
-    job_db: WebJobsDatabase, job_id: str
-) -> tuple[list[str], str]:
+def read_effective_applied_files(job_db: WebJobsDatabase, job_id: str) -> tuple[list[str], str]:
     derived = load_derived_payload(job_db, job_id)
     if derived is not None:
         return (
@@ -287,13 +279,9 @@ def read_effective_applied_files(
     )
 
 
-def read_effective_log_tail(
-    job_db: WebJobsDatabase, job_id: str, *, lines: int = 200
-) -> str:
+def read_effective_log_tail(job_db: WebJobsDatabase, job_id: str, *, lines: int = 200) -> str:
     limit = clamp_live_event_retention(lines)
     raw_tail = job_db._read_raw_log_tail(job_id, lines=limit)
     if raw_tail:
         return raw_tail
-    return _tail_slice(
-        _derived_text(job_db, job_id, "compact_log_tail_text"), lines=limit
-    )
+    return _tail_slice(_derived_text(job_db, job_id, "compact_log_tail_text"), lines=limit)

@@ -35,9 +35,7 @@ def _write_backup_cfg(repo_root: Path, *, trigger_policy: str) -> None:
 
 
 def _load_core_cfg() -> object:
-    cfg_path = (
-        Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
-    )
+    cfg_path = Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
     return load_config(cfg_path)
 
 
@@ -80,9 +78,7 @@ async def test_startup_backup_trigger_manual_creates_no_backup(tmp_path: Path) -
     await core.startup()
     try:
         assert core.backend_mode_state.mode == "db_primary"
-        assert (
-            core.backend_mode_state.last_recovery["backup_trigger_policy"] == "manual"
-        )
+        assert core.backend_mode_state.last_recovery["backup_trigger_policy"] == "manual"
         assert core.backend_mode_state.last_recovery["startup_backup_created"] is False
         assert not _backups_dir(repo_root).exists()
     finally:

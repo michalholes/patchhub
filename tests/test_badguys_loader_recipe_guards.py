@@ -11,9 +11,7 @@ from badguys.bdg_loader import load_bdg_test
         ("args", '["123", "msg"]'),
     ],
 )
-def test_loader_rejects_runner_recipe_keys(
-    tmp_path: Path, field: str, value: str
-) -> None:
+def test_loader_rejects_runner_recipe_keys(tmp_path: Path, field: str, value: str) -> None:
     path = tmp_path / "test_guard.bdg"
     path.write_text(
         (

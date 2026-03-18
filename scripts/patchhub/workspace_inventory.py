@@ -227,9 +227,7 @@ def list_workspaces(
             )
         )
 
-    items.sort(
-        key=lambda item: (str(item["mtime_utc"]), int(item["issue_id"])), reverse=True
-    )
+    items.sort(key=lambda item: (str(item["mtime_utc"]), int(item["issue_id"])), reverse=True)
 
     from hashlib import sha1
 

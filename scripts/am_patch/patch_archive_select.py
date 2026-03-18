@@ -5,9 +5,7 @@ from pathlib import Path
 from am_patch.errors import RunnerError
 
 
-def select_latest_issue_patch(
-    *, patch_dir: Path, issue_id: str, hint_name: str | None
-) -> Path:
+def select_latest_issue_patch(*, patch_dir: Path, issue_id: str, hint_name: str | None) -> Path:
     """Select the most recent patch script for ISSUE_ID from patches/, patches/successful/,
     patches/unsuccessful/.
 

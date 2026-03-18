@@ -225,9 +225,7 @@ def record_ipc_stream(
                     break
 
     if s is None:
-        _finalize_unresolved_plans(
-            plans, code="CONNECT_TIMEOUT", message="ipc connect timeout"
-        )
+        _finalize_unresolved_plans(plans, code="CONNECT_TIMEOUT", message="ipc connect timeout")
         return None, "", _result_artifact_copy_status(error=None)
 
     try:
@@ -317,9 +315,7 @@ def record_ipc_stream(
             if s is not None:
                 s.close()
 
-    _finalize_unresolved_plans(
-        plans, code="EOF", message="ipc connection closed before reply"
-    )
+    _finalize_unresolved_plans(plans, code="EOF", message="ipc connection closed before reply")
     if (
         runner_jsonl_missing
         and artifact_copy_error is not None
@@ -402,15 +398,12 @@ def _maybe_send_waiting_commands(
             plan["done"] = True
 
 
-def _finalize_unresolved_plans(
-    plans: list[dict[str, Any]], *, code: str, message: str
-) -> None:
+def _finalize_unresolved_plans(plans: list[dict[str, Any]], *, code: str, message: str) -> None:
     for plan in plans:
         if plan.get("done"):
             continue
         if not plan.get("sent") and (
-            plan.get("wait_event_type") is not None
-            or plan.get("wait_event_name") is not None
+            plan.get("wait_event_type") is not None or plan.get("wait_event_name") is not None
         ):
             _write_json(
                 plan["reply_path"],
@@ -437,9 +430,7 @@ def _finalize_unresolved_plans(
 
 
 def _json_line(obj: dict[str, Any]) -> bytes:
-    return (json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n").encode(
-        "utf-8"
-    )
+    return (json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
 def _write_json(path: Path, obj: dict[str, Any]) -> None:

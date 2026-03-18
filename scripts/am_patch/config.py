@@ -207,9 +207,7 @@ class Policy(PolicyMonolithMixin):
     apply_failure_zero_gates_policy: str = "never"
     gate_docs_include: list[str] = field(default_factory=lambda: ["src", "plugins"])
     gate_docs_exclude: list[str] = field(default_factory=lambda: ["badguys", "patches"])
-    gate_docs_required_files: list[str] = field(
-        default_factory=lambda: ["docs/change_fragments/"]
-    )
+    gate_docs_required_files: list[str] = field(default_factory=lambda: ["docs/change_fragments/"])
     gates_order: list[str] = field(
         default_factory=lambda: [
             "dont-touch",
@@ -227,9 +225,7 @@ class Policy(PolicyMonolithMixin):
 
     gate_badguys_runner: str = "auto"
 
-    gate_badguys_command: list[str] = field(
-        default_factory=lambda: ["badguys/badguys.py", "-q"]
-    )
+    gate_badguys_command: list[str] = field(default_factory=lambda: ["badguys/badguys.py", "-q"])
 
     gate_badguys_cwd: str = "auto"
     ruff_targets: list[str] = field(default_factory=lambda: ["src", "tests"])
@@ -244,12 +240,8 @@ class Policy(PolicyMonolithMixin):
     )
     gate_pytest_js_prefixes: list[str] = field(default_factory=list)
     pytest_routing_mode: str = "bucketed"
-    pytest_roots: dict[str, str] = field(
-        default_factory=lambda: deepcopy(PYTEST_ROOTS_DEFAULT)
-    )
-    pytest_tree: dict[str, str] = field(
-        default_factory=lambda: deepcopy(PYTEST_TREE_DEFAULT)
-    )
+    pytest_roots: dict[str, str] = field(default_factory=lambda: deepcopy(PYTEST_ROOTS_DEFAULT))
+    pytest_tree: dict[str, str] = field(default_factory=lambda: deepcopy(PYTEST_TREE_DEFAULT))
     pytest_namespace_modules: dict[str, list[str]] = field(
         default_factory=lambda: deepcopy(PYTEST_NAMESPACE_MODULES_DEFAULT)
     )
@@ -313,9 +305,7 @@ def _as_rollback_mode(d: dict[str, Any], k: str, default: str) -> str:
     if isinstance(v, bool):
         return "none-applied" if v else "never"
     if not isinstance(v, str):
-        raise TypeError(
-            f"config key {k!r} must be a string or bool, got {type(v).__name__}"
-        )
+        raise TypeError(f"config key {k!r} must be a string or bool, got {type(v).__name__}")
     if v not in ("none-applied", "always", "never"):
         raise ValueError(f"config key {k!r} has invalid value {v!r}")
     return v
@@ -441,9 +431,7 @@ def _coerce_override_value(cur: object, raw: object) -> object:
             try:
                 return int(raw.strip())
             except Exception as e:
-                raise RunnerError(
-                    "CONFIG", "INVALID", f"invalid integer override: {raw!r}"
-                ) from e
+                raise RunnerError("CONFIG", "INVALID", f"invalid integer override: {raw!r}") from e
         raise RunnerError("CONFIG", "INVALID", f"invalid integer override: {raw!r}")
 
     if isinstance(cur, list):
@@ -477,9 +465,7 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     _mark_cfg(p, cfg, "artifacts_root")
     p.target_repo_roots = _as_list_str(cfg, "target_repo_roots", p.target_repo_roots)
     _mark_cfg(p, cfg, "target_repo_roots")
-    p.active_target_repo_root = _as_str(
-        cfg, "active_target_repo_root", p.active_target_repo_root
-    )
+    p.active_target_repo_root = _as_str(cfg, "active_target_repo_root", p.active_target_repo_root)
     _mark_cfg(p, cfg, "active_target_repo_root")
     p.patch_dir = _as_str(cfg, "patch_dir", p.patch_dir)
     _mark_cfg(p, cfg, "patch_dir")
@@ -488,9 +474,7 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     p.patch_dir_name = str(cfg.get("patch_dir_name", p.patch_dir_name))
     _mark_cfg(p, cfg, "patch_dir_name")
 
-    p.patch_layout_logs_dir = str(
-        cfg.get("patch_layout_logs_dir", p.patch_layout_logs_dir)
-    )
+    p.patch_layout_logs_dir = str(cfg.get("patch_layout_logs_dir", p.patch_layout_logs_dir))
     _mark_cfg(p, cfg, "patch_layout_logs_dir")
     p.patch_layout_workspaces_dir = str(
         cfg.get("patch_layout_workspaces_dir", p.patch_layout_workspaces_dir)
@@ -520,21 +504,15 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     _mark_cfg(p, cfg, "log_ts_format")
     p.log_template_issue = str(cfg.get("log_template_issue", p.log_template_issue))
     _mark_cfg(p, cfg, "log_template_issue")
-    p.log_template_finalize = str(
-        cfg.get("log_template_finalize", p.log_template_finalize)
-    )
+    p.log_template_finalize = str(cfg.get("log_template_finalize", p.log_template_finalize))
     _mark_cfg(p, cfg, "log_template_finalize")
 
     p.failure_zip_name = str(cfg.get("failure_zip_name", p.failure_zip_name))
     _mark_cfg(p, cfg, "failure_zip_name")
-    p.failure_zip_template = str(
-        cfg.get("failure_zip_template", p.failure_zip_template)
-    )
+    p.failure_zip_template = str(cfg.get("failure_zip_template", p.failure_zip_template))
     _mark_cfg(p, cfg, "failure_zip_template")
     p.failure_zip_cleanup_glob_template = str(
-        cfg.get(
-            "failure_zip_cleanup_glob_template", p.failure_zip_cleanup_glob_template
-        )
+        cfg.get("failure_zip_cleanup_glob_template", p.failure_zip_cleanup_glob_template)
     )
     _mark_cfg(p, cfg, "failure_zip_cleanup_glob_template")
     if "failure_zip_keep_per_issue" in cfg:
@@ -548,22 +526,16 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     _mark_cfg(p, cfg, "failure_zip_delete_on_success_commit")
     p.failure_zip_log_dir = str(cfg.get("failure_zip_log_dir", p.failure_zip_log_dir))
     _mark_cfg(p, cfg, "failure_zip_log_dir")
-    p.failure_zip_patch_dir = str(
-        cfg.get("failure_zip_patch_dir", p.failure_zip_patch_dir)
-    )
+    p.failure_zip_patch_dir = str(cfg.get("failure_zip_patch_dir", p.failure_zip_patch_dir))
     _mark_cfg(p, cfg, "failure_zip_patch_dir")
 
     p.workspace_issue_dir_template = str(
         cfg.get("workspace_issue_dir_template", p.workspace_issue_dir_template)
     )
     _mark_cfg(p, cfg, "workspace_issue_dir_template")
-    p.workspace_repo_dir_name = str(
-        cfg.get("workspace_repo_dir_name", p.workspace_repo_dir_name)
-    )
+    p.workspace_repo_dir_name = str(cfg.get("workspace_repo_dir_name", p.workspace_repo_dir_name))
     _mark_cfg(p, cfg, "workspace_repo_dir_name")
-    p.workspace_meta_filename = str(
-        cfg.get("workspace_meta_filename", p.workspace_meta_filename)
-    )
+    p.workspace_meta_filename = str(cfg.get("workspace_meta_filename", p.workspace_meta_filename))
     _mark_cfg(p, cfg, "workspace_meta_filename")
 
     p.workspace_history_logs_dir = str(
@@ -583,35 +555,23 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     )
     _mark_cfg(p, cfg, "workspace_history_oldpatches_dir")
 
-    p.blessed_gate_outputs = _as_list_str(
-        cfg, "blessed_gate_outputs", p.blessed_gate_outputs
-    )
+    p.blessed_gate_outputs = _as_list_str(cfg, "blessed_gate_outputs", p.blessed_gate_outputs)
     _mark_cfg(p, cfg, "blessed_gate_outputs")
-    p.scope_ignore_prefixes = _as_list_str(
-        cfg, "scope_ignore_prefixes", p.scope_ignore_prefixes
-    )
+    p.scope_ignore_prefixes = _as_list_str(cfg, "scope_ignore_prefixes", p.scope_ignore_prefixes)
     _mark_cfg(p, cfg, "scope_ignore_prefixes")
-    p.scope_ignore_suffixes = _as_list_str(
-        cfg, "scope_ignore_suffixes", p.scope_ignore_suffixes
-    )
+    p.scope_ignore_suffixes = _as_list_str(cfg, "scope_ignore_suffixes", p.scope_ignore_suffixes)
     _mark_cfg(p, cfg, "scope_ignore_suffixes")
-    p.scope_ignore_contains = _as_list_str(
-        cfg, "scope_ignore_contains", p.scope_ignore_contains
-    )
+    p.scope_ignore_contains = _as_list_str(cfg, "scope_ignore_contains", p.scope_ignore_contains)
     _mark_cfg(p, cfg, "scope_ignore_contains")
 
     p.venv_bootstrap_mode = str(cfg.get("venv_bootstrap_mode", p.venv_bootstrap_mode))
     _mark_cfg(p, cfg, "venv_bootstrap_mode")
-    p.venv_bootstrap_python = str(
-        cfg.get("venv_bootstrap_python", p.venv_bootstrap_python)
-    )
+    p.venv_bootstrap_python = str(cfg.get("venv_bootstrap_python", p.venv_bootstrap_python))
     _mark_cfg(p, cfg, "venv_bootstrap_python")
 
     p.default_branch = str(cfg.get("default_branch", p.default_branch))
     _mark_cfg(p, cfg, "default_branch")
-    p.success_archive_name = str(
-        cfg.get("success_archive_name", p.success_archive_name)
-    )
+    p.success_archive_name = str(cfg.get("success_archive_name", p.success_archive_name))
     _mark_cfg(p, cfg, "success_archive_name")
 
     p.success_archive_dir = str(cfg.get("success_archive_dir", p.success_archive_dir))
@@ -634,9 +594,7 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
 
     p.update_workspace = _as_bool(cfg, "update_workspace", p.update_workspace)
     _mark_cfg(p, cfg, "update_workspace")
-    p.soft_reset_workspace = _as_bool(
-        cfg, "soft_reset_workspace", p.soft_reset_workspace
-    )
+    p.soft_reset_workspace = _as_bool(cfg, "soft_reset_workspace", p.soft_reset_workspace)
     _mark_cfg(p, cfg, "soft_reset_workspace")
     p.delete_workspace_on_success = _as_bool(
         cfg, "delete_workspace_on_success", p.delete_workspace_on_success
@@ -675,9 +633,7 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
         p.runner_subprocess_timeout_s = int(cfg["runner_subprocess_timeout_s"])
         _mark_cfg(p, cfg, "runner_subprocess_timeout_s")
     if p.runner_subprocess_timeout_s < 0:
-        raise RunnerError(
-            "CONFIG", "INVALID", "runner_subprocess_timeout_s must be >= 0"
-        )
+        raise RunnerError("CONFIG", "INVALID", "runner_subprocess_timeout_s must be >= 0")
 
     p.console_color = str(cfg.get("console_color", p.console_color))
     _mark_cfg(p, cfg, "console_color")
@@ -695,9 +651,7 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
         mark_cfg=_mark_cfg,
     )
 
-    p.target_repo_name = _validate_repo_token(
-        p.target_repo_name, field="target_repo_name"
-    )
+    p.target_repo_name = _validate_repo_token(p.target_repo_name, field="target_repo_name")
     p.patch_dir_name = _validate_basename(p.patch_dir_name, field="patch_dir_name")
     p.patch_layout_logs_dir = _validate_basename(
         p.patch_layout_logs_dir, field="patch_layout_logs_dir"
@@ -715,15 +669,11 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     p.current_log_symlink_name = _validate_basename(
         p.current_log_symlink_name, field="current_log_symlink_name"
     )
-    p.failure_zip_name = _validate_basename(
-        p.failure_zip_name, field="failure_zip_name"
-    )
+    p.failure_zip_name = _validate_basename(p.failure_zip_name, field="failure_zip_name")
 
     p.failure_zip_template = str(p.failure_zip_template).strip()
     if p.failure_zip_template and "{issue}" not in p.failure_zip_template:
-        raise RunnerError(
-            "CONFIG", "INVALID", "failure_zip_template must contain {issue}"
-        )
+        raise RunnerError("CONFIG", "INVALID", "failure_zip_template must contain {issue}")
 
     if p.failure_zip_template:
         uniqueness_keys = ("{ts}", "{nonce}", "{attempt")
@@ -745,16 +695,12 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
             "failure_zip_keep_per_issue must be >= 0",
         )
     validate_success_archive_retention(p)
-    p.failure_zip_log_dir = _validate_basename(
-        p.failure_zip_log_dir, field="failure_zip_log_dir"
-    )
+    p.failure_zip_log_dir = _validate_basename(p.failure_zip_log_dir, field="failure_zip_log_dir")
     p.failure_zip_patch_dir = _validate_basename(
         p.failure_zip_patch_dir, field="failure_zip_patch_dir"
     )
 
-    p.workspace_issue_dir_template = (
-        str(p.workspace_issue_dir_template).strip() or "issue_{issue}"
-    )
+    p.workspace_issue_dir_template = str(p.workspace_issue_dir_template).strip() or "issue_{issue}"
     p.workspace_repo_dir_name = _validate_basename(
         p.workspace_repo_dir_name, field="workspace_repo_dir_name"
     )
@@ -782,9 +728,7 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
             "log_template_issue must contain {issue} and {ts}",
         )
     if "{ts}" not in p.log_template_finalize:
-        raise RunnerError(
-            "CONFIG", "INVALID", "log_template_finalize must contain {ts}"
-        )
+        raise RunnerError("CONFIG", "INVALID", "log_template_finalize must contain {ts}")
 
     if p.venv_bootstrap_mode not in ("auto", "always", "never"):
         raise RunnerError(
@@ -793,17 +737,13 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
             f"invalid venv_bootstrap_mode={p.venv_bootstrap_mode!r}; allowed: auto|always|never",
         )
     if not str(p.venv_bootstrap_python).strip():
-        raise RunnerError(
-            "CONFIG", "INVALID", "venv_bootstrap_python must be non-empty"
-        )
+        raise RunnerError("CONFIG", "INVALID", "venv_bootstrap_python must be non-empty")
 
     p.no_op_fail = _as_bool(cfg, "no_op_fail", p.no_op_fail)
     _mark_cfg(p, cfg, "no_op_fail")
     p.allow_no_op = _as_bool(cfg, "allow_no_op", p.allow_no_op)
     _mark_cfg(p, cfg, "allow_no_op")
-    p.enforce_allowed_files = _as_bool(
-        cfg, "enforce_allowed_files", p.enforce_allowed_files
-    )
+    p.enforce_allowed_files = _as_bool(cfg, "enforce_allowed_files", p.enforce_allowed_files)
     _mark_cfg(p, cfg, "enforce_allowed_files")
 
     apply_gate_execution_cfg(
@@ -821,9 +761,7 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     )
     _mark_cfg(p, cfg, "fail_if_live_files_changed")
 
-    p.live_changed_resolution = str(
-        cfg.get("live_changed_resolution", p.live_changed_resolution)
-    )
+    p.live_changed_resolution = str(cfg.get("live_changed_resolution", p.live_changed_resolution))
     _mark_cfg(p, cfg, "live_changed_resolution")
     if p.live_changed_resolution not in (
         "fail",
@@ -853,15 +791,11 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     _mark_cfg(p, cfg, "rollback_workspace_on_fail")
     p.live_repo_guard = _as_bool(cfg, "live_repo_guard", p.live_repo_guard)
     _mark_cfg(p, cfg, "live_repo_guard")
-    p.live_repo_guard_scope = str(
-        cfg.get("live_repo_guard_scope", p.live_repo_guard_scope)
-    )
+    p.live_repo_guard_scope = str(cfg.get("live_repo_guard_scope", p.live_repo_guard_scope))
     _mark_cfg(p, cfg, "live_repo_guard_scope")
     p.patch_jail = _as_bool(cfg, "patch_jail", p.patch_jail)
     _mark_cfg(p, cfg, "patch_jail")
-    p.patch_jail_unshare_net = _as_bool(
-        cfg, "patch_jail_unshare_net", p.patch_jail_unshare_net
-    )
+    p.patch_jail_unshare_net = _as_bool(cfg, "patch_jail_unshare_net", p.patch_jail_unshare_net)
     _mark_cfg(p, cfg, "patch_jail_unshare_net")
 
     p.skip_up_to_date = _as_bool(cfg, "skip_up_to_date", p.skip_up_to_date)
@@ -874,9 +808,7 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
 
     p.allow_outside_files = _as_bool(cfg, "allow_outside_files", p.allow_outside_files)
     _mark_cfg(p, cfg, "allow_outside_files")
-    p.declared_untouched_fail = _as_bool(
-        cfg, "declared_untouched_fail", p.declared_untouched_fail
-    )
+    p.declared_untouched_fail = _as_bool(cfg, "declared_untouched_fail", p.declared_untouched_fail)
     _mark_cfg(p, cfg, "declared_untouched_fail")
     p.allow_declared_untouched = _as_bool(
         cfg, "allow_declared_untouched", p.allow_declared_untouched
@@ -924,9 +856,7 @@ def apply_cli_overrides(p: Policy, mapping: dict[str, object | None]) -> None:
         coerced = _coerce_override_value(cur, v)
         if isinstance(cur, list):
             if not isinstance(coerced, list):
-                raise RunnerError(
-                    "CONFIG", "INVALID", f"invalid list override: {coerced!r}"
-                )
+                raise RunnerError("CONFIG", "INVALID", f"invalid list override: {coerced!r}")
             if k in {"gate_pytest_py_prefixes", "target_repo_roots"}:
                 setattr(p, k, list(coerced))
             else:

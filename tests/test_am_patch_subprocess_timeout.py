@@ -150,11 +150,7 @@ def test_run_logged_streams_live_json_before_process_exit(tmp_path: Path) -> Non
                     for line in json_path.read_text(encoding="utf-8").splitlines()
                     if line.strip()
                 ]
-                msgs = [
-                    evt.get("msg")
-                    for evt in events
-                    if evt.get("kind") == "SUBPROCESS_STDOUT"
-                ]
+                msgs = [evt.get("msg") for evt in events if evt.get("kind") == "SUBPROCESS_STDOUT"]
                 if "first" in msgs:
                     seen_live = True
                     assert not done.is_set()
@@ -166,16 +162,10 @@ def test_run_logged_streams_live_json_before_process_exit(tmp_path: Path) -> Non
         assert not errors
         final_events = [
             json.loads(line)
-            for line in (tmp_path / "am_patch.jsonl")
-            .read_text(encoding="utf-8")
-            .splitlines()
+            for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        msgs = [
-            evt.get("msg")
-            for evt in final_events
-            if evt.get("kind") == "SUBPROCESS_STDOUT"
-        ]
+        msgs = [evt.get("msg") for evt in final_events if evt.get("kind") == "SUBPROCESS_STDOUT"]
         assert msgs == ["first", "tail"]
     finally:
         logger.close()
@@ -243,9 +233,7 @@ def test_status_heartbeat_reaches_json_only_during_long_subprocess(
     try:
         status.start()
         status.set_stage("GATE_PYTEST")
-        ctx.logger.run_logged(
-            [sys.executable, "-c", "import time; time.sleep(0.25); print('ok')"]
-        )
+        ctx.logger.run_logged([sys.executable, "-c", "import time; time.sleep(0.25); print('ok')"])
     finally:
         status.stop()
         ctx.logger.close()
@@ -301,9 +289,7 @@ def test_disabled_status_does_not_emit_json_heartbeat(tmp_path: Path) -> None:
 def test_resolve_repo_root_timeout_falls_back_to_cwd(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    *_, resolve_repo_root, _, consume_resolve_repo_root_diagnostic, _ = (
-        _import_am_patch()
-    )
+    *_, resolve_repo_root, _, consume_resolve_repo_root_diagnostic, _ = _import_am_patch()
 
     import subprocess
 
@@ -460,12 +446,9 @@ def test_build_paths_and_logger_breaks_active_tty_status_before_failure_dump(
             ]
         )
 
-        first_screen_index = next(
-            i for i, event in enumerate(events) if event[0] == "screen"
-        )
+        first_screen_index = next(i for i, event in enumerate(events) if event[0] == "screen")
         assert any(
-            kind == "stderr" and payload == "\n"
-            for kind, payload in events[:first_screen_index]
+            kind == "stderr" and payload == "\n" for kind, payload in events[:first_screen_index]
         )
         screen_payloads = [payload for kind, payload in events if kind == "screen"]
         assert screen_payloads[0].startswith("\n" + ("=" * 80))
@@ -632,9 +615,7 @@ def test_status_heartbeat_and_result_event_keep_ndjson_valid(tmp_path: Path) -> 
     try:
         status.start()
         status.set_stage("GATE_PYTEST")
-        ctx.logger.run_logged(
-            [sys.executable, "-c", "import time; time.sleep(0.25); print('ok')"]
-        )
+        ctx.logger.run_logged([sys.executable, "-c", "import time; time.sleep(0.25); print('ok')"])
         ctx.logger.emit_json_result(
             summary=build_terminal_summary(
                 exit_code=0,
@@ -654,9 +635,7 @@ def test_status_heartbeat_and_result_event_keep_ndjson_valid(tmp_path: Path) -> 
 
     events = [
         json.loads(line)
-        for line in (tmp_path / "am_patch.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     result_evt = next(evt for evt in events if evt.get("type") == "result")

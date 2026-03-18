@@ -34,10 +34,7 @@ class TestPatchhubAsgiRunsContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg = load_config(
-                Path(__file__).resolve().parents[1]
-                / "scripts"
-                / "patchhub"
-                / "patchhub.toml"
+                Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
             )
             try:
                 with (
@@ -46,9 +43,7 @@ class TestPatchhubAsgiRunsContract(unittest.TestCase):
                 ):
                     app = create_app(repo_root=root, cfg=cfg)
                     app.state.core.indexer = _DummyIndexer()
-                    app.state.core.jobs_root = (
-                        root / "patches" / "artifacts" / "web_jobs"
-                    )
+                    app.state.core.jobs_root = root / "patches" / "artifacts" / "web_jobs"
                     app.state.core.web_jobs_db = None
                     app.state.core.api_runs = lambda _qs: (
                         200,
@@ -59,9 +54,7 @@ class TestPatchhubAsgiRunsContract(unittest.TestCase):
                         ).encode("utf-8"),
                     )
                     with (
-                        patch(
-                            "patchhub.indexing.runs_signature", return_value=(1, 2, 3)
-                        ),
+                        patch("patchhub.indexing.runs_signature", return_value=(1, 2, 3)),
                         patch(
                             "patchhub.app_support.canceled_runs_signature",
                             return_value=(4, 5),

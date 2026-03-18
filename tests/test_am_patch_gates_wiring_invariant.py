@@ -88,9 +88,7 @@ def test_gates_pytest_bucket_routing_callsite_passes_repo_root() -> None:
     assert len(calls) == 1, "expected exactly one select_pytest_targets call-site"
 
     keywords = {
-        keyword.arg: keyword.value
-        for keyword in calls[0].keywords
-        if keyword.arg is not None
+        keyword.arg: keyword.value for keyword in calls[0].keywords if keyword.arg is not None
     }
     value = keywords.get("repo_root")
     assert isinstance(value, ast.Name), "missing repo_root keyword binding"

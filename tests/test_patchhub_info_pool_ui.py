@@ -29,12 +29,8 @@ def _node_prelude(*script_paths: Path) -> str:
     src_lines = []
     run_lines = []
     for idx, path in enumerate(script_paths):
-        src_lines.append(
-            f'const src{idx} = fs.readFileSync({json.dumps(str(path))}, "utf8");'
-        )
-        run_lines.append(
-            f"vm.runInThisContext(src{idx}, {{ filename: {json.dumps(str(path))} }});"
-        )
+        src_lines.append(f'const src{idx} = fs.readFileSync({json.dumps(str(path))}, "utf8");')
+        run_lines.append(f"vm.runInThisContext(src{idx}, {{ filename: {json.dumps(str(path))} }});")
     return (
         """
 import fs from "fs";
@@ -172,9 +168,7 @@ process.stdout.write(JSON.stringify({
 
 def test_info_pool_strip_sets_pm_validation_state_classes_only_when_visible() -> None:
     app_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app.js"
-    pm_path = (
-        REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_pm_validation.js"
-    )
+    pm_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_pm_validation.js"
     pool_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_info_pool.js"
     script = (
         _node_prelude(app_path, pm_path, pool_path)
@@ -224,9 +218,7 @@ process.stdout.write(JSON.stringify({ passState, failState, degradedState }));
 
 def test_info_pool_strip_prefers_pm_validation_summary_over_hints() -> None:
     app_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app.js"
-    pm_path = (
-        REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_pm_validation.js"
-    )
+    pm_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_pm_validation.js"
     pool_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_info_pool.js"
     raw_output = json.dumps("RESULT: FAIL\nRULE PATCH_BASENAME: FAIL - issue_mismatch")
     script = (
@@ -256,9 +248,7 @@ process.stdout.write(JSON.stringify({{
 
 def test_info_pool_modal_shows_pm_validation_section_and_raw_output() -> None:
     app_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app.js"
-    pm_path = (
-        REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_pm_validation.js"
-    )
+    pm_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_pm_validation.js"
     pool_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_info_pool.js"
     raw_output = json.dumps("RESULT: PASS\nRULE MONOLITH: PASS - gate_passed")
     script = (

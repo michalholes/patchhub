@@ -103,13 +103,9 @@ async def test_async_core_enters_file_emergency_mode_after_failed_db_recovery(
         assert core.backend_mode_state.mode == "file_emergency"
         assert core.web_jobs_db is None
         assert core.queue_block_reason() is None
-        job_json = json.loads(
-            (core.jobs_root / "job-515-fallback" / "job.json").read_text()
-        )
+        job_json = json.loads((core.jobs_root / "job-515-fallback" / "job.json").read_text())
         assert job_json["job_id"] == "job-515-fallback"
-        assert (
-            core.jobs_root / "job-515-fallback" / "runner.log"
-        ).read_text() == "runner line"
+        assert (core.jobs_root / "job-515-fallback" / "runner.log").read_text() == "runner line"
         assert core.indexer.ready() is True
     finally:
         await core.shutdown()

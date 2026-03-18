@@ -342,9 +342,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
     selected_repo_paths: list[str] = []
 
     if raw_command and selected_patch_entries:
-        return _err(
-            "raw_command cannot be combined with selected_patch_entries", status=400
-        )
+        return _err("raw_command cannot be combined with selected_patch_entries", status=400)
     if raw_command and gate_argv:
         return _err("raw_command cannot be combined with gate_argv", status=400)
 
@@ -426,9 +424,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                         patches_root_rel=self.cfg.paths.patches_root,
                         patch_path=patch_path,
                     )
-                    manifest = build_zip_patch_manifest(
-                        patch_path=patch_path, zpath=zpath
-                    )
+                    manifest = build_zip_patch_manifest(patch_path=patch_path, zpath=zpath)
                     selected_patch_entries = validate_selected_patch_entries(
                         manifest,
                         selected_patch_entries,
@@ -459,9 +455,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                         )
                     except Exception:
                         return _err("Cannot create derived subset zip", status=500)
-                    effective_patch_path = str(
-                        Path(self.cfg.paths.patches_root) / derived_rel
-                    )
+                    effective_patch_path = str(Path(self.cfg.paths.patches_root) / derived_rel)
                     effective_patch_kind = "derived_subset"
                 else:
                     effective_patch_path = patch_path
@@ -480,9 +474,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
             commit_summary = compute_commit_summary(commit_message)
             if not commit_summary:
                 commit_summary = f"({mode})"
-            patch_basename = compute_patch_basename(
-                str(effective_patch_path or patch_path)
-            )
+            patch_basename = compute_patch_basename(str(effective_patch_path or patch_path))
             job = JobRecord(
                 job_id=job_id,
                 created_utc=_utc_now(),
@@ -534,9 +526,7 @@ def api_jobs_list(self) -> tuple[int, bytes]:
         disk_raw = source.list_job_jsons(limit=200)
     else:
         jobs_root = _legacy_jobs_root(self)
-        disk_raw = (
-            [] if jobs_root is None else list_legacy_job_jsons(jobs_root, limit=200)
-        )
+        disk_raw = [] if jobs_root is None else list_legacy_job_jsons(jobs_root, limit=200)
     disk: list[JobRecord] = []
     for r in disk_raw:
         jid = str(r.get("job_id", ""))

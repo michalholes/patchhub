@@ -86,9 +86,7 @@ def _make_cfg(
     runner = raw.get("runner", {})
 
     issue_id = str(suite.get("issue_id", "666"))
-    runner_cmd = [
-        str(x) for x in suite.get("runner_cmd", ["python3", "scripts/am_patch.py"])
-    ]
+    runner_cmd = [str(x) for x in suite.get("runner_cmd", ["python3", "scripts/am_patch.py"])]
 
     full_runner_tests_raw = runner.get("full_runner_tests", [])
     if full_runner_tests_raw is None:
@@ -129,13 +127,9 @@ def _make_cfg(
         "normal",
     ).strip()
     if console_verbosity not in {"debug", "verbose", "normal", "quiet"}:
-        raise SystemExit(
-            f"FAIL: invalid BadGuys console verbosity: {console_verbosity!r}"
-        )
+        raise SystemExit(f"FAIL: invalid BadGuys console verbosity: {console_verbosity!r}")
 
-    log_verbosity = _resolve_value(
-        cli_log_verbosity, suite.get("log_verbosity"), "normal"
-    ).strip()
+    log_verbosity = _resolve_value(cli_log_verbosity, suite.get("log_verbosity"), "normal").strip()
     if log_verbosity not in {"debug", "verbose", "normal", "quiet"}:
         raise SystemExit(f"FAIL: invalid BadGuys log verbosity: {log_verbosity!r}")
 
@@ -152,9 +146,7 @@ def _make_cfg(
 
     patches_dir = repo_root / str(suite.get("patches_dir", "patches"))
     logs_dir = repo_root / str(suite.get("logs_dir", "patches/badguys_logs"))
-    central_log_pattern = str(
-        suite.get("central_log_pattern", "patches/badguys_{run_id}.log")
-    )
+    central_log_pattern = str(suite.get("central_log_pattern", "patches/badguys_{run_id}.log"))
 
     copy_runner_log = suite.get("copy_runner_log", False)
     if not isinstance(copy_runner_log, bool):
@@ -221,9 +213,7 @@ def _init_logs(cfg: SuiteCfg, run_id: str) -> Path:
 
     central = cfg.central_log_path(run_id)
     central.parent.mkdir(parents=True, exist_ok=True)
-    central.write_text(
-        _json_line({"type": "badguys_run", "run_id": run_id}), encoding="utf-8"
-    )
+    central.write_text(_json_line({"type": "badguys_run", "run_id": run_id}), encoding="utf-8")
     return central
 
 
@@ -290,9 +280,7 @@ def _cleanup_issue_artifacts(ctx: Ctx, *, issue_id: str, test_id: str | None) ->
                     p.unlink()
 
     ws = repo_root / "patches" / "workspaces" / f"issue_{issue_id}"
-    _log(
-        ctx, level="verbose", test_id=test_id, obj={"type": "cleanup", "path": str(ws)}
-    )
+    _log(ctx, level="verbose", test_id=test_id, obj={"type": "cleanup", "path": str(ws)})
     _rm_tree(ws)
 
     logs_dir = repo_root / "patches" / "logs"
@@ -346,11 +334,7 @@ def _rules_for_step(evaluation: dict, *, test_id: str, step_index: int) -> dict:
     steps = t.get("steps", {})
     if not isinstance(steps, dict):
         return {}
-    s = (
-        steps.get(str(step_index))
-        if str(step_index) in steps
-        else steps.get(step_index)
-    )
+    s = steps.get(str(step_index)) if str(step_index) in steps else steps.get(step_index)
     if not isinstance(s, dict):
         return {}
     return s
@@ -371,15 +355,11 @@ def _run_test_plan(test, ctx: Ctx) -> bool:
     try:
         obj = test.run(ctx)
     except SystemExit as e:
-        _log(
-            ctx, level="quiet", test_id=name, obj={"type": "test_error", "msg": str(e)}
-        )
+        _log(ctx, level="quiet", test_id=name, obj={"type": "test_error", "msg": str(e)})
         return False
 
     if not isinstance(obj, BdgTest):
-        raise SystemExit(
-            f"FAIL: test {name} returned unsupported type: {type(obj).__name__}"
-        )
+        raise SystemExit(f"FAIL: test {name} returned unsupported type: {type(obj).__name__}")
 
     bdg = obj
     _ensure_test_artifacts(ctx, bdg.test_id)
@@ -515,9 +495,7 @@ def _run_test_plan(test, ctx: Ctx) -> bool:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="python3 badguys/badguys.py")
-    ap.add_argument(
-        "--config", default="badguys/config.toml", help="Config path (repo-relative)"
-    )
+    ap.add_argument("--config", default="badguys/config.toml", help="Config path (repo-relative)")
     ap.add_argument(
         "--commit-limit",
         type=int,
@@ -532,12 +510,8 @@ def main(argv: list[str]) -> int:
     )
     vg = ap.add_mutually_exclusive_group()
     vg.add_argument("-q", dest="console_verbosity", action="store_const", const="quiet")
-    vg.add_argument(
-        "-n", dest="console_verbosity", action="store_const", const="normal"
-    )
-    vg.add_argument(
-        "-v", dest="console_verbosity", action="store_const", const="verbose"
-    )
+    vg.add_argument("-n", dest="console_verbosity", action="store_const", const="normal")
+    vg.add_argument("-v", dest="console_verbosity", action="store_const", const="verbose")
     vg.add_argument("-d", dest="console_verbosity", action="store_const", const="debug")
     ap.add_argument(
         "--log-verbosity",
@@ -557,12 +531,8 @@ def main(argv: list[str]) -> int:
         default=[],
         help="Run only named tests (repeatable)",
     )
-    ap.add_argument(
-        "--exclude", action="append", default=[], help="Skip named tests (repeatable)"
-    )
-    ap.add_argument(
-        "--list-tests", action="store_true", help="List discovered tests and exit"
-    )
+    ap.add_argument("--exclude", action="append", default=[], help="Skip named tests (repeatable)")
+    ap.add_argument("--list-tests", action="store_true", help="List discovered tests and exit")
     args = ap.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[1]

@@ -29,9 +29,7 @@ def precheck_patch_script(path: Path, *, ascii_only: bool) -> None:
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except SyntaxError as e:
-        raise RunnerError(
-            "PREFLIGHT", "PATCH_SYNTAX", f"patch syntax error: {e}"
-        ) from e
+        raise RunnerError("PREFLIGHT", "PATCH_SYNTAX", f"patch syntax error: {e}") from e
 
     has_files = any(
         isinstance(n, ast.Assign)
@@ -83,9 +81,7 @@ def _find_bwrap() -> str | None:
     return shutil.which("bwrap")
 
 
-def _build_bwrap_cmd(
-    *, workspace_repo: Path, argv: list[str], unshare_net: bool
-) -> list[str]:
+def _build_bwrap_cmd(*, workspace_repo: Path, argv: list[str], unshare_net: bool) -> list[str]:
     bwrap = _find_bwrap()
     if not bwrap:
         raise RunnerError(
@@ -164,9 +160,7 @@ def run_patch(
         r = logger.run_logged([sys.executable, str(exec_path)], cwd=workspace_repo)
 
     if r.returncode != 0:
-        raise RunnerError(
-            "PATCH", "INTERNAL", f"patch script failed (rc={r.returncode})"
-        )
+        raise RunnerError("PATCH", "INTERNAL", f"patch script failed (rc={r.returncode})")
 
 
 @dataclass(frozen=True)
@@ -181,9 +175,7 @@ class UnifiedPatchResult:
     applied_ok: int
     applied_fail: int
     declared_files: list[str]  # files referenced by any patch (repo-relative)
-    touched_files: list[
-        str
-    ]  # files referenced by any patch (best-effort resolved, repo-relative)
+    touched_files: list[str]  # files referenced by any patch (best-effort resolved, repo-relative)
     failures: list[UnifiedPatchFailure]
 
 
@@ -274,16 +266,8 @@ def _rewrite_patch_paths(patch_text: str, *, strip: int) -> tuple[str, list[str]
                     continue
                 a_parts = _split_abs_like(a_norm)
                 b_parts = _split_abs_like(b_norm)
-                a_rel = (
-                    "/".join(a_parts[strip:])
-                    if strip < len(a_parts)
-                    else "/".join(a_parts)
-                )
-                b_rel = (
-                    "/".join(b_parts[strip:])
-                    if strip < len(b_parts)
-                    else "/".join(b_parts)
-                )
+                a_rel = "/".join(a_parts[strip:]) if strip < len(a_parts) else "/".join(a_parts)
+                b_rel = "/".join(b_parts[strip:]) if strip < len(b_parts) else "/".join(b_parts)
                 if a_rel.startswith("/") or ".." in a_rel.split("/"):
                     a_rel = "/dev/null"
                 if b_rel.startswith("/") or ".." in b_rel.split("/"):
@@ -444,7 +428,9 @@ def run_unified_patch_bundle(
 
         if strip is None:
             applied_fail += 1
-            reason = "ambiguous strip depth; set unified_patch_strip (or --patch-strip) to disambiguate"
+            reason = (
+                "ambiguous strip depth; set unified_patch_strip (or --patch-strip) to disambiguate"
+            )
             logger.line(f"result=FAIL reason={reason}")
             logger.error_core(f"UNIFIED_PATCH result=FAIL name={name} reason={reason}")
             failures.append(UnifiedPatchFailure(name=name, data=data, reason=reason))
@@ -492,9 +478,7 @@ def run_unified_patch_bundle(
     touched_files = sorted({p for p in touched_all if p and p != "/dev/null"})
 
     logger.section("UNIFIED PATCH (summary)")
-    logger.line(
-        f"UNIFIED_PATCH summary applied_ok={applied_ok} applied_fail={applied_fail}"
-    )
+    logger.line(f"UNIFIED_PATCH summary applied_ok={applied_ok} applied_fail={applied_fail}")
     logger.line(f"applied_ok={applied_ok}")
     logger.line(f"applied_fail={applied_fail}")
     logger.line("declared_files=" + ",".join(declared_files))

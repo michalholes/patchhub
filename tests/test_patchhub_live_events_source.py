@@ -210,8 +210,7 @@ class TestPatchhubLiveEventsSource(unittest.IsolatedAsyncioTestCase):
         with TemporaryDirectory() as tmpdir:
             jsonl_path = Path(tmpdir) / "job.jsonl"
             jsonl_path.write_text(
-                "\n".join(f'{{"type":"log","msg":"{idx}"}}' for idx in range(20_005))
-                + "\n",
+                "\n".join(f'{{"type":"log","msg":"{idx}"}}' for idx in range(20_005)) + "\n",
                 encoding="utf-8",
             )
 

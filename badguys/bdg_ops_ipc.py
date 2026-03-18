@@ -50,9 +50,7 @@ def runner_socket_path(
 ) -> Path:
     if not test_mode:
         return patches_dir / socket_name
-    return (
-        patches_dir / "_test_mode" / f"issue_{issue_id}_pid_{runner_pid}" / socket_name
-    )
+    return patches_dir / "_test_mode" / f"issue_{issue_id}_pid_{runner_pid}" / socket_name
 
 
 def execute_ipc_send_command(
@@ -94,12 +92,8 @@ def execute_ipc_send_command(
             params.get("wait_timeout_s", 10),
             label="wait_timeout_s",
         ),
-        wait_event_type=_as_optional_str(
-            params.get("wait_event_type"), label="wait_event_type"
-        ),
-        wait_event_name=_as_optional_str(
-            params.get("wait_event_name"), label="wait_event_name"
-        ),
+        wait_event_type=_as_optional_str(params.get("wait_event_type"), label="wait_event_type"),
+        wait_event_name=_as_optional_str(params.get("wait_event_name"), label="wait_event_name"),
         event_arg_map=_as_arg_map(params.get("event_arg_map", {})),
     )
     plans_obj = step_runner_cfg.setdefault("ipc_plans", [])
@@ -252,9 +246,7 @@ def _as_arg_map(value: object) -> dict[str, str]:
     out: dict[str, str] = {}
     for key, item in value.items():
         if not isinstance(key, str) or not isinstance(item, str):
-            raise SystemExit(
-                "FAIL: bdg: IPC_SEND_COMMAND event_arg_map must be dict[str, str]"
-            )
+            raise SystemExit("FAIL: bdg: IPC_SEND_COMMAND event_arg_map must be dict[str, str]")
         out[key] = item
     return out
 

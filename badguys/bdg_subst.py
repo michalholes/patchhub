@@ -16,6 +16,4 @@ def make_subst_ctx(*, issue_id: str) -> SubstCtx:
 
 
 def subst_text(text: str, *, ctx: SubstCtx) -> str:
-    return text.replace("${issue_id}", ctx.issue_id).replace(
-        "${now_stamp}", ctx.now_stamp
-    )
+    return text.replace("${issue_id}", ctx.issue_id).replace("${now_stamp}", ctx.now_stamp)

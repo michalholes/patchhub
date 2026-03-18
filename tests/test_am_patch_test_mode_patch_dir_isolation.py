@@ -47,19 +47,14 @@ def test_test_mode_isolates_patch_dir_layout(tmp_path: Path) -> None:
         cfg.write_text("", encoding="utf-8")
 
         ctx = build_paths_and_logger(cli, policy, cfg, "test")
-        expected = (
-            ctx.patch_root / "_test_mode" / f"issue_{cli.issue_id}_pid_{os.getpid()}"
-        )
+        expected = ctx.patch_root / "_test_mode" / f"issue_{cli.issue_id}_pid_{os.getpid()}"
         assert ctx.patch_root == ctx.runner_root / policy.patch_dir_name
         assert ctx.patch_dir == expected
 
         assert ctx.paths.patch_dir == ctx.patch_dir
         assert ctx.paths.logs_dir == ctx.patch_dir / policy.patch_layout_logs_dir
         assert ctx.paths.json_dir == ctx.patch_dir / policy.patch_layout_json_dir
-        assert (
-            ctx.paths.workspaces_dir
-            == ctx.patch_dir / policy.patch_layout_workspaces_dir
-        )
+        assert ctx.paths.workspaces_dir == ctx.patch_dir / policy.patch_layout_workspaces_dir
         assert ctx.paths.artifacts_dir == ctx.patch_dir / "artifacts"
         assert ctx.paths.lock_path.parent == ctx.patch_dir
         assert ctx.paths.symlink_path.parent == ctx.patch_dir

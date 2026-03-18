@@ -4,9 +4,7 @@ from pathlib import Path
 
 
 def render_template(self, name: str) -> str:
-    tpl = (Path(__file__).resolve().parent / "templates" / name).read_text(
-        encoding="utf-8"
-    )
+    tpl = (Path(__file__).resolve().parent / "templates" / name).read_text(encoding="utf-8")
     return tpl
 
 

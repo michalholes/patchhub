@@ -53,9 +53,7 @@ def resolve_patch_root(policy: object, *, runner_root: Path) -> tuple[Path, Path
         getattr(policy, "patch_dir", None), runner_root=runner_root
     )
     patch_dir_name = str(getattr(policy, "patch_dir_name", "patches"))
-    patch_root = (
-        patch_dir if patch_dir is not None else (artifacts_root / patch_dir_name)
-    )
+    patch_root = patch_dir if patch_dir is not None else (artifacts_root / patch_dir_name)
     return artifacts_root, patch_root
 
 

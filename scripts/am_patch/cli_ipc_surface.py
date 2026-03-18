@@ -8,9 +8,7 @@ def add_ipc_override_args(
     *,
     append_override: type[argparse.Action],
 ) -> None:
-    p.add_argument(
-        "--ipc-socket", action=append_override, key="ipc_socket_path", dest="overrides"
-    )
+    p.add_argument("--ipc-socket", action=append_override, key="ipc_socket_path", dest="overrides")
     p.add_argument(
         "--no-ipc-socket",
         action=append_override,

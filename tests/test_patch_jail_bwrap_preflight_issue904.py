@@ -29,13 +29,9 @@ def _new_logger(tmp_path: Path) -> Logger:
 def _make_git_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["git", "init"], cwd=str(repo), check=True, capture_output=True, text=True
-    )
+    subprocess.run(["git", "init"], cwd=str(repo), check=True, capture_output=True, text=True)
     (repo / "README.txt").write_text("x\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "add", "README.txt"], cwd=str(repo), check=True, capture_output=True
-    )
+    subprocess.run(["git", "add", "README.txt"], cwd=str(repo), check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "init"],
         cwd=str(repo),
@@ -132,9 +128,7 @@ def test_unified_patch_path_missing_bwrap_fails_preflight(
 
     logger = _new_logger(tmp_path)
     with pytest.raises(RunnerError) as ei:
-        run_unified_patch_bundle(
-            logger, patch_path, workspace_repo=repo, policy=_Policy()
-        )
+        run_unified_patch_bundle(logger, patch_path, workspace_repo=repo, policy=_Policy())
     err = ei.value
     assert err.stage == "PREFLIGHT"
     assert err.category == "BWRAP"

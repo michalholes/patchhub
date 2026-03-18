@@ -12,14 +12,14 @@ from badguys.bdg_materializer import MaterializedAssets
 from badguys.bdg_ops_ipc import pop_ipc_plans, send_ipc_command
 from badguys.bdg_subst import SubstCtx
 
-RAW_NDJSON_TEXT = '{"type":"log","msg":"RESULT: SUCCESS"}\n{"type":"result","ok":true,"return_code":0}\n'
+RAW_NDJSON_TEXT = (
+    '{"type":"log","msg":"RESULT: SUCCESS"}\n{"type":"result","ok":true,"return_code":0}\n'
+)
 
 
 def _read_ndjson_lines(path: Path) -> list[dict[str, object]]:
     return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 
@@ -146,9 +146,7 @@ def test_record_ipc_stream_copies_result_artifact_before_source_disappears(
                 time.sleep(0.05)
                 result_src.unlink()
 
-    server = threading.Thread(
-        target=_target, name="ipc_result_copy_server", daemon=True
-    )
+    server = threading.Thread(target=_target, name="ipc_result_copy_server", daemon=True)
     server.start()
 
     result, value_text, artifact_copy = record_ipc_stream(
@@ -277,9 +275,7 @@ def test_record_ipc_stream_falls_back_to_ipc_stream_when_result_artifact_is_miss
                 }
                 fp.write((json.dumps(result) + "\n").encode("utf-8"))
 
-    server = threading.Thread(
-        target=_target, name="ipc_missing_result_server", daemon=True
-    )
+    server = threading.Thread(target=_target, name="ipc_missing_result_server", daemon=True)
     server.start()
 
     out_path = tmp_path / "runner.ipc.jsonl"

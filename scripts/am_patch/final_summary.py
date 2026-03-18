@@ -110,9 +110,7 @@ def _final_reason(terminal_status: str, final_fail_reason: str | None) -> str | 
     return final_fail_reason or "unexpected error"
 
 
-def _push_status(
-    commit_and_push: bool, push_ok_for_posthook: bool | None
-) -> str | None:
+def _push_status(commit_and_push: bool, push_ok_for_posthook: bool | None) -> str | None:
     if not commit_and_push:
         return None
     if push_ok_for_posthook is True:
@@ -125,17 +123,11 @@ def _push_status(
 def _render_success_lines(
     summary: TerminalSummary,
 ) -> list[tuple[str, str, bool, bool]]:
-    lines: list[tuple[str, str, bool, bool]] = [
-        ("RESULT: SUCCESS\n", "RESULT", True, True)
-    ]
+    lines: list[tuple[str, str, bool, bool]] = [("RESULT: SUCCESS\n", "RESULT", True, True)]
     if summary.push_status == "OK" and summary.final_pushed_files is not None:
         lines.append(("FILES:\n\n", "FILES", False, False))
-        lines.extend(
-            (f"{line}\n", "TEXT", False, False) for line in summary.final_pushed_files
-        )
-    lines.append(
-        (f"COMMIT: {summary.final_commit_sha or '(none)'}\n", "COMMIT", False, False)
-    )
+        lines.extend((f"{line}\n", "TEXT", False, False) for line in summary.final_pushed_files)
+    lines.append((f"COMMIT: {summary.final_commit_sha or '(none)'}\n", "COMMIT", False, False))
     if summary.commit_and_push:
         push_text = summary.push_status or "UNKNOWN"
         lines.append((f"PUSH: {push_text}\n", "PUSH", False, False))

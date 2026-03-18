@@ -21,6 +21,4 @@ def run_post_success_audit(logger: Logger, repo_root: Path, policy: Policy) -> N
         timeout_stage="AUDIT",
     )
     if r.returncode != 0:
-        raise RunnerError(
-            "AUDIT", "AUDIT_REPORT_FAILED", "audit/audit_report.py failed"
-        )
+        raise RunnerError("AUDIT", "AUDIT_REPORT_FAILED", "audit/audit_report.py failed")

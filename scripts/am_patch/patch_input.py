@@ -32,9 +32,7 @@ def _validate_repo_token(text: str) -> str:
     if "\n" in value or "\r" in value:
         raise RunnerError("PREFLIGHT", "PATCH_PATH", "target.txt must be a single line")
     if any(ch.isspace() for ch in value):
-        raise RunnerError(
-            "PREFLIGHT", "PATCH_PATH", "target.txt must not contain whitespace"
-        )
+        raise RunnerError("PREFLIGHT", "PATCH_PATH", "target.txt must not contain whitespace")
     if "/" in value or "\\" in value:
         raise RunnerError(
             "PREFLIGHT",
@@ -44,9 +42,7 @@ def _validate_repo_token(text: str) -> str:
     try:
         value.encode("ascii")
     except UnicodeEncodeError as e:
-        raise RunnerError(
-            "PREFLIGHT", "PATCH_PATH", "target.txt must be ASCII-only"
-        ) from e
+        raise RunnerError("PREFLIGHT", "PATCH_PATH", "target.txt must be ASCII-only") from e
     return value
 
 
@@ -58,15 +54,11 @@ def _read_zip_target_repo_name(zip_path: Path) -> str | None:
             except KeyError:
                 return None
     except BadZipFile as e:
-        raise RunnerError(
-            "PREFLIGHT", "PATCH_PATH", f"invalid zip file: {zip_path} ({e})"
-        ) from e
+        raise RunnerError("PREFLIGHT", "PATCH_PATH", f"invalid zip file: {zip_path} ({e})") from e
     try:
         text = raw.decode("ascii")
     except UnicodeDecodeError as e:
-        raise RunnerError(
-            "PREFLIGHT", "PATCH_PATH", "target.txt must be ASCII-only"
-        ) from e
+        raise RunnerError("PREFLIGHT", "PATCH_PATH", "target.txt must be ASCII-only") from e
     if "\r" in text:
         raise RunnerError("PREFLIGHT", "PATCH_PATH", "target.txt must use LF newlines")
     value = text[:-1] if text.endswith("\n") else text
@@ -119,9 +111,7 @@ def resolve_patch_plan(
     assert patch_script is not None
 
     if not patch_script.exists():
-        raise RunnerError(
-            "PREFLIGHT", "MANIFEST", f"patch script not found: {patch_script}"
-        )
+        raise RunnerError("PREFLIGHT", "MANIFEST", f"patch script not found: {patch_script}")
 
     if not is_under(patch_script, patch_root):
         raise RunnerError(
@@ -143,9 +133,7 @@ def resolve_patch_plan(
 
     files_declared: list[str] = [] if unified_mode else load_files(patch_script)
     patch_target_repo_name = (
-        _read_zip_target_repo_name(patch_script)
-        if patch_script.suffix == ".zip"
-        else None
+        _read_zip_target_repo_name(patch_script) if patch_script.suffix == ".zip" else None
     )
 
     return PatchPlan(

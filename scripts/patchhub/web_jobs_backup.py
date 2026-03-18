@@ -113,15 +113,11 @@ def load_web_jobs_backup_settings(
         destination_template=str(
             backup_raw.get("destination_template", db_cfg.backup_destination_template)
         ),
-        retain_count=max(
-            0, int(backup_raw.get("retain_count", db_cfg.backup_retain_count))
-        ),
+        retain_count=max(0, int(backup_raw.get("retain_count", db_cfg.backup_retain_count))),
         verify_after_backup=bool(
             backup_raw.get("verify_after_write", db_cfg.backup_verify_after_write)
         ),
-        trigger_policy=_normalize_trigger_policy(
-            backup_raw.get("trigger_policy", "manual")
-        ),
+        trigger_policy=_normalize_trigger_policy(backup_raw.get("trigger_policy", "manual")),
         restore_source_preference=_tuple_of_strings(
             backup_raw.get("restore_source_preference"),
             db_cfg.backup_restore_source_preference,
@@ -159,9 +155,7 @@ def _candidate_destination(template_path: Path) -> Path:
     if "{timestamp}" in raw:
         return Path(raw.format(timestamp=timestamp))
     if template_path.suffix:
-        return template_path.with_name(
-            f"{template_path.stem}_{timestamp}{template_path.suffix}"
-        )
+        return template_path.with_name(f"{template_path.stem}_{timestamp}{template_path.suffix}")
     return template_path.with_name(f"{template_path.name}_{timestamp}")
 
 
@@ -205,9 +199,7 @@ def list_verified_backups(
     if not template_path.parent.is_dir():
         return []
     items = [
-        path
-        for path in template_path.parent.iterdir()
-        if path.is_file() and regex.match(path.name)
+        path for path in template_path.parent.iterdir() if path.is_file() and regex.match(path.name)
     ]
     items.sort(key=lambda path: (path.stat().st_mtime_ns, path.name), reverse=True)
     return items
@@ -222,15 +214,11 @@ def latest_verified_backup(
     return items[0] if items else None
 
 
-def _prune_verified_backups(
-    *, patches_root: Path, settings: WebJobsBackupSettings
-) -> None:
+def _prune_verified_backups(*, patches_root: Path, settings: WebJobsBackupSettings) -> None:
     keep = int(settings.retain_count)
     if keep <= 0:
         return
-    for path in list_verified_backups(patches_root=patches_root, settings=settings)[
-        keep:
-    ]:
+    for path in list_verified_backups(patches_root=patches_root, settings=settings)[keep:]:
         path.unlink(missing_ok=True)
 
 

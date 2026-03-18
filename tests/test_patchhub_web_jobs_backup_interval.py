@@ -48,9 +48,7 @@ def _write_backup_cfg(
 
 
 def _load_core_cfg() -> object:
-    cfg_path = (
-        Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
-    )
+    cfg_path = Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
     return load_config(cfg_path)
 
 
@@ -83,9 +81,7 @@ def _seed_job(db: WebJobsDatabase, *, job_id: str) -> None:
 def _write_runtime_state(patches_root: Path, *, hours_ago: int) -> None:
     path = patches_root / "artifacts" / "web_jobs_runtime_state.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    stamp = (datetime.now(UTC) - timedelta(hours=hours_ago)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    stamp = (datetime.now(UTC) - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
     path.write_text(
         json.dumps(
             {

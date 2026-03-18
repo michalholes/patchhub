@@ -44,9 +44,7 @@ def _snapshot_to_job(snapshot: Any) -> JobRecord:
         commit_summary=str(raw.get("commit_summary", "")),
         patch_basename=raw.get("patch_basename"),
         raw_command=str(raw.get("raw_command", "")),
-        canonical_command=[
-            str(item) for item in list(raw.get("canonical_command") or [])
-        ],
+        canonical_command=[str(item) for item in list(raw.get("canonical_command") or [])],
         status=coerce_job_status(raw.get("status", "unknown")),
         started_utc=raw.get("started_utc"),
         ended_utc=raw.get("ended_utc"),
@@ -58,12 +56,8 @@ def _snapshot_to_job(snapshot: Any) -> JobRecord:
         original_patch_path=raw.get("original_patch_path"),
         effective_patch_path=raw.get("effective_patch_path"),
         effective_patch_kind=raw.get("effective_patch_kind"),
-        selected_patch_entries=[
-            str(x) for x in list(raw.get("selected_patch_entries") or [])
-        ],
-        selected_repo_paths=[
-            str(x) for x in list(raw.get("selected_repo_paths") or [])
-        ],
+        selected_patch_entries=[str(x) for x in list(raw.get("selected_patch_entries") or [])],
+        selected_repo_paths=[str(x) for x in list(raw.get("selected_repo_paths") or [])],
         applied_files=[str(x) for x in list(raw.get("applied_files") or [])],
         applied_files_source=str(raw.get("applied_files_source", "unavailable")),
         last_log_seq=int(raw.get("last_log_seq", 0) or 0),
@@ -156,9 +150,7 @@ def _verify(repo_root: Path) -> list[dict[str, Any]]:
     for job_dir in iter_legacy_job_dirs(_jobs_root(repo_root)):
         snapshot = read_legacy_job_snapshot(job_dir)
         expected_job = (
-            _snapshot_to_job(snapshot).to_json()
-            if snapshot.job_json is not None
-            else None
+            _snapshot_to_job(snapshot).to_json() if snapshot.job_json is not None else None
         )
         db_job = db.load_job_json(snapshot.job_id)
         db_log = db.read_full_log(snapshot.job_id)
@@ -239,9 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"items": _scan(repo_root)}, ensure_ascii=True, indent=2))
         return 0
     if ns.command == "migrate":
-        print(
-            json.dumps({"imported": _migrate(repo_root)}, ensure_ascii=True, indent=2)
-        )
+        print(json.dumps({"imported": _migrate(repo_root)}, ensure_ascii=True, indent=2))
         return 0
     if ns.command == "verify":
         print(json.dumps({"items": _verify(repo_root)}, ensure_ascii=True, indent=2))

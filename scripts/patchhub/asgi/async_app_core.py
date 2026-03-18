@@ -96,9 +96,7 @@ class AsyncAppCore:
     def backend_debug_state(self) -> dict[str, Any]:
         return self.backend_mode_state.debug_payload()
 
-    def _enable_db_primary(
-        self, job_db: WebJobsDatabase, recovery: dict[str, Any]
-    ) -> None:
+    def _enable_db_primary(self, job_db: WebJobsDatabase, recovery: dict[str, Any]) -> None:
         self.web_jobs_db = job_db
         self.virtual_jobs_fs = WebJobsVirtualFs(
             db=job_db,
@@ -256,9 +254,7 @@ class AsyncAppCore:
             except Exception:
                 lock_held = False
 
-            runs = _core.iter_runs(
-                self.patches_root, self.cfg.indexing.log_filename_regex
-            )
+            runs = _core.iter_runs(self.patches_root, self.cfg.indexing.log_filename_regex)
             stats = _core.compute_stats(runs, self.cfg.indexing.stats_windows_days)
             usage = _core.shutil.disk_usage(str(self.patches_root))
             return {

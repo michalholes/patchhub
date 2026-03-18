@@ -138,9 +138,7 @@ def _areas_from_policy(
         dyn = None if dyn_s == "" else dyn_s
         if not prefix or not area:
             continue
-        out.append(
-            MonolithAreas(rel_prefix=prefix.rstrip("/") + "/", area=area, dynamic=dyn)
-        )
+        out.append(MonolithAreas(rel_prefix=prefix.rstrip("/") + "/", area=area, dynamic=dyn))
     return out
 
 
@@ -199,16 +197,10 @@ def _module_to_rel_hint(mod: str) -> str | None:
     root = parts[0]
     if root == "audiomason":
         rest = "/".join(parts[1:])
-        return (
-            ("src/audiomason/" + rest + ".py") if rest else "src/audiomason/__init__.py"
-        )
+        return ("src/audiomason/" + rest + ".py") if rest else "src/audiomason/__init__.py"
     if root == "am_patch":
         rest = "/".join(parts[1:])
-        return (
-            ("scripts/am_patch/" + rest + ".py")
-            if rest
-            else "scripts/am_patch/__init__.py"
-        )
+        return ("scripts/am_patch/" + rest + ".py") if rest else "scripts/am_patch/__init__.py"
     if root == "plugins" and len(parts) >= 2:
         name = parts[1]
         rest = "/".join(parts[2:])
@@ -300,9 +292,7 @@ def _scan_candidates(
         out = sorted(out_set)
         return out
 
-    raise RunnerError(
-        "GATES", "MONOLITH", f"invalid gate_monolith_scan_scope={scope!r}"
-    )
+    raise RunnerError("GATES", "MONOLITH", f"invalid gate_monolith_scan_scope={scope!r}")
 
 
 def _fan_graph(
@@ -499,9 +489,7 @@ def run_monolith_gate(
     logger.section("GATE: MONOLITH")
     logger.line("gate_monolith_mode=" + gate_monolith_mode)
     logger.line("gate_monolith_scan_scope=" + gate_monolith_scan_scope)
-    logger.line(
-        "gate_monolith_extensions=" + str(_norm_extensions(gate_monolith_extensions))
-    )
+    logger.line("gate_monolith_extensions=" + str(_norm_extensions(gate_monolith_extensions)))
     logger.line("gate_monolith_candidates=" + str(len(candidates)))
 
     files_scanned = len(candidates)
@@ -538,9 +526,7 @@ def run_monolith_gate(
     violations: list[Violation] = []
 
     def add(rule_id: str, relpath: str, msg: str, sev: str) -> None:
-        violations.append(
-            Violation(rule_id=rule_id, relpath=relpath, message=msg, severity=sev)
-        )
+        violations.append(Violation(rule_id=rule_id, relpath=relpath, message=msg, severity=sev))
 
     for rp in candidates:
         new_path = cwd / rp
@@ -618,9 +604,7 @@ def run_monolith_gate(
             f"{old_m.internal_imports}->{new_m.internal_imports}(d={imp_delta})"
         )
 
-        tier = _tier(
-            new_m.loc, large=gate_monolith_large_loc, huge=gate_monolith_huge_loc
-        )
+        tier = _tier(new_m.loc, large=gate_monolith_large_loc, huge=gate_monolith_huge_loc)
         allow_loc = (
             gate_monolith_huge_allow_loc_increase
             if tier == "huge"
@@ -711,11 +695,7 @@ def run_monolith_gate(
                 )
 
         # MONO.GROWTH
-        if (
-            tier in ("large", "huge")
-            and allow_loc is not None
-            and allow_exp is not None
-        ):
+        if tier in ("large", "huge") and allow_loc is not None and allow_exp is not None:
             if loc_delta > allow_loc:
                 add(
                     "MONO.GROWTH",
@@ -768,10 +748,7 @@ def run_monolith_gate(
                     repo_root=repo_root,
                 ):
                     imported_areas.add(area_for_relpath(tgt, areas))
-            if (
-                any(a.startswith("plugins.") for a in imported_areas)
-                or "runner" in imported_areas
-            ):
+            if any(a.startswith("plugins.") for a in imported_areas) or "runner" in imported_areas:
                 add(
                     "MONO.CORE",
                     rp,
@@ -844,17 +821,11 @@ def run_monolith_gate(
 
     logger.line("gate_monolith_imports_total_old=" + str(imports_total_old))
     logger.line("gate_monolith_imports_total_new=" + str(imports_total_new))
-    logger.line(
-        "gate_monolith_imports_total_delta="
-        + str(imports_total_new - imports_total_old)
-    )
+    logger.line("gate_monolith_imports_total_delta=" + str(imports_total_new - imports_total_old))
 
     logger.line("gate_monolith_exports_total_old=" + str(exports_total_old))
     logger.line("gate_monolith_exports_total_new=" + str(exports_total_new))
-    logger.line(
-        "gate_monolith_exports_total_delta="
-        + str(exports_total_new - exports_total_old)
-    )
+    logger.line("gate_monolith_exports_total_delta=" + str(exports_total_new - exports_total_old))
 
     if gate_monolith_compute_fanin:
         logger.line("gate_monolith_fanin_delta_max=" + str(fanin_delta_max or 0))
@@ -873,9 +844,7 @@ def run_monolith_gate(
             sev = "FAIL"
         elif gate_monolith_mode == "warn_only":
             is_always_fail = v.rule_id in ("MONO.CORE", "MONO.CATCHALL")
-            is_parse_fail = (
-                v.rule_id == "MONO.PARSE" and gate_monolith_on_parse_error == "fail"
-            )
+            is_parse_fail = v.rule_id == "MONO.PARSE" and gate_monolith_on_parse_error == "fail"
             sev = "FAIL" if is_always_fail or is_parse_fail else "WARN"
         mapped.append(
             Violation(
@@ -900,9 +869,7 @@ def run_monolith_gate(
             logger.line(line)
 
     if fail:
-        quiet_enabled = (logger.screen_level == "quiet") or (
-            logger.log_level == "quiet"
-        )
+        quiet_enabled = (logger.screen_level == "quiet") or (logger.log_level == "quiet")
         if quiet_enabled:
             detail_lines: list[str] = [
                 "MONOLITH FAIL REASONS:",

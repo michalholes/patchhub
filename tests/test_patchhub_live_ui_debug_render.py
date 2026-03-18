@@ -11,9 +11,7 @@ class TestPatchhubLiveUiDebugRender(unittest.TestCase):
         self,
     ) -> None:
         repo_root = Path(__file__).resolve().parents[1]
-        script_path = (
-            repo_root / "scripts" / "patchhub" / "static" / "patchhub_live_ui.js"
-        )
+        script_path = repo_root / "scripts" / "patchhub" / "static" / "patchhub_live_ui.js"
         node_script = f"""
 const fs = require('fs');
 const vm = require('vm');
@@ -63,9 +61,7 @@ process.stdout.write(JSON.stringify(lines));
 
     def test_debug_raw_formatter_returns_json_lines(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
-        script_path = (
-            repo_root / "scripts" / "patchhub" / "static" / "patchhub_live_ui.js"
-        )
+        script_path = repo_root / "scripts" / "patchhub" / "static" / "patchhub_live_ui.js"
         node_script = f"""
 const fs = require('fs');
 const vm = require('vm');

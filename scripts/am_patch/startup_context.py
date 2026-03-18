@@ -43,9 +43,7 @@ class RunContext:
     patch_plan: PatchPlan | None = None
 
 
-def build_paths_and_logger(
-    cli: Any, policy: Any, config_path: Path, used_cfg: str
-) -> RunContext:
+def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: str) -> RunContext:
     runner_root = Path(__file__).resolve().parents[2]
     _, patch_root = resolve_patch_root(policy, runner_root=runner_root)
     patch_plan: PatchPlan | None = None

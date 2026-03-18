@@ -8,9 +8,7 @@ from badguys.bdg_recipe import step_recipe
 from badguys.bdg_subst import SubstCtx
 
 
-def _write_alt_config(
-    repo_root: Path, *, include_commit_limit_step: bool = True
-) -> Path:
+def _write_alt_config(repo_root: Path, *, include_commit_limit_step: bool = True) -> Path:
     cfg_dir = repo_root / "badguys"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     path = cfg_dir / "alt.toml"

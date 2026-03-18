@@ -127,10 +127,7 @@ async def test_db_live_stream_replays_db_tail_then_switches_to_broker(
 
     broker.close()
     third = (await iterator.__anext__()).decode("utf-8")
-    assert (
-        third
-        == 'event: end\ndata: {"reason": "job_completed", "status": "running"}\n\n'
-    )
+    assert third == 'event: end\ndata: {"reason": "job_completed", "status": "running"}\n\n'
 
 
 @pytest.mark.asyncio
@@ -163,9 +160,7 @@ async def test_db_live_stream_default_tail_replays_20000_rows(
         )
     ]
 
-    data_lines = [
-        chunk.decode("utf-8").strip() for chunk in chunks if chunk.startswith(b"data: ")
-    ]
+    data_lines = [chunk.decode("utf-8").strip() for chunk in chunks if chunk.startswith(b"data: ")]
     assert len(data_lines) == 20_000
     assert data_lines[0] == 'data: {"type":"log","msg":"6"}'
     assert data_lines[-1] == 'data: {"type":"log","msg":"20005"}'

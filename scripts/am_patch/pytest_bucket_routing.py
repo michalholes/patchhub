@@ -81,18 +81,14 @@ def select_pytest_targets(
     pytest_external_dependencies = _normalize_dependencies(
         _mapping_dict_list(routing_policy, "pytest_external_dependencies")
     )
-    pytest_full_suite_prefixes = _mapping_list(
-        routing_policy, "pytest_full_suite_prefixes"
-    )
+    pytest_full_suite_prefixes = _mapping_list(routing_policy, "pytest_full_suite_prefixes")
 
     return select_namespace_pytest_targets(
         decision_paths=decision_paths,
         pytest_targets=pytest_targets,
         pytest_roots=pytest_roots or PYTEST_ROOTS_DEFAULT,
         pytest_tree=pytest_tree or PYTEST_TREE_DEFAULT,
-        pytest_namespace_modules=(
-            pytest_namespace_modules or PYTEST_NAMESPACE_MODULES_DEFAULT
-        ),
+        pytest_namespace_modules=(pytest_namespace_modules or PYTEST_NAMESPACE_MODULES_DEFAULT),
         pytest_dependencies=pytest_dependencies or PYTEST_DEPENDENCIES_DEFAULT,
         pytest_external_dependencies=(
             pytest_external_dependencies or PYTEST_EXTERNAL_DEPENDENCIES_DEFAULT

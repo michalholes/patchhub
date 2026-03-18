@@ -37,9 +37,7 @@ class TestPatchhubApiWorkspaces(unittest.TestCase):
             ws_repo = root / "patches" / "workspaces" / "issue_777" / "repo"
             ws_repo.mkdir(parents=True)
             (root / "scripts" / "am_patch").mkdir(parents=True)
-            (root / "scripts" / "am_patch" / "am_patch.toml").write_text(
-                "", encoding="utf-8"
-            )
+            (root / "scripts" / "am_patch" / "am_patch.toml").write_text("", encoding="utf-8")
             _git(["init"], ws_repo)
             _git(["config", "user.email", "test@example.com"], ws_repo)
             _git(["config", "user.name", "Tester"], ws_repo)

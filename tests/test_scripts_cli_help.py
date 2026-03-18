@@ -175,9 +175,7 @@ def test_am_patch_help_all_mentions_target_cli_surface() -> None:
     assert "--target-repo-roots CSV" in out
 
 
-def test_am_patch_show_config_prints_target_repo_name_default_and_cli_override() -> (
-    None
-):
+def test_am_patch_show_config_prints_target_repo_name_default_and_cli_override() -> None:
     repo_root = _repo_root()
     script_path = repo_root / "scripts" / "am_patch.py"
 

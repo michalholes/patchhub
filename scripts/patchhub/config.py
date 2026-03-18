@@ -218,33 +218,23 @@ def load_config(path: Path) -> AppConfig:
                     "^issue_\\d+_(.+)\\.(zip|patch|diff|py)$",
                 )
             ),
-            commit_replace_underscores=bool(
-                autofill.get("commit_replace_underscores", True)
-            ),
+            commit_replace_underscores=bool(autofill.get("commit_replace_underscores", True)),
             commit_replace_dashes=bool(autofill.get("commit_replace_dashes", True)),
             commit_collapse_spaces=bool(autofill.get("commit_collapse_spaces", True)),
             commit_trim=bool(autofill.get("commit_trim", True)),
             commit_ascii_only=bool(autofill.get("commit_ascii_only", True)),
-            issue_default_if_no_match=str(
-                autofill.get("issue_default_if_no_match", "")
-            ),
-            commit_default_if_no_match=str(
-                autofill.get("commit_default_if_no_match", "")
-            ),
+            issue_default_if_no_match=str(autofill.get("issue_default_if_no_match", "")),
+            commit_default_if_no_match=str(autofill.get("commit_default_if_no_match", "")),
             overwrite_policy=str(autofill.get("overwrite_policy", "if_not_dirty")),
             fill_patch_path=bool(autofill.get("fill_patch_path", True)),
             fill_issue_id=bool(autofill.get("fill_issue_id", True)),
             fill_commit_message=bool(autofill.get("fill_commit_message", True)),
             zip_commit_enabled=bool(autofill.get("zip_commit_enabled", True)),
-            zip_commit_filename=str(
-                autofill.get("zip_commit_filename", "COMMIT_MESSAGE.txt")
-            ),
+            zip_commit_filename=str(autofill.get("zip_commit_filename", "COMMIT_MESSAGE.txt")),
             zip_commit_max_bytes=int(autofill.get("zip_commit_max_bytes", 4096)),
             zip_commit_max_ratio=int(autofill.get("zip_commit_max_ratio", 200)),
             zip_issue_enabled=bool(autofill.get("zip_issue_enabled", True)),
-            zip_issue_filename=str(
-                autofill.get("zip_issue_filename", "ISSUE_NUMBER.txt")
-            ),
+            zip_issue_filename=str(autofill.get("zip_issue_filename", "ISSUE_NUMBER.txt")),
             zip_issue_max_bytes=int(autofill.get("zip_issue_max_bytes", 128)),
             zip_issue_max_ratio=int(autofill.get("zip_issue_max_ratio", 200)),
             scan_zip_require_patch=bool(autofill.get("scan_zip_require_patch", False)),

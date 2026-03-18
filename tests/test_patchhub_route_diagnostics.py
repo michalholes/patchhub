@@ -10,9 +10,8 @@ from pathlib import Path
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
-from starlette.requests import Request
-
 from patchhub.asgi.route_diagnostics import handle_api_debug_diagnostics
+from starlette.requests import Request
 
 
 class _DummyCore:
@@ -62,9 +61,7 @@ class TestPatchhubRouteDiagnostics(unittest.TestCase):
         first = asyncio.run(handle_api_debug_diagnostics(core, _request()))
         etag = str(first.headers.get("etag") or "")
         self.assertTrue(etag)
-        second = asyncio.run(
-            handle_api_debug_diagnostics(core, _request(if_none_match=etag))
-        )
+        second = asyncio.run(handle_api_debug_diagnostics(core, _request(if_none_match=etag)))
         self.assertEqual(second.status_code, 304)
         self.assertEqual(second.headers.get("etag"), etag)
 
@@ -83,9 +80,7 @@ class TestPatchhubRouteDiagnostics(unittest.TestCase):
         etag = str(first.headers.get("etag") or "")
         self.assertTrue(etag.startswith('"diag:'))
         sig = etag.strip('"')
-        second = asyncio.run(
-            handle_api_debug_diagnostics(core, _request(since_sig=sig))
-        )
+        second = asyncio.run(handle_api_debug_diagnostics(core, _request(since_sig=sig)))
         self.assertEqual(second.status_code, 200)
         body = json.loads(second.body.decode("utf-8"))
         self.assertEqual(body, {"ok": True, "unchanged": True, "sig": sig})

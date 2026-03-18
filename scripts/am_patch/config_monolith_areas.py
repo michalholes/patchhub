@@ -62,17 +62,13 @@ def parse_monolith_areas(
     for i, s in enumerate(prefixes_raw):
         ps = str(s).strip()
         if ps == "":
-            raise RunnerError(
-                "CONFIG", "INVALID", f"{prefixes_key}[{i}] must be non-empty"
-            )
+            raise RunnerError("CONFIG", "INVALID", f"{prefixes_key}[{i}] must be non-empty")
         prefixes.append(ps)
 
     for i, s in enumerate(names_raw):
         ns = str(s).strip()
         if ns == "":
-            raise RunnerError(
-                "CONFIG", "INVALID", f"{names_key}[{i}] must be non-empty"
-            )
+            raise RunnerError("CONFIG", "INVALID", f"{names_key}[{i}] must be non-empty")
         names.append(ns)
 
     for _i, s in enumerate(dynamic_raw):

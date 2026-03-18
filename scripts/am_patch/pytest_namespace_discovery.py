@@ -25,9 +25,7 @@ class NamespaceMatcher:
         self.namespace = _namespace_stem(namespace)
         self.path_prefix = _normalize_path(path_prefix)
         self.module_prefixes = tuple(
-            prefix.strip(".")
-            for prefix in module_prefixes
-            if str(prefix).strip().strip(".")
+            prefix.strip(".") for prefix in module_prefixes if str(prefix).strip().strip(".")
         )
 
     def matches_module(self, module_name: str) -> bool:
@@ -588,9 +586,7 @@ def _matcher_defs(
             path_prefix=prefix,
             module_prefixes=namespace_modules.get(stem, ()),
         )
-    ordered = sorted(
-        matchers.values(), key=lambda item: (-len(item.namespace), item.namespace)
-    )
+    ordered = sorted(matchers.values(), key=lambda item: (-len(item.namespace), item.namespace))
     return tuple(ordered)
 
 
@@ -629,9 +625,7 @@ def _collect_candidates(
 ) -> set[str]:
     candidates: set[str] = set()
     for matcher in matchers:
-        if any(matcher.matches_module(ref) for ref in refs) or matcher.matches_text(
-            text
-        ):
+        if any(matcher.matches_module(ref) for ref in refs) or matcher.matches_text(text):
             candidates.add(matcher.namespace)
     if candidates:
         return candidates
@@ -702,29 +696,22 @@ def discover_namespace_ownership(
                 seen_full.add(support_path)
             else:
                 names_key = tuple(dict.fromkeys(selected_names))
-                if (
-                    support_path in seen_full
-                    or (support_path, names_key) in seen_selected
-                ):
+                if support_path in seen_full or (support_path, names_key) in seen_selected:
                     continue
                 seen_selected.add((support_path, names_key))
 
             if names_key is None:
-                support_text, support_refs, imports, scripts, _paths, _fix, _conf = (
-                    _module_details(
-                        repo_root_str,
-                        support_path,
-                        known_paths,
-                    )
+                support_text, support_refs, imports, scripts, _paths, _fix, _conf = _module_details(
+                    repo_root_str,
+                    support_path,
+                    known_paths,
                 )
             else:
-                support_text, support_refs, imports, scripts, _paths = (
-                    _selected_module_details(
-                        repo_root_str,
-                        support_path,
-                        known_paths,
-                        names_key,
-                    )
+                support_text, support_refs, imports, scripts, _paths = _selected_module_details(
+                    repo_root_str,
+                    support_path,
+                    known_paths,
+                    names_key,
                 )
             candidates.update(
                 _collect_candidates(
@@ -740,9 +727,7 @@ def discover_namespace_ownership(
                 pending.append((target, None))
 
         if not candidates:
-            candidates.update(
-                _filename_fallback_candidates(rel_path=rel_path, matchers=matchers)
-            )
+            candidates.update(_filename_fallback_candidates(rel_path=rel_path, matchers=matchers))
         namespaces = _reduce_candidates(candidates) or ("*",)
         ownership.append((rel_path, namespaces))
     return tuple(ownership)
@@ -807,10 +792,7 @@ def discover_catchall_path_ownership(
                 seen_full.add(support_path)
             else:
                 names_key = tuple(dict.fromkeys(selected_names))
-                if (
-                    support_path in seen_full
-                    or (support_path, names_key) in seen_selected
-                ):
+                if support_path in seen_full or (support_path, names_key) in seen_selected:
                     continue
                 seen_selected.add((support_path, names_key))
 

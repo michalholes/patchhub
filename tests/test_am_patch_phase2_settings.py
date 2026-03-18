@@ -287,9 +287,7 @@ def test_target_repo_name_rejects_non_ascii_override() -> None:
             p,
             {
                 "overrides": [
-                    r"target_repo_name=naive-\u017e".encode("ascii").decode(
-                        "unicode_escape"
-                    )
+                    r"target_repo_name=naive-\u017e".encode("ascii").decode("unicode_escape")
                 ],
             },
         )

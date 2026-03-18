@@ -24,8 +24,6 @@ class TestIssueAlloc(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "logs").mkdir(parents=True)
-            (root / "logs" / "am_patch_issue_41_x.log").write_text(
-                "hi", encoding="utf-8"
-            )
+            (root / "logs" / "am_patch_issue_41_x.log").write_text("hi", encoding="utf-8")
             n = allocate_next_issue_id(root, r"issue_(\d+)", 1, 99999)
             self.assertEqual(n, 42)

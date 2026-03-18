@@ -53,9 +53,7 @@ def _zip_issue_cfg(cfg: Any) -> ZipIssueConfig:
 
 
 def _derive_validation_inputs(self: Any, zpath: Path) -> tuple[str, str]:
-    issue_id, _issue_err = read_issue_number_from_zip_path(
-        zpath, _zip_issue_cfg(self.cfg)
-    )
+    issue_id, _issue_err = read_issue_number_from_zip_path(zpath, _zip_issue_cfg(self.cfg))
     commit_message, _commit_err = read_commit_message_from_zip_path(
         zpath,
         _zip_commit_cfg(self.cfg),
@@ -64,9 +62,7 @@ def _derive_validation_inputs(self: Any, zpath: Path) -> tuple[str, str]:
         derived_issue, derived_commit = self._derive_from_filename(zpath.name)
     else:
         derived_issue, derived_commit = None, None
-    return str(issue_id or derived_issue or ""), str(
-        commit_message or derived_commit or ""
-    )
+    return str(issue_id or derived_issue or ""), str(commit_message or derived_commit or "")
 
 
 def _latest_file_by_pattern(root: Path, pattern: str) -> Path | None:
@@ -87,37 +83,25 @@ def _latest_file_by_pattern(root: Path, pattern: str) -> Path | None:
 
 
 def _runner_config_path(repo_root: Path, cfg: Any) -> Path:
-    rel = str(
-        getattr(getattr(cfg, "runner", object()), "runner_config_toml", "")
-    ).strip()
+    rel = str(getattr(getattr(cfg, "runner", object()), "runner_config_toml", "")).strip()
     return (repo_root / rel).resolve()
 
 
-def _latest_success_archive(
-    repo_root: Path, patches_root: Path, cfg: Any
-) -> Path | None:
+def _latest_success_archive(repo_root: Path, patches_root: Path, cfg: Any) -> Path | None:
     runner_cfg_path = _runner_config_path(repo_root, cfg)
     if not runner_cfg_path.exists():
         return None
     raw = tomllib.loads(runner_cfg_path.read_text(encoding="utf-8"))
     paths_cfg = raw.get("paths", {})
-    cleanup_glob = str(
-        paths_cfg.get("success_archive_cleanup_glob_template", "")
-    ).strip()
-    archive_dir = (
-        str(paths_cfg.get("success_archive_dir", "patch_dir")).strip() or "patch_dir"
-    )
-    dest_root = (
-        patches_root if archive_dir == "patch_dir" else (patches_root / "successful")
-    )
+    cleanup_glob = str(paths_cfg.get("success_archive_cleanup_glob_template", "")).strip()
+    archive_dir = str(paths_cfg.get("success_archive_dir", "patch_dir")).strip() or "patch_dir"
+    dest_root = patches_root if archive_dir == "patch_dir" else (patches_root / "successful")
     if cleanup_glob:
         latest = _latest_file_by_pattern(dest_root, cleanup_glob)
         if latest is not None:
             return latest.resolve()
     try:
-        rel = compute_success_archive_rel(
-            repo_root, runner_cfg_path, str(cfg.paths.patches_root)
-        )
+        rel = compute_success_archive_rel(repo_root, runner_cfg_path, str(cfg.paths.patches_root))
     except Exception:
         return None
     candidate = (patches_root / rel).resolve()
@@ -259,9 +243,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
         temp_root = Path(td)
         workspace_snapshot: Path | None = None
         if overlay_path is None:
-            success_archive = _latest_success_archive(
-                self.repo_root, self.patches_root, self.cfg
-            )
+            success_archive = _latest_success_archive(self.repo_root, self.patches_root, self.cfg)
             if success_archive is not None:
                 workspace_snapshot = success_archive
                 authority_sources.append(
@@ -283,15 +265,12 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                         "authority_sources": [],
                         "supplemental_files": [],
                         "raw_output": (
-                            "PHB could not obtain a workspace snapshot fallback.\n"
-                            + str(exc)
+                            "PHB could not obtain a workspace snapshot fallback.\n" + str(exc)
                         ),
                     }
                 authority_sources.append("live_workspace_snapshot")
         else:
-            authority_sources.append(
-                _authority_label(overlay_path, patches_root=self.patches_root)
-            )
+            authority_sources.append(_authority_label(overlay_path, patches_root=self.patches_root))
 
         proc = _run_validator(
             repo_root=self.repo_root,

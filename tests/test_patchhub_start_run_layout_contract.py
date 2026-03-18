@@ -9,9 +9,7 @@ def test_start_run_layout_contract_matches_compact_layout() -> None:
     html = (REPO_ROOT / "scripts" / "patchhub" / "templates" / "index.html").read_text(
         encoding="utf-8"
     )
-    css = (REPO_ROOT / "scripts" / "patchhub" / "static" / "app.css").read_text(
-        encoding="utf-8"
-    )
+    css = (REPO_ROOT / "scripts" / "patchhub" / "static" / "app.css").read_text(encoding="utf-8")
     assert "B) Start run" not in html
     assert '<label class="lbl">Mode</label>' not in html
     assert 'id="mode" class="input start-run-mode"' in html

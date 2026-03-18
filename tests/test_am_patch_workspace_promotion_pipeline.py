@@ -62,9 +62,7 @@ def test_workspace_promotion_pipeline_cleans_failure_zips_once(tmp_path: Path) -
     pipeline_mod.git_ops.commit_changed_files_name_status = lambda *args, **kwargs: [
         ("M", "scripts/am_patch/engine.py")
     ]
-    pipeline_mod.cleanup_failure_zips_on_success = lambda **kwargs: events.append(
-        "cleanup"
-    )
+    pipeline_mod.cleanup_failure_zips_on_success = lambda **kwargs: events.append("cleanup")
 
     summary = complete_pipeline(
         logger=logger,

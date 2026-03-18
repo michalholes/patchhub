@@ -109,9 +109,7 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
         # Gates can modify files (e.g. ruff format/autofix). Refresh the failure
         # archive subset after workspace gates.
         changed_after_ws_gates = changed_paths(logger, ws.repo)
-        files_for_fail_zip = sorted(
-            set(files_for_fail_zip) | set(changed_after_ws_gates)
-        )
+        files_for_fail_zip = sorted(set(files_for_fail_zip) | set(changed_after_ws_gates))
 
         _maybe_run_badguys(cwd=ws.repo, decision_paths=decision_paths_ws)
 
@@ -154,9 +152,7 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
         push_ok_for_posthook = promotion_summary.push_ok_for_posthook
         final_commit_sha = promotion_summary.final_commit_sha
         final_pushed_files = promotion_summary.final_pushed_files
-        delete_workspace_after_archive = (
-            promotion_summary.delete_workspace_after_archive
-        )
+        delete_workspace_after_archive = promotion_summary.delete_workspace_after_archive
 
         if policy.delete_workspace_on_success and not policy.commit_and_push:
             logger.line("workspace_delete=SKIPPED (disable-promotion)")

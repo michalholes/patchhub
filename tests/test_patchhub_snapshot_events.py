@@ -46,9 +46,7 @@ class TestPatchhubSnapshotEvents(unittest.TestCase):
         broker = SnapshotChangeBroker()
 
         async def _collect() -> list[bytes]:
-            stream = build_snapshot_event_stream(
-                core=core, broker=broker, ping_interval_s=60.0
-            )
+            stream = build_snapshot_event_stream(core=core, broker=broker, ping_interval_s=60.0)
             first = await stream.__anext__()
 
             async def _publish_soon() -> None:

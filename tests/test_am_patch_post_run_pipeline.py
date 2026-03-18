@@ -107,9 +107,7 @@ def test_workspace_audit_runs_once_after_workspace_delete(tmp_path: Path) -> Non
     events: list[str] = []
 
     post_run_mod.delete_workspace = lambda logger, ws: events.append("delete")
-    post_run_mod.run_post_success_audit = lambda logger, repo_root, policy: (
-        events.append("audit")
-    )
+    post_run_mod.run_post_success_audit = lambda logger, repo_root, policy: events.append("audit")
 
     def _build_artifacts(**kwargs):
         events.append("artifacts")
@@ -156,9 +154,7 @@ def test_audit_failure_switches_result_to_fail(tmp_path: Path) -> None:
 
     post_run_mod = sys.modules[post_run_pipeline.__module__]
     post_run_mod.changed_paths = lambda logger, repo_root: []
-    post_run_mod.run_post_success_audit = lambda logger, repo_root, policy: (
-        _ for _ in ()
-    ).throw(
+    post_run_mod.run_post_success_audit = lambda logger, repo_root, policy: (_ for _ in ()).throw(
         runner_error_cls("AUDIT", "AUDIT_REPORT_FAILED", "audit/audit_report.py failed")
     )
 
@@ -273,8 +269,8 @@ def test_gate_failure_skips_workspace_rollback_when_mode_is_always(
     post_run_mod = sys.modules[post_run_pipeline.__module__]
     rollback_calls: list[tuple[Path, object]] = []
     post_run_mod.build_artifacts = lambda **kwargs: None
-    post_run_mod.rollback_to_checkpoint = lambda logger, repo, checkpoint: (
-        rollback_calls.append((repo, checkpoint))
+    post_run_mod.rollback_to_checkpoint = lambda logger, repo, checkpoint: rollback_calls.append(
+        (repo, checkpoint)
     )
 
     exit_code = post_run_pipeline(ctx=ctx, result=result)
@@ -282,9 +278,7 @@ def test_gate_failure_skips_workspace_rollback_when_mode_is_always(
     assert exit_code == 1
     assert rollback_calls == []
     assert (
-        logger.lines.count(
-            "ROLLBACK: skipped (mode=always reason=non-patch-failure applied_ok=1)"
-        )
+        logger.lines.count("ROLLBACK: skipped (mode=always reason=non-patch-failure applied_ok=1)")
         == 1
     )
 
@@ -330,8 +324,8 @@ def test_patch_failure_rolls_back_workspace_when_mode_is_always(tmp_path: Path) 
     post_run_mod = sys.modules[post_run_pipeline.__module__]
     rollback_calls: list[tuple[Path, object]] = []
     post_run_mod.build_artifacts = lambda **kwargs: None
-    post_run_mod.rollback_to_checkpoint = lambda logger, repo, checkpoint: (
-        rollback_calls.append((repo, checkpoint))
+    post_run_mod.rollback_to_checkpoint = lambda logger, repo, checkpoint: rollback_calls.append(
+        (repo, checkpoint)
     )
 
     exit_code = post_run_pipeline(ctx=ctx, result=result)
@@ -384,17 +378,15 @@ def test_patch_failure_rolls_back_for_none_applied_when_zero_patches_applied(
     post_run_mod = sys.modules[post_run_pipeline.__module__]
     rollback_calls: list[tuple[Path, object]] = []
     post_run_mod.build_artifacts = lambda **kwargs: None
-    post_run_mod.rollback_to_checkpoint = lambda logger, repo, checkpoint: (
-        rollback_calls.append((repo, checkpoint))
+    post_run_mod.rollback_to_checkpoint = lambda logger, repo, checkpoint: rollback_calls.append(
+        (repo, checkpoint)
     )
 
     exit_code = post_run_pipeline(ctx=ctx, result=result)
 
     assert exit_code == 1
     assert rollback_calls == [(ws_repo, ckpt)]
-    assert (
-        logger.lines.count("ROLLBACK: executed (mode=none-applied applied_ok=0)") == 1
-    )
+    assert logger.lines.count("ROLLBACK: executed (mode=none-applied applied_ok=0)") == 1
 
 
 def test_patch_failure_skips_rollback_for_none_applied_when_apply_succeeded(
@@ -440,8 +432,8 @@ def test_patch_failure_skips_rollback_for_none_applied_when_apply_succeeded(
     post_run_mod = sys.modules[post_run_pipeline.__module__]
     rollback_calls: list[tuple[Path, object]] = []
     post_run_mod.build_artifacts = lambda **kwargs: None
-    post_run_mod.rollback_to_checkpoint = lambda logger, repo, checkpoint: (
-        rollback_calls.append((repo, checkpoint))
+    post_run_mod.rollback_to_checkpoint = lambda logger, repo, checkpoint: rollback_calls.append(
+        (repo, checkpoint)
     )
 
     exit_code = post_run_pipeline(ctx=ctx, result=result)
@@ -449,8 +441,6 @@ def test_patch_failure_skips_rollback_for_none_applied_when_apply_succeeded(
     assert exit_code == 1
     assert rollback_calls == []
     assert (
-        logger.lines.count(
-            "ROLLBACK: skipped (mode=none-applied reason=applied-ok applied_ok=1)"
-        )
+        logger.lines.count("ROLLBACK: skipped (mode=none-applied reason=applied-ok applied_ok=1)")
         == 1
     )

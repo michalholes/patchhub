@@ -255,9 +255,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
                             400,
                             {"ok": False, "error": "Invalid issue_id"},
                         )
-                    runs_items = [
-                        r for r in runs_items if int(r.get("issue_id", 0) or 0) == iid
-                    ]
+                    runs_items = [r for r in runs_items if int(r.get("issue_id", 0) or 0) == iid]
 
                 if result:
                     if result not in ("success", "fail", "unknown", "canceled"):
@@ -265,14 +263,10 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
                             400,
                             {"ok": False, "error": "Invalid result filter"},
                         )
-                    runs_items = [
-                        r for r in runs_items if str(r.get("result", "")) == result
-                    ]
+                    runs_items = [r for r in runs_items if str(r.get("result", "")) == result]
 
                 runs_items = runs_items[:limit]
-                headers = (
-                    {"ETag": etag} if (not issue_id_s and not result and etag) else None
-                )
+                headers = {"ETag": etag} if (not issue_id_s and not result and etag) else None
                 return _json_response_obj(
                     200,
                     {"ok": True, "runs": runs_items, "sig": sig},
@@ -289,9 +283,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
             base_sig = await to_thread(
                 runs_signature, core.patches_root, core.cfg.indexing.log_filename_regex
             )
-            canceled_source = (
-                core.web_jobs_db if core.web_jobs_db is not None else core.jobs_root
-            )
+            canceled_source = core.web_jobs_db if core.web_jobs_db is not None else core.jobs_root
             canceled_sig = await to_thread(canceled_runs_signature, canceled_source)
             sig = (
                 f"runs:r={base_sig[0]}:{base_sig[1]}:{base_sig[2]}"
@@ -343,9 +335,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
             core.patches_root,
             core.cfg.indexing.log_filename_regex,
         )
-        canceled_source = (
-            core.web_jobs_db if core.web_jobs_db is not None else core.jobs_root
-        )
+        canceled_source = core.web_jobs_db if core.web_jobs_db is not None else core.jobs_root
         canceled_sig = await to_thread(canceled_runs_signature, canceled_source)
         sig = (
             f"runs:r={base_sig[0]}:{base_sig[1]}:{base_sig[2]}"
@@ -628,9 +618,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
             return _json_response_obj(400, {"ok": False, "error": "No valid paths"})
         rel_paths = sorted(set(rel_paths))
 
-        def _build_archive_bytes_sync(
-            core: AsyncAppCore, rel_paths: list[str]
-        ) -> bytes:
+        def _build_archive_bytes_sync(core: AsyncAppCore, rel_paths: list[str]) -> bytes:
             files: list[tuple[str, Path]] = []
             seen: set[str] = set()
             for rel in rel_paths:
@@ -652,9 +640,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
                         fp = dp / fn
                         if not fp.is_file():
                             continue
-                        sub_rel = str(fp.relative_to(core.jail.patches_root())).replace(
-                            os.sep, "/"
-                        )
+                        sub_rel = str(fp.relative_to(core.jail.patches_root())).replace(os.sep, "/")
                         if sub_rel not in seen:
                             files.append((sub_rel, fp))
                             seen.add(sub_rel)
@@ -674,9 +660,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         try:
             data = await to_thread(_build_archive_bytes_sync, core, rel_paths)
         except FileNotFoundError as e:
-            return _json_response_obj(
-                400, {"ok": False, "error": f"Not found: {e.args[0]}"}
-            )
+            return _json_response_obj(400, {"ok": False, "error": f"Not found: {e.args[0]}"})
         except Exception as e:
             return _json_response_obj(400, {"ok": False, "error": str(e)})
         headers = {"Content-Disposition": 'attachment; filename="selection.zip"'}

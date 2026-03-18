@@ -242,9 +242,7 @@ class SqliteWebJobsStore:
             "original_patch_path": row["original_patch_path"],
             "effective_patch_path": row["effective_patch_path"],
             "effective_patch_kind": row["effective_patch_kind"],
-            "selected_patch_entries": json.loads(
-                str(row["selected_patch_entries_json"])
-            ),
+            "selected_patch_entries": json.loads(str(row["selected_patch_entries_json"])),
             "selected_repo_paths": json.loads(str(row["selected_repo_paths_json"])),
             "applied_files": json.loads(str(row["applied_files_json"])),
             "applied_files_source": str(row["applied_files_source"]),
@@ -369,9 +367,7 @@ class SqliteWebJobsStore:
             )
 
             settings = load_retention_settings(self.cfg)
-            expected_log_count = int(
-                log_count if log_count is not None else job.last_log_seq
-            )
+            expected_log_count = int(log_count if log_count is not None else job.last_log_seq)
             expected_event_count = int(
                 event_count if event_count is not None else job.last_event_seq
             )

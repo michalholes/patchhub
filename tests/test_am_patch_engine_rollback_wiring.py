@@ -125,9 +125,7 @@ def test_run_mode_wires_rollback_context_for_post_workspace_failure(
             live_guard_before=None,
         ),
     )
-    monkeypatch.setattr(
-        engine_mod, "_workspace_store_current_patch", lambda *args, **kwargs: None
-    )
+    monkeypatch.setattr(engine_mod, "_workspace_store_current_patch", lambda *args, **kwargs: None)
     monkeypatch.setattr(engine_mod, "run_patch", lambda *args, **kwargs: None)
     monkeypatch.setattr(engine_mod, "changed_paths", lambda *args, **kwargs: [])
     monkeypatch.setattr(

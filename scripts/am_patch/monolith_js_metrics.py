@@ -31,9 +31,7 @@ def js_metrics(
     _ = compute_fanin  # reserved for future parity with Python fan graphs
 
     try:
-        area_rules: list[MonolithAreas] = [
-            a for a in areas if isinstance(a, MonolithAreas)
-        ]
+        area_rules: list[MonolithAreas] = [a for a in areas if isinstance(a, MonolithAreas)]
 
         loc = _count_loc(new_text)
         exports = _count_js_exports(new_text)

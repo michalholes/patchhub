@@ -23,9 +23,7 @@ def load_state(workspace_root: Path, base_sha: str) -> IssueState:
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
         st_base = str(raw.get("base_sha", ""))
-        allowed = set(
-            str(x) for x in raw.get("allowed_union", []) if isinstance(x, str)
-        )
+        allowed = set(str(x) for x in raw.get("allowed_union", []) if isinstance(x, str))
         # If base_sha changed (workspace re-created / updated), reset union to avoid mixing bases.
         if st_base != base_sha:
             return IssueState(base_sha=base_sha, allowed_union=set())

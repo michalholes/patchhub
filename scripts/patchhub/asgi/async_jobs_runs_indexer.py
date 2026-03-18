@@ -122,11 +122,7 @@ def _latest_by_issue(
             mt = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
             cand = (mt, name)
             prev = best.get(issue_id)
-            if (
-                prev is None
-                or cand[0] > prev[0]
-                or (cand[0] == prev[0] and cand[1] > prev[1])
-            ):
+            if prev is None or cand[0] > prev[0] or (cand[0] == prev[0] and cand[1] > prev[1]):
                 best[issue_id] = cand
 
     out: dict[int, str] = {}
@@ -255,9 +251,7 @@ class AsyncJobsRunsIndexer:
 
     async def _init_success_zip_rel(self) -> None:
         def _sync() -> str:
-            runner_cfg_path = (
-                self._core.repo_root / self._core.cfg.runner.runner_config_toml
-            )
+            runner_cfg_path = self._core.repo_root / self._core.cfg.runner.runner_config_toml
             runner_cfg_path = runner_cfg_path.resolve()
             return compute_success_archive_rel(
                 self._core.repo_root,
@@ -309,9 +303,7 @@ class AsyncJobsRunsIndexer:
                 disk_jobs.append(j)
 
             jobs = list(mem) + disk_jobs
-            jobs.sort(
-                key=lambda j: str(getattr(j, "created_utc", "")) or "", reverse=True
-            )
+            jobs.sort(key=lambda j: str(getattr(j, "created_utc", "")) or "", reverse=True)
             jobs_items = [job_to_list_item_json(j) for j in jobs]
 
             base_sig, base_runs = iter_runs_with_signature(
@@ -344,9 +336,7 @@ class AsyncJobsRunsIndexer:
                 lock_held = 0
 
             workspaces_sig, workspaces_raw = list_workspaces(self._core, mem_jobs=mem)
-            workspaces_items = [
-                workspace_to_list_item_json(it) for it in workspaces_raw
-            ]
+            workspaces_items = [workspace_to_list_item_json(it) for it in workspaces_raw]
 
             header_body = build_header_summary(
                 core=self._core,
@@ -420,9 +410,7 @@ class AsyncJobsRunsIndexer:
             out.append(
                 RunEntry(
                     issue_id=issue_id,
-                    log_rel_path=str(
-                        Path("artifacts") / "web_jobs" / job_id / event_name
-                    ),
+                    log_rel_path=str(Path("artifacts") / "web_jobs" / job_id / event_name),
                     result="canceled",
                     result_line="RESULT: CANCELED",
                     mtime_utc=ended_utc,

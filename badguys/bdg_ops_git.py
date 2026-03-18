@@ -36,9 +36,7 @@ def execute_git_status_porcelain(
         check=False,
     )
     if cp.returncode != 0:
-        return StepResult(
-            rc=1, stdout=None, stderr=(cp.stderr or "git status failed"), value=[]
-        )
+        return StepResult(rc=1, stdout=None, stderr=(cp.stderr or "git status failed"), value=[])
     lines = (cp.stdout or "").splitlines()
     out = [ln.rstrip("\n") for ln in lines if ln.strip()]
     return StepResult(rc=0, stdout=None, stderr=None, value=out)

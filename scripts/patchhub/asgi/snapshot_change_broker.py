@@ -14,9 +14,7 @@ class SnapshotChangeBroker:
         self._closed = False
 
     async def subscribe(self) -> AsyncIterator[dict[str, Any]]:
-        q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(
-            maxsize=self._max_queue_items
-        )
+        q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=self._max_queue_items)
         async with self._mu:
             if self._closed:
                 return

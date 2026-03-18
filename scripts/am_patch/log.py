@@ -40,9 +40,7 @@ def _normalize_event_message(message: str) -> str:
     return msg
 
 
-def _allowed(
-    level: str, severity: Severity, channel: Channel, *, summary: bool
-) -> bool:
+def _allowed(level: str, severity: Severity, channel: Channel, *, summary: bool) -> bool:
     """Return whether a message is allowed at a given level.
 
     Semantics are defined by the issue 999 handoff (shared for screen and log).
@@ -263,8 +261,7 @@ class Logger:
         ):
             self._write_file(message)
         if to_screen and (
-            error_detail
-            or _allowed(self.screen_level, severity, channel, summary=summary)
+            error_detail or _allowed(self.screen_level, severity, channel, summary=summary)
         ):
             self._write_screen(message)
 
@@ -350,9 +347,7 @@ class Logger:
     ) -> None:
         with self._io_lock:
             ipc_stream = self._ipc_stream
-            need_evt = (
-                self.json_enabled and self._json_fp is not None
-            ) or ipc_stream is not None
+            need_evt = (self.json_enabled and self._json_fp is not None) or ipc_stream is not None
             if not need_evt:
                 return
             self._json_seq += 1
@@ -376,9 +371,7 @@ class Logger:
     def emit_json_result(self, *, summary: TerminalSummary) -> None:
         with self._io_lock:
             ipc_stream = self._ipc_stream
-            need_evt = (
-                self.json_enabled and self._json_fp is not None
-            ) or ipc_stream is not None
+            need_evt = (self.json_enabled and self._json_fp is not None) or ipc_stream is not None
             if not need_evt:
                 return
             self._json_seq += 1
@@ -407,9 +400,7 @@ class Logger:
     ) -> int:
         with self._io_lock:
             ipc_stream = self._ipc_stream
-            need_evt = (
-                self.json_enabled and self._json_fp is not None
-            ) or ipc_stream is not None
+            need_evt = (self.json_enabled and self._json_fp is not None) or ipc_stream is not None
             if not need_evt:
                 return 0
             self._json_seq += 1
@@ -459,9 +450,7 @@ class Logger:
         include_payload: bool = True,
     ) -> None:
         ipc_stream = self._ipc_stream
-        if not (
-            (self.json_enabled and self._json_fp is not None) or ipc_stream is not None
-        ):
+        if not ((self.json_enabled and self._json_fp is not None) or ipc_stream is not None):
             return
         with self._io_lock:
             self._json_seq += 1
@@ -508,17 +497,13 @@ class Logger:
 
     def emit_json_subprocess_stream(self, *, stream: str, message: str) -> None:
         ipc_stream = self._ipc_stream
-        if not (
-            (self.json_enabled and self._json_fp is not None) or ipc_stream is not None
-        ):
+        if not ((self.json_enabled and self._json_fp is not None) or ipc_stream is not None):
             return
         with self._io_lock:
             self._write_json_subprocess_stream_locked(stream=stream, message=message)
 
     def _live_subprocess_machine_enabled(self) -> bool:
-        return (
-            self.json_enabled and self._json_fp is not None
-        ) or self._ipc_stream is not None
+        return (self.json_enabled and self._json_fp is not None) or self._ipc_stream is not None
 
     def _live_subprocess_screen_enabled(self) -> bool:
         return _allowed(self.screen_level, "INFO", "DETAIL", summary=False)
@@ -643,9 +628,7 @@ class Logger:
     ) -> RunResult:
         # RUN metadata must not appear in normal/warning/verbose; keep it in DETAIL+DEBUG.
         self.emit(severity="DEBUG", channel="DETAIL", kind="RUN", message="RUN\n")
-        self.emit(
-            severity="DEBUG", channel="DETAIL", kind="RUN", message=f"cmd={argv}\n"
-        )
+        self.emit(severity="DEBUG", channel="DETAIL", kind="RUN", message=f"cmd={argv}\n")
         if cwd is not None:
             self.emit(
                 severity="DEBUG",
@@ -745,9 +728,7 @@ class Logger:
         )
         self._set_active_subprocess(managed)
         try:
-            completed = managed.wait(
-                timeout_s=(timeout_value if timeout_value > 0 else None)
-            )
+            completed = managed.wait(timeout_s=(timeout_value if timeout_value > 0 else None))
         finally:
             self._set_active_subprocess(None)
 
@@ -767,9 +748,7 @@ class Logger:
 
         if completed.timed_out:
             marker = f"subprocess timeout after {timeout_value}s"
-            result.stderr = (
-                f"{marker}\n{result.stderr}" if result.stderr else marker + "\n"
-            )
+            result.stderr = f"{marker}\n{result.stderr}" if result.stderr else marker + "\n"
             result.returncode = 124
             if timeout_hard_fail:
                 self.emit_json_failed_step_detail(

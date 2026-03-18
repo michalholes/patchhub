@@ -78,9 +78,7 @@ global.__selection = {{
   process.exit(1);
 }});
 """
-    proc = subprocess.run(
-        [node, "-e", script], cwd=repo_root, capture_output=True, text=True
-    )
+    proc = subprocess.run([node, "-e", script], cwd=repo_root, capture_output=True, text=True)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr or proc.stdout)
     return json.loads(proc.stdout)

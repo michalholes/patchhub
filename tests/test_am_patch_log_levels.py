@@ -50,9 +50,7 @@ def test_normal_shows_core_hides_detail_and_matches_log(
     assert out == data
 
 
-def test_error_detail_is_visible_even_in_quiet(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path
-):
+def test_error_detail_is_visible_even_in_quiet(capsys: pytest.CaptureFixture[str], tmp_path: Path):
     logger = _mk_logger(tmp_path, screen_level="quiet", log_level="quiet")
     try:
         logger.emit(severity="INFO", channel="CORE", message="CORE\n")
@@ -119,9 +117,7 @@ def test_subprocess_live_json_ignores_screen_level(tmp_path: Path):
 
     events = [
         json.loads(line)
-        for line in (tmp_path / "am_patch.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert any(evt.get("kind") == "SUBPROCESS_STDOUT" for evt in events)
 
@@ -169,8 +165,7 @@ def test_live_ipc_output_arrives_before_process_exit(tmp_path: Path) -> None:
         assert not worker.is_alive()
         assert not errors
         assert any(
-            evt.get("kind") == "SUBPROCESS_STDOUT" and evt.get("msg") == "tail"
-            for evt in events
+            evt.get("kind") == "SUBPROCESS_STDOUT" and evt.get("msg") == "tail" for evt in events
         )
     finally:
         logger.close()
@@ -346,16 +341,13 @@ def test_failed_step_json_payload_is_not_duplicated_after_live_stream(
 
     events = [
         json.loads(line)
-        for line in (tmp_path / "am_patch.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     failed = [evt for evt in events if evt.get("msg") == "FAILED STEP OUTPUT"]
 
     assert result.returncode == 1
     assert any(
-        evt.get("kind") == "SUBPROCESS_STDERR" and evt.get("msg") == "boom"
-        for evt in events
+        evt.get("kind") == "SUBPROCESS_STDERR" and evt.get("msg") == "boom" for evt in events
     )
     assert len(failed) == 1
     assert "stdout" not in failed[0]
@@ -388,8 +380,7 @@ def test_failed_step_ipc_payload_is_not_duplicated_after_live_stream(
 
     assert result.returncode == 1
     assert any(
-        evt.get("kind") == "SUBPROCESS_STDERR" and evt.get("msg") == "boom"
-        for evt in events
+        evt.get("kind") == "SUBPROCESS_STDERR" and evt.get("msg") == "boom" for evt in events
     )
     assert len(failed) == 1
     assert "stdout" not in failed[0]
@@ -452,9 +443,7 @@ def test_failure_dump_breaks_active_status_line_before_screen_output(
             [
                 sys.executable,
                 "-c",
-                (
-                    "import sys; sys.stderr.write('boom\n'); sys.stderr.flush(); raise SystemExit(1)"
-                ),
+                ("import sys; sys.stderr.write('boom\n'); sys.stderr.flush(); raise SystemExit(1)"),
             ]
         )
     finally:
@@ -500,9 +489,7 @@ def test_result_event_with_terminal_fields_keeps_ndjson_valid_after_live_stream(
 
     events = [
         json.loads(line)
-        for line in (tmp_path / "am_patch.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     result_evt = next(evt for evt in events if evt.get("type") == "result")
 

@@ -69,14 +69,10 @@ def _write_patchhub_toml(
                 f"restore_source_preference = {recovery_sources}",
                 "",
                 "[web_jobs_fallback]",
-                (
-                    f"virtual_artifacts_web_jobs_enabled = {str(fallback_virtual_enabled).lower()}"
-                ),
+                (f"virtual_artifacts_web_jobs_enabled = {str(fallback_virtual_enabled).lower()}"),
                 "",
                 "[web_jobs_derived]",
-                (
-                    f"virtual_artifacts_web_jobs_enabled = {str(derived_virtual_enabled).lower()}"
-                ),
+                (f"virtual_artifacts_web_jobs_enabled = {str(derived_virtual_enabled).lower()}"),
                 "",
             ]
         ),
@@ -111,12 +107,10 @@ def test_web_jobs_migration_is_idempotent_and_cleanup_is_explicit(
 
     exported = Path(_export_legacy(repo_root))
     assert (exported / "job-514" / "job.json").is_file()
-    assert (exported / "job-514" / "runner.log").read_text(
-        encoding="utf-8"
-    ) == "alpha\nbeta"
-    assert (exported / "job-514" / "am_patch_issue_514.jsonl").read_text(
-        encoding="utf-8"
-    ) == ('{"type":"log","msg":"queued"}\n{"type":"status","event":"done"}')
+    assert (exported / "job-514" / "runner.log").read_text(encoding="utf-8") == "alpha\nbeta"
+    assert (exported / "job-514" / "am_patch_issue_514.jsonl").read_text(encoding="utf-8") == (
+        '{"type":"log","msg":"queued"}\n{"type":"status","event":"done"}'
+    )
 
     removed = _cleanup(repo_root)
     assert removed == ["job-514"]

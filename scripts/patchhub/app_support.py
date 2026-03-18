@@ -44,9 +44,7 @@ def _tail_stat_fingerprint(path: Path) -> tuple[int, int] | None:
         st = path.stat()
     except Exception:
         return None
-    return int(st.st_size), int(
-        getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000))
-    )
+    return int(st.st_size), int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
 
 
 def _tail_read_suffix(
@@ -91,12 +89,10 @@ def _tail_read_suffix(
         return bytes(buf)
 
 
-_TAIL_CACHE_TEXT: OrderedDict[tuple[str, int], tuple[tuple[int, int], str]] = (
+_TAIL_CACHE_TEXT: OrderedDict[tuple[str, int], tuple[tuple[int, int], str]] = OrderedDict()
+_TAIL_CACHE_JSONL: OrderedDict[tuple[str, int], tuple[tuple[int, int], list[dict[str, Any]]]] = (
     OrderedDict()
 )
-_TAIL_CACHE_JSONL: OrderedDict[
-    tuple[str, int], tuple[tuple[int, int], list[dict[str, Any]]]
-] = OrderedDict()
 
 
 def _tail_cache_get_text(
@@ -278,9 +274,7 @@ def _ascii_sanitize(s: str) -> str:
     return "".join(out)
 
 
-def _find_latest_artifact_rel(
-    patches_root: Path, dir_name: str, contains: str
-) -> str | None:
+def _find_latest_artifact_rel(patches_root: Path, dir_name: str, contains: str) -> str | None:
     d = patches_root / dir_name
     if not d.exists() or not d.is_dir():
         return None
@@ -312,9 +306,7 @@ def _decorate_run(
 ) -> RunEntry:
     try:
         p = patches_root / str(success_zip_rel)
-        run.success_zip_rel_path = (
-            success_zip_rel if (p.exists() and p.is_file()) else None
-        )
+        run.success_zip_rel_path = success_zip_rel if (p.exists() and p.is_file()) else None
     except Exception:
         run.success_zip_rel_path = None
     issue_key = f"issue_{run.issue_id}"
@@ -396,15 +388,11 @@ def _iter_canceled_runs(source: WebJobsDatabase | Path) -> list[RunEntry]:
             event_name = f"am_patch_issue_{issue_s}.jsonl"
         else:
             event_name = "am_patch_finalize.jsonl"
-        rel = str(
-            Path("artifacts") / "web_jobs" / str(raw.get("job_id", "")) / event_name
-        )
+        rel = str(Path("artifacts") / "web_jobs" / str(raw.get("job_id", "")) / event_name)
         mtime_src = str(raw.get("ended_utc") or raw.get("created_utc") or "")
         if mtime_src:
             try:
-                mtime = datetime.strptime(mtime_src, "%Y-%m-%dT%H:%M:%SZ").replace(
-                    tzinfo=UTC
-                )
+                mtime = datetime.strptime(mtime_src, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
                 mtime_utc = _utc_iso(mtime.timestamp())
             except ValueError:
                 mtime_utc = mtime_src

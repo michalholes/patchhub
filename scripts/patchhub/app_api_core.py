@@ -231,10 +231,7 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
         if os.path.splitext(name)[1].lower() not in exts:
             ignored_ext += 1
             continue
-        if (
-            os.path.splitext(name)[1].lower() == ".zip"
-            and self.cfg.autofill.scan_zip_require_patch
-        ):
+        if os.path.splitext(name)[1].lower() == ".zip" and self.cfg.autofill.scan_zip_require_patch:
             ok, _reason = zip_contains_patch_file(p)
             if not ok:
                 ignored_zip_no_patch += 1
@@ -244,9 +241,7 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
         except Exception:
             continue
         m_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
-        if m_ns > best_m or (
-            m_ns == best_m and (best_name is None or name < best_name)
-        ):
+        if m_ns > best_m or (m_ns == best_m and (best_name is None or name < best_name)):
             best_m = m_ns
             best_name = name
 
@@ -270,10 +265,7 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
     zip_commit_err: str | None = None
     zip_issue_used = False
     zip_issue_err: str | None = None
-    if (
-        os.path.splitext(best_name)[1].lower() == ".zip"
-        and self.cfg.autofill.zip_commit_enabled
-    ):
+    if os.path.splitext(best_name)[1].lower() == ".zip" and self.cfg.autofill.zip_commit_enabled:
         zcfg = ZipCommitConfig(
             enabled=True,
             filename=self.cfg.autofill.zip_commit_filename,
@@ -286,10 +278,7 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
             zip_commit_used = True
         else:
             zip_commit_err = zerr
-    if (
-        os.path.splitext(best_name)[1].lower() == ".zip"
-        and self.cfg.autofill.zip_issue_enabled
-    ):
+    if os.path.splitext(best_name)[1].lower() == ".zip" and self.cfg.autofill.zip_issue_enabled:
         zicfg = ZipIssueConfig(
             enabled=True,
             filename=self.cfg.autofill.zip_issue_filename,
@@ -331,9 +320,7 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
     elif zip_commit_err:
         payload["status"].append(f"autofill: zip commit ignored ({zip_commit_err})")
     if zip_issue_used:
-        payload["status"].append(
-            f"autofill: issue from zip {self.cfg.autofill.zip_issue_filename}"
-        )
+        payload["status"].append(f"autofill: issue from zip {self.cfg.autofill.zip_issue_filename}")
     elif zip_issue_err:
         payload["status"].append(f"autofill: zip issue ignored ({zip_issue_err})")
     return _ok(payload)
@@ -386,8 +373,7 @@ def api_runs(self, qs: dict[str, str]) -> tuple[int, bytes]:
     )
 
     runs = [
-        _decorate_run(r, patches_root=self.patches_root, success_zip_rel=success_rel)
-        for r in runs
+        _decorate_run(r, patches_root=self.patches_root, success_zip_rel=success_rel) for r in runs
     ]
 
     limit = int(qs.get("limit", "100"))
@@ -419,8 +405,7 @@ def api_run_detail(self, issue_id: int) -> tuple[int, bytes]:
     )
 
     runs = [
-        _decorate_run(r, patches_root=self.patches_root, success_zip_rel=success_rel)
-        for r in runs
+        _decorate_run(r, patches_root=self.patches_root, success_zip_rel=success_rel) for r in runs
     ]
 
     for r in runs:
@@ -437,9 +422,7 @@ def api_runner_tail(self, qs: dict[str, str]) -> tuple[int, bytes]:
         max_bytes=self.cfg.server.tail_max_bytes,
         cache_max_entries=self.cfg.server.tail_cache_max_entries,
     )
-    return _ok(
-        {"path": str(Path(self.cfg.paths.patches_root) / "am_patch.log"), "tail": tail}
-    )
+    return _ok({"path": str(Path(self.cfg.paths.patches_root) / "am_patch.log"), "tail": tail})
 
 
 def diagnostics(self) -> dict[str, Any]:

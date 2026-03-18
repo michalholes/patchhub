@@ -197,9 +197,7 @@ def print_result(test_name: str, ok: bool) -> None:
     sys.stdout.flush()
 
 
-def fail_commit_limit(
-    central_log: Path, commit_limit: int, commit_tests: Sequence[object]
-) -> None:
+def fail_commit_limit(central_log: Path, commit_limit: int, commit_tests: Sequence[object]) -> None:
     names = []
     for t in commit_tests:
         name = getattr(t, "name", None)
@@ -263,9 +261,7 @@ def assert_zip_no_entries_matching(zip_path: Path, patterns: list[str]) -> None:
         raise AssertionError(f"zip contains forbidden entries: {bad}")
 
 
-def write_git_modify_file_patch(
-    patch_path: Path, rel_path: str, old: str, new: str
-) -> None:
+def write_git_modify_file_patch(patch_path: Path, rel_path: str, old: str, new: str) -> None:
     """Write a minimal git-apply patch that replaces the entire file content."""
     if not old.endswith("\n"):
         old = old + "\n"

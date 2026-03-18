@@ -137,9 +137,7 @@ def main(argv: list[str]) -> int:
     all_findings: list[Finding] = []
     files_scanned = 0
 
-    for p in iter_files(
-        root, exts=exts, skip_patches=skip_patches, self_path=self_path
-    ):
+    for p in iter_files(root, exts=exts, skip_patches=skip_patches, self_path=self_path):
         files_scanned += 1
         all_findings.extend(scan_file(p))
 
@@ -148,9 +146,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     # Report
-    print(
-        f"FAIL: found non-ASCII in {len(all_findings)} positions across {files_scanned} files."
-    )
+    print(f"FAIL: found non-ASCII in {len(all_findings)} positions across {files_scanned} files.")
     for f in all_findings:
         rel = f.path.relative_to(root)
         safe = f.ch.encode("unicode_escape").decode("ascii")

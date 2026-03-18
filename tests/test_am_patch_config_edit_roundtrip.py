@@ -125,7 +125,5 @@ def test_config_edit_roundtrip_keeps_target_selection_comments() -> None:
     )
 
     assert "/home/pi/<name>" in updated
-    assert (
-        'target_repo_roots = ["/home/pi/audiomason2", "/home/pi/patchhub"]' in updated
-    )
+    assert 'target_repo_roots = ["/home/pi/audiomason2", "/home/pi/patchhub"]' in updated
     assert 'active_target_repo_root = "/home/pi/patchhub"' in updated

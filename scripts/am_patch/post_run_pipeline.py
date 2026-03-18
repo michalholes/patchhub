@@ -30,9 +30,7 @@ def _resolve_workspace_archive_path(
             and result.patch_script is not None
             and result.patch_script.exists()
         ):
-            archived_path = archive_patch(
-                logger, result.patch_script, paths.successful_dir
-            )
+            archived_path = archive_patch(logger, result.patch_script, paths.successful_dir)
         return archived_path
 
     patch_source: Path | None = None
@@ -45,9 +43,7 @@ def _resolve_workspace_archive_path(
         else:
             repo_candidate = (repo_root / raw).resolve()
             patch_dir_candidate = (paths.patch_dir / raw).resolve()
-            patch_source = (
-                repo_candidate if repo_candidate.exists() else patch_dir_candidate
-            )
+            patch_source = repo_candidate if repo_candidate.exists() else patch_dir_candidate
     else:
         patch_source = (paths.patch_dir / f"issue_{issue_id}.py").resolve()
 
@@ -162,10 +158,7 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
     logger = ctx.logger
 
     try:
-        if (
-            cli.mode in ("workspace", "finalize", "finalize_workspace")
-            and not policy.test_mode
-        ):
+        if cli.mode in ("workspace", "finalize", "finalize_workspace") and not policy.test_mode:
             issue_id = str(cli.issue_id or "unknown")
             archived_path: Path | None = None
             if cli.mode == "workspace":
@@ -223,9 +216,7 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
                 files_for_fail_zip=files_for_fail_zip,
                 ws_repo_for_fail_zip=ws_repo_for_fail_zip,
                 ws_attempt=(
-                    result.ws_for_posthook.attempt
-                    if result.ws_for_posthook is not None
-                    else None
+                    result.ws_for_posthook.attempt if result.ws_for_posthook is not None else None
                 ),
                 issue_diff_base_sha=result.issue_diff_base_sha,
                 issue_diff_paths=result.issue_diff_paths,

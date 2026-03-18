@@ -74,9 +74,7 @@ def test_main_converts_unhandled_run_exception_into_finalized_fail_result(
     assert result.exit_code == 1
     assert result.final_fail_stage == "INTERNAL"
     assert result.final_fail_reason == "unexpected error"
-    assert (
-        "ERROR DETAIL: INTERNAL:INTERNAL: ValueError: boom" in result.final_fail_detail
-    )
+    assert "ERROR DETAIL: INTERNAL:INTERNAL: ValueError: boom" in result.final_fail_detail
     assert "AM_PATCH_FAILURE_FINGERPRINT:" in result.final_fail_fingerprint
     assert "ValueError: boom" in result.final_fail_fingerprint
     assert logger.close_calls == 1
@@ -175,9 +173,7 @@ def test_finalize_and_report_keeps_fail_summary_when_json_result_emit_fails(
     )
     result = RunResult(
         exit_code=1,
-        final_fail_stage=(
-            "GATE_COMPILE, GATE_RUFF, GATE_MYPY, GATE_DOCS, GATE_MONOLITH"
-        ),
+        final_fail_stage=("GATE_COMPILE, GATE_RUFF, GATE_MYPY, GATE_DOCS, GATE_MONOLITH"),
         final_fail_reason="gates failed",
         final_fail_detail=(
             "ERROR DETAIL: GATES:GATES: gates failed: compile, ruff, mypy, monolith, docs\n"

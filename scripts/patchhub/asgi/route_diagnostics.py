@@ -32,9 +32,7 @@ def _diagnostics_sig(body: dict[str, Any]) -> str:
     return "diag:" + sha1(payload).hexdigest()
 
 
-async def handle_api_debug_diagnostics(
-    core: AsyncAppCore, request: Request
-) -> Response:
+async def handle_api_debug_diagnostics(core: AsyncAppCore, request: Request) -> Response:
     since_sig = str(request.query_params.get("since_sig", "")).strip()
     body = await core.diagnostics()
     sig = _diagnostics_sig(body)

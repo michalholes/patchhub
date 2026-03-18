@@ -13,9 +13,7 @@ def _run_node_scenario(body: str) -> dict[str, object]:
     if not node:
         pytest.skip("node not installed")
     repo_root = Path(__file__).resolve().parents[1]
-    src_path = (
-        repo_root / "scripts" / "patchhub" / "static" / "app_part_snapshot_events.js"
-    )
+    src_path = repo_root / "scripts" / "patchhub" / "static" / "app_part_snapshot_events.js"
     script = f"""
 const fs = require("fs");
 const vm = require("vm");
@@ -88,9 +86,7 @@ const flush = async () => {{
   process.exit(1);
 }});
 """
-    proc = subprocess.run(
-        [node, "-e", script], cwd=repo_root, capture_output=True, text=True
-    )
+    proc = subprocess.run([node, "-e", script], cwd=repo_root, capture_output=True, text=True)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr or proc.stdout)
     return json.loads(proc.stdout)

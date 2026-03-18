@@ -47,9 +47,7 @@ def derive_finalize_pseudo_issue_id(*, log_path: Path, finalize_template: str) -
     return f"FINALIZE_{ts}"
 
 
-def collect_issue_logs(
-    *, logs_dir: Path, issue_id: str, issue_template: str
-) -> list[Path]:
+def collect_issue_logs(*, logs_dir: Path, issue_id: str, issue_template: str) -> list[Path]:
     # issue_template: "am_patch_issue_{issue}_{ts}.log"
     if "{issue}" not in issue_template or "{ts}" not in issue_template:
         raise RunnerError(

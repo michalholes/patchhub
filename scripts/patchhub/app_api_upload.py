@@ -52,9 +52,7 @@ def api_upload_patch(self, filename: str, data: bytes) -> tuple[int, bytes]:
         zmsg, _zerr = read_commit_message_from_zip_bytes(data, zcfg)
         if zmsg is not None:
             commit_msg = zmsg
-            status_msgs.append(
-                f"autofill: commit from zip {self.cfg.autofill.zip_commit_filename}"
-            )
+            status_msgs.append(f"autofill: commit from zip {self.cfg.autofill.zip_commit_filename}")
     if ext == ".zip" and self.cfg.autofill.zip_issue_enabled:
         zicfg = ZipIssueConfig(
             enabled=True,
@@ -65,9 +63,7 @@ def api_upload_patch(self, filename: str, data: bytes) -> tuple[int, bytes]:
         zid, _zerr = read_issue_number_from_zip_bytes(data, zicfg)
         if zid is not None:
             issue_id = zid
-            status_msgs.append(
-                f"autofill: issue from zip {self.cfg.autofill.zip_issue_filename}"
-            )
+            status_msgs.append(f"autofill: issue from zip {self.cfg.autofill.zip_issue_filename}")
     payload: dict[str, Any] = {"stored_rel_path": rel, "bytes": len(data)}
     if self.cfg.autofill.derive_enabled:
         payload["derived_issue"] = issue_id

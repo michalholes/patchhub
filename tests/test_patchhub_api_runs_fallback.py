@@ -52,12 +52,8 @@ class TestPatchhubApiRunsFallback(unittest.TestCase):
                 "patchhub.app_api_core._iter_canceled_runs",
                 return_value=[SimpleNamespace(**decorated)],
             ) as canceled_iter,
-            patch(
-                "patchhub.app_api_core.compute_success_archive_rel", return_value=None
-            ),
-            patch(
-                "patchhub.app_api_core._decorate_run", side_effect=lambda run, **_: run
-            ),
+            patch("patchhub.app_api_core.compute_success_archive_rel", return_value=None),
+            patch("patchhub.app_api_core._decorate_run", side_effect=lambda run, **_: run),
             patch(
                 "patchhub.app_api_core.run_to_list_item_json",
                 side_effect=lambda run: dict(run.__dict__),

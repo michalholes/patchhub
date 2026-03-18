@@ -5,9 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-JobMode = Literal[
-    "patch", "repair", "finalize_live", "finalize_workspace", "rerun_latest"
-]
+JobMode = Literal["patch", "repair", "finalize_live", "finalize_workspace", "rerun_latest"]
 JobStatus = Literal["queued", "running", "success", "fail", "canceled", "unknown"]
 RunResult = Literal["success", "fail", "unknown", "canceled"]
 
@@ -152,24 +150,16 @@ class JobRecord:
                 else None
             ),
             raw_command=str(payload.get("raw_command", "")),
-            canonical_command=[
-                str(item) for item in list(payload.get("canonical_command") or [])
-            ],
+            canonical_command=[str(item) for item in list(payload.get("canonical_command") or [])],
             status=coerce_job_status(payload.get("status", "unknown")),
             started_utc=(
-                str(payload.get("started_utc"))
-                if payload.get("started_utc") is not None
-                else None
+                str(payload.get("started_utc")) if payload.get("started_utc") is not None else None
             ),
             ended_utc=(
-                str(payload.get("ended_utc"))
-                if payload.get("ended_utc") is not None
-                else None
+                str(payload.get("ended_utc")) if payload.get("ended_utc") is not None else None
             ),
             return_code=_coerce_optional_int(payload.get("return_code")),
-            error=str(payload.get("error"))
-            if payload.get("error") is not None
-            else None,
+            error=str(payload.get("error")) if payload.get("error") is not None else None,
             cancel_requested_utc=(
                 str(payload.get("cancel_requested_utc"))
                 if payload.get("cancel_requested_utc") is not None
@@ -206,12 +196,8 @@ class JobRecord:
             selected_repo_paths=[
                 str(item) for item in list(payload.get("selected_repo_paths") or [])
             ],
-            applied_files=[
-                str(item) for item in list(payload.get("applied_files") or [])
-            ],
-            applied_files_source=str(
-                payload.get("applied_files_source", "unavailable")
-            ),
+            applied_files=[str(item) for item in list(payload.get("applied_files") or [])],
+            applied_files_source=str(payload.get("applied_files_source", "unavailable")),
             last_log_seq=_coerce_int(payload.get("last_log_seq", 0), 0),
             last_event_seq=_coerce_int(payload.get("last_event_seq", 0), 0),
             row_rev=_coerce_int(payload.get("row_rev", 0), 0),

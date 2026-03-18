@@ -85,18 +85,13 @@ def _write_typescript_gate_tsconfig(
     # NOTE: TypeScript resolves `include` relative to the directory of the
     # tsconfig itself. Our generated tsconfig lives under `.am_patch/`, so we
     # must point one level up to reach repo-relative targets (scripts/, plugins/...).
-    includes = [
-        ("../" + x.lstrip("./")) if not x.startswith(("../", "/")) else x
-        for x in includes
-    ]
+    includes = [("../" + x.lstrip("./")) if not x.startswith(("../", "/")) else x for x in includes]
     includes = [x.replace("\\", "/") for x in includes]
     payload: dict[str, object] = {
         "extends": rel_extends,
         "include": includes,
     }
-    gen_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    gen_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return gen_path
 
 
@@ -109,11 +104,7 @@ def _venv_python(repo_root: Path) -> Path:
 def _infer_venv_root(python_exe: str) -> Path | None:
     p = Path(python_exe)
     # Detect the common layout: <repo>/.venv/bin/python
-    if (
-        p.name == "python"
-        and p.parent.name == "bin"
-        and p.parent.parent.name == ".venv"
-    ):
+    if p.name == "python" and p.parent.name == "bin" and p.parent.parent.name == ".venv":
         return p.parent.parent
     return None
 
@@ -333,9 +324,7 @@ def run_ruff(
     targets: list[str],
 ) -> bool:
     targets = _norm_targets(targets, ["src", "tests"])
-    py = _select_python_for_gate(
-        repo_root=repo_root, gate="ruff", pytest_use_venv=False
-    )
+    py = _select_python_for_gate(repo_root=repo_root, gate="ruff", pytest_use_venv=False)
 
     if ruff_format:
         logger.section("GATE: RUFF FORMAT")
@@ -408,9 +397,7 @@ def run_biome(
 
         logger.section("GATE: BIOME FORMAT")
         logger.line("gate_biome_format_cmd=" + " ".join(fmt_cmd0))
-        r0 = logger.run_logged(
-            [*fmt_cmd0, *existing], cwd=cwd, failure_dump_mode="warn_detail"
-        )
+        r0 = logger.run_logged([*fmt_cmd0, *existing], cwd=cwd, failure_dump_mode="warn_detail")
         if r0.returncode != 0:
             return False
 
@@ -436,9 +423,7 @@ def run_biome(
 
     logger.section("GATE: BIOME_AUTOFIX (apply)")
     logger.line("gate_biome_fix_cmd=" + " ".join(fix_cmd0))
-    _ = logger.run_logged(
-        [*fix_cmd0, *existing], cwd=cwd, failure_dump_mode="warn_detail"
-    )
+    _ = logger.run_logged([*fix_cmd0, *existing], cwd=cwd, failure_dump_mode="warn_detail")
 
     logger.section("GATE: BIOME (final)")
     r2 = logger.run_logged([*cmd0, *existing], cwd=cwd)
@@ -500,9 +485,7 @@ def run_pytest(
         old_path = env.get("PATH", "")
         env["PATH"] = f"{venv_bin}:{old_path}" if old_path else str(venv_bin)
         env["VIRTUAL_ENV"] = str(venv_root)
-    r = logger.run_logged(
-        _cmd_py("pytest", python=py) + ["-q", *targets], cwd=cwd, env=env
-    )
+    r = logger.run_logged(_cmd_py("pytest", python=py) + ["-q", *targets], cwd=cwd, env=env)
     return r.returncode == 0
 
 
@@ -535,9 +518,7 @@ def run_badguys(
 
 def run_mypy(logger: Logger, cwd: Path, *, repo_root: Path, targets: list[str]) -> bool:
     targets = _norm_targets(targets, ["src"])
-    py = _select_python_for_gate(
-        repo_root=repo_root, gate="mypy", pytest_use_venv=False
-    )
+    py = _select_python_for_gate(repo_root=repo_root, gate="mypy", pytest_use_venv=False)
     logger.section("GATE: MYPY")
     r = logger.run_logged(_cmd_py("mypy", python=py) + [*targets], cwd=cwd)
     return r.returncode == 0
@@ -814,9 +795,9 @@ def run_gates(
                 logger.warning_core("gate_ruff=SKIP (skipped_by_user)")
                 return True
             if gate_ruff_mode != "always":
-                trigger = _has_changed_basename(
-                    ("pyproject.toml",)
-                ) or _has_changed_file((".py",), ruff_targets)
+                trigger = _has_changed_basename(("pyproject.toml",)) or _has_changed_file(
+                    (".py",), ruff_targets
+                )
                 if not trigger:
                     skipped.append("ruff")
                     logger.warning_core("gate_ruff=SKIP (no_matching_files)")
@@ -865,9 +846,9 @@ def run_gates(
                 logger.warning_core("gate_mypy=SKIP (skipped_by_user)")
                 return True
             if gate_mypy_mode != "always":
-                trigger = _has_changed_basename(
-                    ("pyproject.toml",)
-                ) or _has_changed_file((".py",), mypy_targets)
+                trigger = _has_changed_basename(("pyproject.toml",)) or _has_changed_file(
+                    (".py",), mypy_targets
+                )
                 if not trigger:
                     skipped.append("mypy")
                     logger.warning_core("gate_mypy=SKIP (no_matching_files)")

@@ -40,10 +40,7 @@ class TestPatchhubHardStopApi(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg = load_config(
-                Path(__file__).resolve().parents[1]
-                / "scripts"
-                / "patchhub"
-                / "patchhub.toml"
+                Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
             )
             with (
                 patch.object(AsyncAppCore, "startup", _noop_async),
@@ -64,10 +61,7 @@ class TestPatchhubHardStopApi(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg = load_config(
-                Path(__file__).resolve().parents[1]
-                / "scripts"
-                / "patchhub"
-                / "patchhub.toml"
+                Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
             )
             with (
                 patch.object(AsyncAppCore, "startup", _noop_async),

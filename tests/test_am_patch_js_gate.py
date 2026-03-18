@@ -97,9 +97,7 @@ def _import_run_gates():
     return run_gates
 
 
-def test_pytest_js_prefixes_still_trigger_pytest_gate(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_pytest_js_prefixes_still_trigger_pytest_gate(tmp_path: Path, monkeypatch) -> None:
     run_gates = _import_run_gates()
 
     captured: dict[str, object] = {}
@@ -404,9 +402,7 @@ def test_pytest_py_prefixes_skip_when_no_matching_python_change(tmp_path: Path) 
             return None
 
         def run_logged(self, _argv: list[str], *, cwd: Path, env=None):
-            raise AssertionError(
-                "run_logged() must not be called when pytest gate is SKIP"
-            )
+            raise AssertionError("run_logged() must not be called when pytest gate is SKIP")
 
     logger = DummyLogger()
     run_gates(

@@ -63,17 +63,12 @@ class TestPatchhubUiSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg = load_config(
-                Path(__file__).resolve().parents[1]
-                / "scripts"
-                / "patchhub"
-                / "patchhub.toml"
+                Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
             )
             snap = IndexerSnapshot(
                 jobs_items=[{"job_id": "j1"}],
                 runs_items=[{"issue_id": 501}],
-                workspaces_items=[
-                    {"issue_id": 501, "workspace_rel_path": "workspaces/issue_501"}
-                ],
+                workspaces_items=[{"issue_id": 501, "workspace_rel_path": "workspaces/issue_501"}],
                 header_body={"queue": {"queued": 0, "running": 0}},
                 jobs_sig="jobs:s1",
                 runs_sig="runs:s1",
@@ -113,10 +108,7 @@ class TestPatchhubUiSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cfg = load_config(
-                Path(__file__).resolve().parents[1]
-                / "scripts"
-                / "patchhub"
-                / "patchhub.toml"
+                Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
             )
             snap = IndexerSnapshot(
                 jobs_items=[],
@@ -196,16 +188,12 @@ class TestPatchhubUiSnapshot(unittest.TestCase):
                 "patchhub.asgi.route_ui_snapshot.legacy_jobs_signature",
                 return_value=(0, 0),
             ),
-            patch(
-                "patchhub.asgi.route_ui_snapshot.runs_signature", return_value=(0, 0, 0)
-            ),
+            patch("patchhub.asgi.route_ui_snapshot.runs_signature", return_value=(0, 0, 0)),
             patch(
                 "patchhub.asgi.route_ui_snapshot.canceled_runs_signature",
                 return_value=(0, 0),
             ),
-            patch(
-                "patchhub.asgi.route_ui_snapshot.list_legacy_job_jsons", return_value=[]
-            ),
+            patch("patchhub.asgi.route_ui_snapshot.list_legacy_job_jsons", return_value=[]),
             patch(
                 "patchhub.asgi.route_ui_snapshot.list_workspaces",
                 return_value=("workspaces:s0", []),

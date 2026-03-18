@@ -65,9 +65,7 @@ def test_success_summary_log_events_and_human_output_share_one_render(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
     _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
-    logger = _mk_logger(
-        tmp_path, screen_level="normal", log_level="normal", json_enabled=True
-    )
+    logger = _mk_logger(tmp_path, screen_level="normal", log_level="normal", json_enabled=True)
     log_path = tmp_path / "am_patch.log"
     summary = build_terminal_summary(
         exit_code=0,
@@ -96,9 +94,7 @@ def test_success_summary_log_events_and_human_output_share_one_render(
     data = log_path.read_text(encoding="utf-8")
     events = [
         json.loads(line)
-        for line in (tmp_path / "am_patch.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     summary_events = [
         (evt["kind"], evt["msg"])
@@ -120,9 +116,7 @@ def test_fail_summary_keeps_quiet_sinks_and_machine_render_consistent(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
     _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
-    logger = _mk_logger(
-        tmp_path, screen_level="quiet", log_level="quiet", json_enabled=True
-    )
+    logger = _mk_logger(tmp_path, screen_level="quiet", log_level="quiet", json_enabled=True)
     log_path = tmp_path / "am_patch.log"
     summary = build_terminal_summary(
         exit_code=1,
@@ -136,9 +130,7 @@ def test_fail_summary_keeps_quiet_sinks_and_machine_render_consistent(
         json_path=tmp_path / "am_patch.jsonl",
     )
     detail = "ERROR DETAIL: PREFLIGHT:PATCH_ASCII: bad patch\n"
-    fingerprint = (
-        "AM_PATCH_FAILURE_FINGERPRINT:\n- stage: PREFLIGHT\n- category: PATCH_ASCII\n"
-    )
+    fingerprint = "AM_PATCH_FAILURE_FINGERPRINT:\n- stage: PREFLIGHT\n- category: PATCH_ASCII\n"
     try:
         emit_final_summary(
             logger=logger,
@@ -155,9 +147,7 @@ def test_fail_summary_keeps_quiet_sinks_and_machine_render_consistent(
     data = log_path.read_text(encoding="utf-8")
     events = [
         json.loads(line)
-        for line in (tmp_path / "am_patch.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     summary_events = [
         (evt["kind"], evt["msg"])
@@ -186,9 +176,7 @@ def test_fail_summary_keeps_log_summary_when_screen_sink_fails(tmp_path: Path) -
         final_commit_sha=None,
         final_pushed_files=None,
         push_ok_for_posthook=None,
-        final_fail_stage=(
-            "GATE_COMPILE, GATE_RUFF, GATE_MYPY, GATE_DOCS, GATE_MONOLITH"
-        ),
+        final_fail_stage=("GATE_COMPILE, GATE_RUFF, GATE_MYPY, GATE_DOCS, GATE_MONOLITH"),
         final_fail_reason="gates failed",
         log_path=log_path,
         json_path=None,

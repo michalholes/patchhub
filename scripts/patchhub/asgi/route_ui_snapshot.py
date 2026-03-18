@@ -77,9 +77,7 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
     else:
         jobs_root = _legacy_jobs_root(core)
         disk_sig = (
-            (0, 0)
-            if jobs_root is None
-            else await to_thread(legacy_jobs_signature, jobs_root)
+            (0, 0) if jobs_root is None else await to_thread(legacy_jobs_signature, jobs_root)
         )
     mem = await core.queue.list_jobs()
     mem_by_id = {str(j.job_id): j for j in mem}
@@ -90,9 +88,7 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
             disk_raw = job_source.list_job_jsons(limit=200)
         else:
             jobs_root = _legacy_jobs_root(core)
-            disk_raw = (
-                [] if jobs_root is None else list_legacy_job_jsons(jobs_root, limit=200)
-            )
+            disk_raw = [] if jobs_root is None else list_legacy_job_jsons(jobs_root, limit=200)
         disk_jobs: list[Any] = []
         for item in disk_raw:
             jid = str(item.get("job_id", ""))
@@ -116,7 +112,9 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
     )
     canceled_source = getattr(core, "web_jobs_db", getattr(core, "jobs_root", None))
     canceled_sig = await to_thread(canceled_runs_signature, canceled_source)
-    runs_sig = f"runs:r={base_sig[0]}:{base_sig[1]}:{base_sig[2]}:c={canceled_sig[0]}:{canceled_sig[1]}"
+    runs_sig = (
+        f"runs:r={base_sig[0]}:{base_sig[1]}:{base_sig[2]}:c={canceled_sig[0]}:{canceled_sig[1]}"
+    )
 
     runs_status, runs_bytes = await to_thread(core.api_runs, {"limit": "80"})
     runs_items: list[Any] = []

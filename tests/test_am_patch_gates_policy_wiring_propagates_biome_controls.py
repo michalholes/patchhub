@@ -75,6 +75,4 @@ def test_docs_status_entries_use_cwd(monkeypatch, tmp_path: Path) -> None:
     )
 
     assert captured.get("changed_path_entries_root") == cwd
-    assert captured.get("docs_status_entries") == [
-        ("??", "docs/change_fragments/test.md")
-    ]
+    assert captured.get("docs_status_entries") == [("??", "docs/change_fragments/test.md")]

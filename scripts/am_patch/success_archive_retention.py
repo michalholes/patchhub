@@ -17,9 +17,7 @@ def validate_success_archive_retention(p: Policy) -> None:
             "success_archive_dir must be patch_dir|successful_dir",
         )
 
-    p.success_archive_cleanup_glob_template = str(
-        p.success_archive_cleanup_glob_template
-    ).strip()
+    p.success_archive_cleanup_glob_template = str(p.success_archive_cleanup_glob_template).strip()
 
     if p.success_archive_keep_count < 0:
         raise RunnerError(

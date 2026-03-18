@@ -46,20 +46,14 @@ async def stream_job_events_sse(
             continue
 
         if not exists:
-            data = json.dumps(
-                {"reason": "job_completed", "status": str(status)}, ensure_ascii=True
-            )
+            data = json.dumps({"reason": "job_completed", "status": str(status)}, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
 
         try:
-            chunk, end_pos = await asyncio.to_thread(
-                _read_chunk_sync, jsonl_path, offset
-            )
+            chunk, end_pos = await asyncio.to_thread(_read_chunk_sync, jsonl_path, offset)
         except FileNotFoundError:
-            data = json.dumps(
-                {"reason": "job_completed", "status": str(status)}, ensure_ascii=True
-            )
+            data = json.dumps({"reason": "job_completed", "status": str(status)}, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
         except OSError:
@@ -93,9 +87,7 @@ async def stream_job_events_sse(
             last_ping = now
 
         if status != "running" and now - last_growth >= 0.5:
-            data = json.dumps(
-                {"reason": "job_completed", "status": str(status)}, ensure_ascii=True
-            )
+            data = json.dumps({"reason": "job_completed", "status": str(status)}, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
 

@@ -121,13 +121,8 @@ def _validate_relpath(*, relpath: str, label: str) -> str:
 
 
 def _validate_python_payload(*, label: str, content: str) -> None:
-    if any(
-        marker in content
-        for marker in ("FILES =", "REPO = Path", "__file__", ".parents[")
-    ):
-        raise SystemExit(
-            f"FAIL: bdg: {label} must not embed FILES or repo path machinery"
-        )
+    if any(marker in content for marker in ("FILES =", "REPO = Path", "__file__", ".parents[")):
+        raise SystemExit(f"FAIL: bdg: {label} must not embed FILES or repo path machinery")
     if _PATH_LITERAL_RE.search(content):
         raise SystemExit(f"FAIL: bdg: {label} must not embed filesystem paths")
 
@@ -213,14 +208,10 @@ def load_bdg_test(path: Path) -> BdgTest:
         extra = sorted(set(item) - {"relpath"})
         if extra:
             joined = ", ".join(extra)
-            raise SystemExit(
-                f"FAIL: bdg: [subjects.{subject_id}] has unknown keys: {joined}"
-            )
+            raise SystemExit(f"FAIL: bdg: [subjects.{subject_id}] has unknown keys: {joined}")
         relpath = item.get("relpath")
         if not isinstance(relpath, str):
-            raise SystemExit(
-                f"FAIL: bdg: [subjects.{subject_id}].relpath must be string"
-            )
+            raise SystemExit(f"FAIL: bdg: [subjects.{subject_id}].relpath must be string")
         subjects[str(subject_id)] = _validate_relpath(
             relpath=relpath,
             label=f"subjects.{subject_id}",
@@ -262,9 +253,7 @@ def load_bdg_test(path: Path) -> BdgTest:
                 _validate_zip_entry(asset_id=asset_id, entry_id=name, content=econtent)
             entry_kind = ent.get("kind")
             if entry_kind is not None and not isinstance(entry_kind, str):
-                raise SystemExit(
-                    f"FAIL: bdg: asset.entry '{asset_id}.{name}' kind must be string"
-                )
+                raise SystemExit(f"FAIL: bdg: asset.entry '{asset_id}.{name}' kind must be string")
             entry_subject = ent.get("subject")
             if entry_subject is not None and not isinstance(entry_subject, str):
                 raise SystemExit(
@@ -317,9 +306,7 @@ def load_bdg_test(path: Path) -> BdgTest:
         bad_keys = sorted(_FORBIDDEN_EVAL_KEYS.intersection(params))
         if bad_keys:
             joined = ", ".join(bad_keys)
-            raise SystemExit(
-                f"FAIL: bdg: expectations must be central; remove: {joined}"
-            )
+            raise SystemExit(f"FAIL: bdg: expectations must be central; remove: {joined}")
         steps.append(BdgStep(op=op, params=params))
 
     if not steps:

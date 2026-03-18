@@ -107,9 +107,7 @@ def test_read_text_file_and_zip_list_use_step_scopes(tmp_path: Path) -> None:
         cfg_runner_cmd=["python3", "scripts/am_patch.py"],
         subst=subst,
         full_runner_tests=set(),
-        step=BdgStep(
-            op="ZIP_LIST", params={"scope": "artifacts", "relpath": "bundle.zip"}
-        ),
+        step=BdgStep(op="ZIP_LIST", params={"scope": "artifacts", "relpath": "bundle.zip"}),
         mats=mats,
         test_id="test_ops",
         step_index=1,
@@ -126,13 +124,7 @@ def test_read_text_file_workspace_scope_reads_workspace_repo(tmp_path: Path) -> 
     repo_root = tmp_path
     cfg_path = _write_config(repo_root)
     ws_file = (
-        repo_root
-        / "patches"
-        / "workspaces"
-        / "issue_777"
-        / "repo"
-        / "docs"
-        / "workspace_note.txt"
+        repo_root / "patches" / "workspaces" / "issue_777" / "repo" / "docs" / "workspace_note.txt"
     )
     ws_file.parent.mkdir(parents=True, exist_ok=True)
     ws_file.write_text("workspace text\n", encoding="utf-8")
@@ -162,14 +154,10 @@ def test_read_text_file_workspace_scope_reads_workspace_repo(tmp_path: Path) -> 
 
 def test_git_status_porcelain_supports_workspace_scope(tmp_path: Path) -> None:
     repo_root = tmp_path
-    subprocess.run(
-        ["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True
-    )
+    subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
     ws_repo = repo_root / "patches" / "workspaces" / "issue_777" / "repo"
     ws_repo.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["git", "init"], cwd=ws_repo, check=True, capture_output=True, text=True
-    )
+    subprocess.run(["git", "init"], cwd=ws_repo, check=True, capture_output=True, text=True)
     dirty = ws_repo / "dirty.txt"
     dirty.write_text("dirty\n", encoding="utf-8")
 
@@ -196,15 +184,7 @@ def test_git_status_porcelain_supports_workspace_scope(tmp_path: Path) -> None:
 def test_delete_subject_removes_existing_file_subject(tmp_path: Path) -> None:
     repo_root = tmp_path
     cfg_path = _write_config(repo_root)
-    target = (
-        repo_root
-        / "patches"
-        / "workspaces"
-        / "issue_777"
-        / "repo"
-        / "docs"
-        / "delete_me.txt"
-    )
+    target = repo_root / "patches" / "workspaces" / "issue_777" / "repo" / "docs" / "delete_me.txt"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("delete me\n", encoding="utf-8")
 
@@ -232,15 +212,7 @@ def test_delete_subject_removes_existing_file_subject(tmp_path: Path) -> None:
 def test_delete_subject_is_idempotent_when_file_missing(tmp_path: Path) -> None:
     repo_root = tmp_path
     cfg_path = _write_config(repo_root)
-    target = (
-        repo_root
-        / "patches"
-        / "workspaces"
-        / "issue_777"
-        / "repo"
-        / "docs"
-        / "delete_me.txt"
-    )
+    target = repo_root / "patches" / "workspaces" / "issue_777" / "repo" / "docs" / "delete_me.txt"
     target.parent.mkdir(parents=True, exist_ok=True)
 
     result = execute_bdg_step(
@@ -289,15 +261,7 @@ def test_delete_subject_fails_for_unknown_subject(tmp_path: Path) -> None:
 def test_delete_subject_fails_for_directory_target(tmp_path: Path) -> None:
     repo_root = tmp_path
     cfg_path = _write_config(repo_root)
-    target = (
-        repo_root
-        / "patches"
-        / "workspaces"
-        / "issue_777"
-        / "repo"
-        / "docs"
-        / "delete_dir"
-    )
+    target = repo_root / "patches" / "workspaces" / "issue_777" / "repo" / "docs" / "delete_dir"
     target.mkdir(parents=True, exist_ok=True)
 
     result = execute_bdg_step(

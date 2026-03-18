@@ -18,9 +18,7 @@ from am_patch.config_file import _flatten_sections
 from am_patch.errors import RunnerError
 
 
-def validate_patchhub_update(
-    values: dict[str, Any], schema: dict[str, Any]
-) -> dict[str, Any]:
+def validate_patchhub_update(values: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(values, dict):
         raise RunnerError("CONFIG", "CONFIG", "update payload must be a dict")
     policy_schema = schema.get("policy")
@@ -59,36 +57,24 @@ def validate_patchhub_update(
                 raise RunnerError("CONFIG", "CONFIG", f"expected list[str] for {k}")
         elif type_name == "dict[str,list[str]]":
             if not isinstance(v, dict):
-                raise RunnerError(
-                    "CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}"
-                )
+                raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}")
             for kk, vv in v.items():
                 if not isinstance(kk, str) or not isinstance(vv, list):
-                    raise RunnerError(
-                        "CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}"
-                    )
+                    raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}")
                 if any(not isinstance(item, str) for item in vv):
-                    raise RunnerError(
-                        "CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}"
-                    )
+                    raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}")
         elif type_name == "dict[str,str]":
             if not isinstance(v, dict):
                 raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,str] for {k}")
             for kk, vv in v.items():
                 if not isinstance(kk, str) or not isinstance(vv, str):
-                    raise RunnerError(
-                        "CONFIG", "CONFIG", f"expected dict[str,str] for {k}"
-                    )
+                    raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,str] for {k}")
         else:
-            raise RunnerError(
-                "CONFIG", "CONFIG", f"unsupported schema type for {k}: {type_name}"
-            )
+            raise RunnerError("CONFIG", "CONFIG", f"unsupported schema type for {k}: {type_name}")
 
         if enum is not None:
             if v is None:
-                raise RunnerError(
-                    "CONFIG", "CONFIG", f"enum value may not be null: {k}"
-                )
+                raise RunnerError("CONFIG", "CONFIG", f"enum value may not be null: {k}")
             if not isinstance(v, str):
                 raise RunnerError("CONFIG", "CONFIG", f"enum value must be str: {k}")
             if v not in enum:
@@ -163,10 +149,7 @@ def _render_value(v: Any, type_name: str) -> str:
             parts.append(f"{_toml_quote(str(key))} = [{rendered}]")
         return "{" + ", ".join(parts) + "}"
     if type_name == "dict[str,str]":
-        parts = [
-            f"{_toml_quote(str(key))} = {_toml_quote(str(value))}"
-            for key, value in v.items()
-        ]
+        parts = [f"{_toml_quote(str(key))} = {_toml_quote(str(value))}" for key, value in v.items()]
         return "{" + ", ".join(parts) + "}"
     raise RunnerError("CONFIG", "CONFIG", f"cannot render type: {type_name}")
 
@@ -174,8 +157,7 @@ def _render_value(v: Any, type_name: str) -> str:
 def _render_table_lines(v: Any, type_name: str) -> list[str]:
     if type_name == "dict[str,str]":
         return [
-            f"{_toml_quote(str(key))} = {_toml_quote(str(value))}\n"
-            for key, value in v.items()
+            f"{_toml_quote(str(key))} = {_toml_quote(str(value))}\n" for key, value in v.items()
         ]
     if type_name == "dict[str,list[str]]":
         lines: list[str] = []
@@ -187,12 +169,7 @@ def _render_table_lines(v: Any, type_name: str) -> list[str]:
 
 
 def _toml_quote(s: str) -> str:
-    escaped = (
-        s.replace("\\", "\\\\")
-        .replace("\n", "\\n")
-        .replace("\t", "\\t")
-        .replace('"', '\\"')
-    )
+    escaped = s.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t").replace('"', '\\"')
     return f'"{escaped}"'
 
 
@@ -212,9 +189,7 @@ def _compute_edits(
 
         span = spans.get(section)
         if span is None:
-            raise RunnerError(
-                "CONFIG", "CONFIG", f"missing section in config: {section}"
-            )
+            raise RunnerError("CONFIG", "CONFIG", f"missing section in config: {section}")
 
         if type_name in {"dict[str,list[str]]", "dict[str,str]"} and section == key:
             edits.append(
@@ -229,9 +204,7 @@ def _compute_edits(
         rhs = _render_value(value, type_name)
         found_idx = _find_assignment(lines, span, key)
         if found_idx is not None:
-            edits.append(
-                _Edit(index=found_idx, new_line=_replace_rhs(lines[found_idx], rhs))
-            )
+            edits.append(_Edit(index=found_idx, new_line=_replace_rhs(lines[found_idx], rhs)))
         else:
             insert_at = _find_insertion_index(lines, span)
             insert_line = f"{key} = {rhs}\n"
@@ -265,11 +238,7 @@ def _scan_sections(lines: list[str]) -> dict[str, _Span]:
     headers: list[tuple[str, int]] = [("", 0)]
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if (
-            stripped.startswith("[")
-            and stripped.endswith("]")
-            and not stripped.startswith("[[")
-        ):
+        if stripped.startswith("[") and stripped.endswith("]") and not stripped.startswith("[["):
             name = stripped[1:-1].strip()
             headers.append((name, i))
 

@@ -271,10 +271,7 @@ def test_repair_overlay_only_passes(tmp_path: Path) -> None:
     proc = _run("601", COMMIT, str(patch_zip), "--repair-overlay", str(overlay))
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "RESULT: PASS" in proc.stdout
-    assert (
-        "RULE GIT_APPLY_CHECK:patches/per_file/scripts__sample.py.patch: PASS"
-        in proc.stdout
-    )
+    assert "RULE GIT_APPLY_CHECK:patches/per_file/scripts__sample.py.patch: PASS" in proc.stdout
 
 
 def test_repair_supplemental_file_is_supported(tmp_path: Path) -> None:
@@ -324,7 +321,9 @@ def test_repair_without_required_supplemental_file_fails(tmp_path: Path) -> None
         str(snapshot),
     )
     assert proc.returncode == 1
-    expected = "RULE VALIDATION_ERROR: FAIL - repair_requires_supplemental_file:['tests/test_sample.txt']"
+    expected = (
+        "RULE VALIDATION_ERROR: FAIL - repair_requires_supplemental_file:['tests/test_sample.txt']"
+    )
     assert expected in proc.stdout
 
 
@@ -392,9 +391,7 @@ def test_monolith_hub_growth_is_reported(tmp_path: Path) -> None:
         "tests/test_importer_a.py": "def test_a() -> None:\n    return None\n",
         "tests/test_importer_b.py": "def test_b() -> None:\n    return None\n",
     }
-    _write_zip(
-        snapshot, {path: text.encode("utf-8") for path, text in base_files.items()}
-    )
+    _write_zip(snapshot, {path: text.encode("utf-8") for path, text in base_files.items()})
 
     hub_body = "\n".join(
         [
@@ -460,9 +457,7 @@ def test_initial_mode_fails_on_non_ascii_commit_message(tmp_path: Path) -> None:
     _write_zip(
         patch_zip,
         {
-            "COMMIT_MESSAGE.txt": (
-                "Align PM validator monolith checks e\u0301\n".encode()
-            ),
+            "COMMIT_MESSAGE.txt": ("Align PM validator monolith checks e\u0301\n".encode()),
             "ISSUE_NUMBER.txt": b"601\n",
             _safe_member(relpath): _git_patch(relpath, before, after),
         },
@@ -470,10 +465,7 @@ def test_initial_mode_fails_on_non_ascii_commit_message(tmp_path: Path) -> None:
 
     proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
     assert proc.returncode == 1
-    assert (
-        "RULE COMMIT_MESSAGE_FILE: FAIL - missing_or_non_ascii_commit_message"
-        in proc.stdout
-    )
+    assert "RULE COMMIT_MESSAGE_FILE: FAIL - missing_or_non_ascii_commit_message" in proc.stdout
 
 
 def test_initial_mode_fails_on_non_ascii_patch_text(tmp_path: Path) -> None:

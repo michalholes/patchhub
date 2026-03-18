@@ -75,10 +75,7 @@ def test_create_verified_backup_retains_only_verified_files(
     assert first.verified is True
     assert second.verified is True
     assert third.verified is True
-    assert (
-        latest_verified_backup(patches_root=patches_root, settings=settings)
-        == third.path
-    )
+    assert latest_verified_backup(patches_root=patches_root, settings=settings) == third.path
     assert len(backups) == 2
     assert first.path not in backups
     assert second.path in backups

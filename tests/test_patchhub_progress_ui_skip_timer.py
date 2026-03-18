@@ -13,12 +13,8 @@ def _run_node_scenario(body: str) -> dict[str, object]:
     if not node:
         pytest.skip("node not installed")
     repo_root = Path(__file__).resolve().parents[1]
-    duration_path = (
-        repo_root / "scripts" / "patchhub" / "static" / "patchhub_visible_duration.js"
-    )
-    progress_path = (
-        repo_root / "scripts" / "patchhub" / "static" / "patchhub_progress_ui.js"
-    )
+    duration_path = repo_root / "scripts" / "patchhub" / "static" / "patchhub_visible_duration.js"
+    progress_path = repo_root / "scripts" / "patchhub" / "static" / "patchhub_progress_ui.js"
     live_path = repo_root / "scripts" / "patchhub" / "static" / "patchhub_live_ui.js"
     jobs_path = repo_root / "scripts" / "patchhub" / "static" / "app_part_jobs.js"
     script = f"""
@@ -162,9 +158,7 @@ const ui = global.window.AMP_PATCHHUB_UI;
   process.exit(1);
 }});
 """
-    proc = subprocess.run(
-        [node, "-e", script], cwd=repo_root, capture_output=True, text=True
-    )
+    proc = subprocess.run([node, "-e", script], cwd=repo_root, capture_output=True, text=True)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr or proc.stdout)
     return json.loads(proc.stdout)
@@ -321,9 +315,7 @@ process.stdout.write(
     assert 'other</div><div class="job-meta">mode=patch</div>' in result["jobsHtml"]
 
 
-def test_progress_elapsed_primes_from_jobs_response_and_survives_omitted_refresh() -> (
-    None
-):
+def test_progress_elapsed_primes_from_jobs_response_and_survives_omitted_refresh() -> None:
     result = _run_node_scenario(
         """
 ui.saveLiveJobId("job-55");

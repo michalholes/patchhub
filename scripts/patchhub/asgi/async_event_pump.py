@@ -75,9 +75,7 @@ def _command_payload(*, cmd_id: str, cmd: str, args: dict[str, Any]) -> bytes:
         "cmd": cmd,
         "args": args,
     }
-    return (json.dumps(req, ensure_ascii=True, separators=(",", ":")) + "\n").encode(
-        "utf-8"
-    )
+    return (json.dumps(req, ensure_ascii=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
 async def _send_command(
@@ -116,9 +114,7 @@ async def _connect_and_stream(
             if not chunk:
                 if buf.strip():
                     line = buf.decode("utf-8", errors="replace")
-                    _write_line(
-                        f=f, line=line, publish=publish, job_db=job_db, job_id=job_id
-                    )
+                    _write_line(f=f, line=line, publish=publish, job_db=job_db, job_id=job_id)
                 return
 
             buf += chunk
@@ -134,9 +130,7 @@ async def _connect_and_stream(
                     continue
 
                 line = line_bytes.decode("utf-8", errors="replace")
-                _write_line(
-                    f=f, line=line, publish=publish, job_db=job_db, job_id=job_id
-                )
+                _write_line(f=f, line=line, publish=publish, job_db=job_db, job_id=job_id)
                 n += 1
                 obj = _parse_line_obj(line)
 
@@ -184,9 +178,7 @@ async def _connect_and_stream(
                 dropped = len(buf)
                 buf = b""
                 notice = _oversize_notice(dropped_bytes=dropped)
-                _write_line(
-                    f=f, line=notice, publish=publish, job_db=job_db, job_id=job_id
-                )
+                _write_line(f=f, line=notice, publish=publish, job_db=job_db, job_id=job_id)
     finally:
         if f is not None:
             with contextlib.suppress(Exception):

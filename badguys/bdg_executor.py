@@ -218,9 +218,7 @@ def _exec_one(
             label=f"recipes.tests.{test_id}.steps.{step_index}",
         )
         extra_args = recipe.get("args", [])
-        if not (
-            isinstance(extra_args, list) and all(isinstance(x, str) for x in extra_args)
-        ):
+        if not (isinstance(extra_args, list) and all(isinstance(x, str) for x in extra_args)):
             raise SystemExit(
                 "FAIL: bdg recipe: RUN_RUNNER args for "
                 f"{test_id} step {step_index} must be list[str]"
@@ -234,9 +232,7 @@ def _exec_one(
         runner_patch_dir = _runner_patch_dir(step_runner_cfg)
         artifacts_dir = _artifacts_dir(step_runner_cfg)
         copy_runner_log = bool(step_runner_cfg.get("copy_runner_log", False))
-        write_subprocess_stdio = bool(
-            step_runner_cfg.get("write_subprocess_stdio", False)
-        )
+        write_subprocess_stdio = bool(step_runner_cfg.get("write_subprocess_stdio", False))
         console_verbosity = str(step_runner_cfg.get("console_verbosity", "normal"))
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
@@ -249,9 +245,7 @@ def _exec_one(
         if input_asset:
             path = mats.files.get(input_asset)
             if path is None:
-                raise SystemExit(
-                    f"FAIL: bdg: missing materialized asset: {input_asset}"
-                )
+                raise SystemExit(f"FAIL: bdg: missing materialized asset: {input_asset}")
             argv.append(str(path))
 
         socket_name = runner_socket_name(argv=argv, issue_id=subst.issue_id)
@@ -279,11 +273,9 @@ def _exec_one(
                         "wait_event_name": plan.wait_event_name,
                         "event_arg_map": dict(plan.event_arg_map),
                         "request_path": (
-                            artifacts_dir
-                            / f"ipc_request.step{int(plan.step_index)}.json"
+                            artifacts_dir / f"ipc_request.step{int(plan.step_index)}.json"
                         ),
-                        "reply_path": artifacts_dir
-                        / f"ipc_reply.step{int(plan.step_index)}.json",
+                        "reply_path": artifacts_dir / f"ipc_reply.step{int(plan.step_index)}.json",
                     }
                 )
 
@@ -367,9 +359,7 @@ def _exec_one(
                 except subprocess.TimeoutExpired:
                     elapsed = int(time.monotonic() - started)
                     mm, ss = divmod(elapsed, 60)
-                    _emit_hb(
-                        f"BadGuys {test_id} step={int(step_index)} ELAPSED: {mm:02d}:{ss:02d}"
-                    )
+                    _emit_hb(f"BadGuys {test_id} step={int(step_index)} ELAPSED: {mm:02d}:{ss:02d}")
                     continue
                 except KeyboardInterrupt:
                     with contextlib.suppress(Exception):
@@ -393,21 +383,15 @@ def _exec_one(
                 rc = int(ipc_result["return_code"])
 
             artifact_copy = ipc_holder.get("artifact_copy")
-            if isinstance(artifact_copy, dict) and not bool(
-                artifact_copy.get("ok", False)
-            ):
+            if isinstance(artifact_copy, dict) and not bool(artifact_copy.get("ok", False)):
                 error = str(artifact_copy.get("error") or "runner artifact copy failed")
                 raise SystemExit(f"FAIL: bdg: {error}")
 
         if write_subprocess_stdio:
             if stdout:
-                (artifacts_dir / "runner.stdout.txt").write_text(
-                    stdout, encoding="utf-8"
-                )
+                (artifacts_dir / "runner.stdout.txt").write_text(stdout, encoding="utf-8")
             if stderr:
-                (artifacts_dir / "runner.stderr.txt").write_text(
-                    stderr, encoding="utf-8"
-                )
+                (artifacts_dir / "runner.stderr.txt").write_text(stderr, encoding="utf-8")
 
         return StepResult(rc=rc, stdout=None, stderr=None, value=value_text)
 
@@ -638,9 +622,7 @@ def _exec_one(
         ws_dir = repo_root / "patches" / "workspaces" / f"issue_{subst.issue_id}"
         patched_zip = repo_root / "patches" / "patched.zip"
         if ws_dir.exists():
-            return StepResult(
-                rc=1, stdout=None, stderr="workspace exists", value=str(ws_dir)
-            )
+            return StepResult(rc=1, stdout=None, stderr="workspace exists", value=str(ws_dir))
         if patched_zip.exists():
             return StepResult(
                 rc=1,
@@ -651,9 +633,7 @@ def _exec_one(
         return StepResult(rc=0, stdout=None, stderr=None, value="OK")
 
     if op == "ASSERT_WORKSPACE_REPO_EXISTS":
-        ws_repo = (
-            repo_root / "patches" / "workspaces" / f"issue_{subst.issue_id}" / "repo"
-        )
+        ws_repo = repo_root / "patches" / "workspaces" / f"issue_{subst.issue_id}" / "repo"
         if not ws_repo.exists():
             return StepResult(
                 rc=1,
@@ -682,9 +662,7 @@ def _exec_one(
             )
         marker_rel = mats.subjects.get(marker_subject)
         if marker_rel is None:
-            raise SystemExit(
-                f"FAIL: bdg: unknown marker_subject '{marker_subject}' for {test_id}"
-            )
+            raise SystemExit(f"FAIL: bdg: unknown marker_subject '{marker_subject}' for {test_id}")
         marker_text = p.get("marker_text", "")
         if not isinstance(marker_text, str):
             raise SystemExit("FAIL: bdg: marker_text must be string")

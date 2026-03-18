@@ -93,9 +93,7 @@ class WebJobsBackupScheduler:
         if self._task is not None:
             return
         self._stop_event.clear()
-        self._task = asyncio.create_task(
-            self._run_loop(), name="web-jobs-backup-scheduler"
-        )
+        self._task = asyncio.create_task(self._run_loop(), name="web-jobs-backup-scheduler")
 
     async def stop(self) -> None:
         task = self._task

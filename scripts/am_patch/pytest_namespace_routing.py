@@ -44,9 +44,7 @@ def _validate_policy_once(
         repo_root=repo_root,
         pytest_roots=dict(roots_items),
         pytest_tree=dict(tree_items),
-        pytest_namespace_modules={
-            key: list(values) for key, values in namespace_module_items
-        },
+        pytest_namespace_modules={key: list(values) for key, values in namespace_module_items},
         pytest_dependencies={key: list(values) for key, values in dependency_items},
         pytest_external_dependencies={
             key: list(values) for key, values in external_dependency_items
@@ -72,9 +70,7 @@ def _merge_dependency_layers(
 ) -> dict[str, list[str]]:
     merged: dict[str, list[str]] = {
         _namespace_stem(namespace): [
-            _namespace_stem(provider)
-            for provider in providers
-            if _namespace_stem(provider) != "*"
+            _namespace_stem(provider) for provider in providers if _namespace_stem(provider) != "*"
         ]
         for namespace, providers in dependencies.items()
     }
@@ -228,40 +224,28 @@ def select_namespace_pytest_targets(
         str(repo_root),
         tuple(sorted(roots.items())),
         tuple(sorted(tree.items())),
-        tuple(
-            sorted((key, tuple(values)) for key, values in namespace_modules.items())
-        ),
+        tuple(sorted((key, tuple(values)) for key, values in namespace_modules.items())),
         tuple(sorted((key, tuple(values)) for key, values in dependencies.items())),
-        tuple(
-            sorted(
-                (key, tuple(values)) for key, values in external_dependencies.items()
-            )
-        ),
+        tuple(sorted((key, tuple(values)) for key, values in external_dependencies.items())),
     )
     ownership = discover_namespace_ownership(
         str(repo_root),
         tuple(sorted(roots.items())),
         tuple(sorted(tree.items())),
-        tuple(
-            sorted((key, tuple(values)) for key, values in namespace_modules.items())
-        ),
+        tuple(sorted((key, tuple(values)) for key, values in namespace_modules.items())),
     )
     catchall_ownership = discover_catchall_path_ownership(
         str(repo_root),
         tuple(sorted(roots.items())),
         tuple(sorted(tree.items())),
-        tuple(
-            sorted((key, tuple(values)) for key, values in namespace_modules.items())
-        ),
+        tuple(sorted((key, tuple(values)) for key, values in namespace_modules.items())),
     )
     reverse_closure = reverse_dependency_closure(merged_dependencies)
 
     selected: list[str] = []
     selected.extend(path for path in decision_paths if is_direct_test_path(path))
     if any(
-        _matches_prefix(path, prefix)
-        for path in decision_paths
-        for prefix in full_suite_prefixes
+        _matches_prefix(path, prefix) for path in decision_paths for prefix in full_suite_prefixes
     ):
         selected.extend(pytest_targets)
         return dedupe_keep_first(selected)

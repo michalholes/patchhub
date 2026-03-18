@@ -17,9 +17,7 @@ def test_protected_file() -> None:
     protected = ["pyproject.toml"]
     decision_paths = ["pyproject.toml"]
 
-    ok, reason = run_dont_touch_gate(
-        decision_paths=decision_paths, protected_paths=protected
-    )
+    ok, reason = run_dont_touch_gate(decision_paths=decision_paths, protected_paths=protected)
     assert ok is False
     assert reason is not None
     assert "pyproject.toml" in reason
@@ -30,9 +28,7 @@ def test_directory_protection() -> None:
     protected = ["scripts/"]
     decision_paths = ["scripts/x.py"]
 
-    ok, reason = run_dont_touch_gate(
-        decision_paths=decision_paths, protected_paths=protected
-    )
+    ok, reason = run_dont_touch_gate(decision_paths=decision_paths, protected_paths=protected)
     assert ok is False
     assert reason is not None
     assert "scripts/" in reason
@@ -44,9 +40,7 @@ def test_non_protected() -> None:
     protected = ["pyproject.toml"]
     decision_paths = ["README.md"]
 
-    ok, reason = run_dont_touch_gate(
-        decision_paths=decision_paths, protected_paths=protected
-    )
+    ok, reason = run_dont_touch_gate(decision_paths=decision_paths, protected_paths=protected)
     assert ok is True
     assert reason is None
 

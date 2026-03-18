@@ -37,9 +37,7 @@ class _FakeLogger:
         self.actions.append("logger.emit")
         self.debug_messages.append(str(kwargs.get("message", "")))
 
-    def emit_control_event(
-        self, payload: dict[str, object], *, before_publish=None
-    ) -> int:
+    def emit_control_event(self, payload: dict[str, object], *, before_publish=None) -> int:
         self._last_seq += 1
         if callable(before_publish):
             before_publish(self._last_seq)
@@ -111,9 +109,7 @@ def test_main_shutdown_handshake_runs_from_all_supported_modes(
         mod, "build_effective_policy", lambda argv: (cli, policy, Path("cfg"), "cfg")
     )
     monkeypatch.setattr(mod, "build_paths_and_logger", lambda *args: ctx)
-    monkeypatch.setattr(
-        mod, "run_mode", lambda run_ctx: {"ok": True, "mode": run_ctx.cli.mode}
-    )
+    monkeypatch.setattr(mod, "run_mode", lambda run_ctx: {"ok": True, "mode": run_ctx.cli.mode})
 
     def _finalize_and_report(run_ctx, result):
         actions.append("finalize_and_report")
@@ -169,9 +165,7 @@ def test_main_falls_back_to_legacy_cleanup_delay_without_startup_ready(
         mod, "build_effective_policy", lambda argv: (cli, policy, Path("cfg"), "cfg")
     )
     monkeypatch.setattr(mod, "build_paths_and_logger", lambda *args: ctx)
-    monkeypatch.setattr(
-        mod, "run_mode", lambda run_ctx: {"ok": True, "mode": run_ctx.cli.mode}
-    )
+    monkeypatch.setattr(mod, "run_mode", lambda run_ctx: {"ok": True, "mode": run_ctx.cli.mode})
 
     def _finalize_and_report(run_ctx, result):
         actions.append("finalize_and_report")

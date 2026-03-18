@@ -64,9 +64,7 @@ def _cfg() -> AppConfig:
             allowed_extensions=[".zip"],
             ascii_only_names=True,
         ),
-        issue=IssueConfig(
-            default_regex="issue_(\\d+)", allocation_start=1, allocation_max=999
-        ),
+        issue=IssueConfig(default_regex="issue_(\\d+)", allocation_start=1, allocation_max=999),
         indexing=IndexingConfig(log_filename_regex="x", stats_windows_days=[7]),
         ui=UiConfig(base_font_px=24, drop_overlay_enabled=False),
         autofill=AutofillConfig(

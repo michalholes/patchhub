@@ -28,14 +28,10 @@ def _run_node(script: str) -> dict[str, object]:
 def _node_prelude(*script_paths: Path) -> str:
     src_lines = []
     for idx, path in enumerate(script_paths):
-        src_lines.append(
-            f'const src{idx} = fs.readFileSync({json.dumps(str(path))}, "utf8");'
-        )
+        src_lines.append(f'const src{idx} = fs.readFileSync({json.dumps(str(path))}, "utf8");')
     run_lines = []
     for idx, path in enumerate(script_paths):
-        run_lines.append(
-            f"vm.runInThisContext(src{idx}, {{ filename: {json.dumps(str(path))} }});"
-        )
+        run_lines.append(f"vm.runInThisContext(src{idx}, {{ filename: {json.dumps(str(path))} }});")
     return (
         """
 import fs from "fs";
@@ -191,9 +187,7 @@ window.PH.register("stub", {
 
 
 def test_workspace_finalize_prepares_form_without_enqueue() -> None:
-    script_path = (
-        REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_workspaces.js"
-    )
+    script_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_workspaces.js"
     script = (
         _node_prelude(script_path)
         + """
@@ -248,9 +242,7 @@ process.stdout.write(JSON.stringify({
     assert result["rawCommand"] == ""
     assert result["enqueueCalls"] == 0
     assert result["validated"]["mode"] == "finalize_workspace"
-    assert (
-        result["uiStatus"][-1] == "finalize_workspace: prepared form for issue_id=310"
-    )
+    assert result["uiStatus"][-1] == "finalize_workspace: prepared form for issue_id=310"
 
 
 def test_rerun_latest_helper_uses_job_detail_authority() -> None:
@@ -441,12 +433,8 @@ process.stdout.write(JSON.stringify({
     )
 
 
-def test_progress_ui_keeps_active_controls_for_tracked_fallback_and_cancel_409() -> (
-    None
-):
-    script_path = (
-        REPO_ROOT / "scripts" / "patchhub" / "static" / "patchhub_progress_ui.js"
-    )
+def test_progress_ui_keeps_active_controls_for_tracked_fallback_and_cancel_409() -> None:
+    script_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "patchhub_progress_ui.js"
     script = (
         _node_prelude(script_path)
         + """
@@ -486,12 +474,12 @@ process.stdout.write(JSON.stringify({
 
 
 def test_source_wires_rerun_latest_prepare_and_removes_workspace_auto_enqueue() -> None:
-    jobs_src = (
-        REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_jobs.js"
-    ).read_text(encoding="utf-8")
-    wire_src = (
-        REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_wire_init.js"
-    ).read_text(encoding="utf-8")
+    jobs_src = (REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_jobs.js").read_text(
+        encoding="utf-8"
+    )
+    wire_src = (REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_wire_init.js").read_text(
+        encoding="utf-8"
+    )
     workspaces_src = (
         REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_workspaces.js"
     ).read_text(encoding="utf-8")
@@ -503,9 +491,7 @@ def test_source_wires_rerun_latest_prepare_and_removes_workspace_auto_enqueue() 
     assert "out.canonical_argv = out.canonical_argv.concat(gateArgv);" not in (
         REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_gate_options.js"
     ).read_text(encoding="utf-8")
-    finalize_handler = workspaces_src.split(
-        'finBtn.addEventListener("click", () => {', 1
-    )[1]
+    finalize_handler = workspaces_src.split('finBtn.addEventListener("click", () => {', 1)[1]
     finalize_handler = finalize_handler.split("});", 1)[0]
     assert 'phCall("enqueue")' not in finalize_handler
     assert "clearParsedState();" in finalize_handler
@@ -579,9 +565,7 @@ process.stdout.write(JSON.stringify({
     assert result["uiStatus"][-1] == "rerun_latest: no usable previous job"
 
 
-def test_rerun_latest_selected_job_invalid_leaves_form_unchanged_and_sets_error() -> (
-    None
-):
+def test_rerun_latest_selected_job_invalid_leaves_form_unchanged_and_sets_error() -> None:
     script_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_jobs.js"
     script = (
         _node_prelude(script_path)

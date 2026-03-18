@@ -18,9 +18,7 @@ async def test_patchhub_debug_ui_flush_and_copy_controls(
     probe = BrowserProbe(page)
     expected = active_patchhub_debug_paths()
 
-    response = await page.goto(
-        f"{e2e_patchhub_base_url}/debug", wait_until="domcontentloaded"
-    )
+    response = await page.goto(f"{e2e_patchhub_base_url}/debug", wait_until="domcontentloaded")
     assert response is not None and response.ok, "GET /debug did not return success"
 
     await expect(page).to_have_title(re.compile(r"PatchHub - Debug"))
@@ -91,9 +89,7 @@ async def test_patchhub_debug_ui_flush_and_copy_controls(
         "() => (window.__patchhubCopiedText || []).length > 0",
         timeout=5_000,
     )
-    copied_text = await page.evaluate(
-        "() => (window.__patchhubCopiedText || []).slice()"
-    )
+    copied_text = await page.evaluate("() => (window.__patchhubCopiedText || []).slice()")
     assert copied_text == [parsed_text or ""]
 
     await page.locator("#parsedFlush").click()

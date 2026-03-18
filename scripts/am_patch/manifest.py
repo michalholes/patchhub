@@ -43,9 +43,7 @@ def load_files(patch_script: Path) -> list[str]:
                     if isinstance(t, ast.Name) and t.id == "FILES":
                         value = ast.literal_eval(node.value)
                         if not isinstance(value, list):
-                            raise RunnerError(
-                                "PREFLIGHT", "MANIFEST", "FILES must be a list"
-                            )
+                            raise RunnerError("PREFLIGHT", "MANIFEST", "FILES must be a list")
                         return _validate_paths(list(value))
     except RunnerError:
         raise

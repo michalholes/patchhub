@@ -117,9 +117,7 @@ class TestPatchhubAsyncRunnerExec(unittest.IsolatedAsyncioTestCase):
             if sig == signal.SIGKILL:
                 proc._killed = True
 
-        with patch(
-            "patchhub.asgi.async_runner_exec.os.killpg", side_effect=fake_killpg
-        ):
+        with patch("patchhub.asgi.async_runner_exec.os.killpg", side_effect=fake_killpg):
             ok = await executor.terminate(grace_s=1)
 
         self.assertTrue(ok)

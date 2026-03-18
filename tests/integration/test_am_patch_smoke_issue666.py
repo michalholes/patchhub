@@ -117,9 +117,7 @@ def test_am_patch_smoke_issue_666() -> None:
         capture_output=True,
     )
 
-    assert res.returncode == 0, (
-        f"Runner failed\nSTDOUT:\n{res.stdout}\n\nSTDERR:\n{res.stderr}"
-    )
+    assert res.returncode == 0, f"Runner failed\nSTDOUT:\n{res.stdout}\n\nSTDERR:\n{res.stderr}"
 
     # Post-clean: remove any leftovers the runner might have produced in these dirs.
     _cleanup(repo_root)

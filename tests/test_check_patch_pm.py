@@ -175,10 +175,7 @@ def test_valid_patch_passes(tmp_path: Path) -> None:
     assert "RESULT: PASS" in proc.stdout
     assert "RULE TARGET_FILE: PASS - ." in proc.stdout
     assert "RULE PER_FILE_LAYOUT: PASS" in proc.stdout
-    assert (
-        "RULE GIT_APPLY_CHECK:patches/per_file/docs__readme.txt.patch: PASS"
-        in proc.stdout
-    )
+    assert "RULE GIT_APPLY_CHECK:patches/per_file/docs__readme.txt.patch: PASS" in proc.stdout
 
 
 def test_missing_target_file_fails(tmp_path: Path) -> None:
@@ -235,9 +232,7 @@ def test_patch_basename_failure_is_reported(tmp_path: Path) -> None:
         patch_rel=Path("patches/test_patch.zip"),
     )
 
-    proc = _run_validator(
-        repo_root, "223", COMMIT_MESSAGE, Path("patches/test_patch.zip")
-    )
+    proc = _run_validator(repo_root, "223", COMMIT_MESSAGE, Path("patches/test_patch.zip"))
     assert proc.returncode == 1
     assert "RULE PATCH_BASENAME: FAIL" in proc.stdout
 
@@ -254,9 +249,7 @@ def test_patch_basename_issue_mismatch_is_reported(tmp_path: Path) -> None:
         patch_rel=Path("patches/issue_999_v1.zip"),
     )
 
-    proc = _run_validator(
-        repo_root, "223", COMMIT_MESSAGE, Path("patches/issue_999_v1.zip")
-    )
+    proc = _run_validator(repo_root, "223", COMMIT_MESSAGE, Path("patches/issue_999_v1.zip"))
     assert proc.returncode == 1
     assert "RULE PATCH_BASENAME: FAIL" in proc.stdout
     assert "issue_mismatch:expected=223:actual=999:name=issue_999_v1.zip" in proc.stdout
@@ -274,9 +267,7 @@ def test_patch_basename_version_zero_is_reported(tmp_path: Path) -> None:
         patch_rel=Path("patches/issue_223_v0.zip"),
     )
 
-    proc = _run_validator(
-        repo_root, "223", COMMIT_MESSAGE, Path("patches/issue_223_v0.zip")
-    )
+    proc = _run_validator(repo_root, "223", COMMIT_MESSAGE, Path("patches/issue_223_v0.zip"))
     assert proc.returncode == 1
     assert "RULE PATCH_BASENAME: FAIL" in proc.stdout
     assert "invalid_patch_basename:issue_223_v0.zip" in proc.stdout
@@ -350,10 +341,7 @@ def test_git_apply_failure_is_reported(tmp_path: Path) -> None:
 
     proc = _run_validator(repo_root, "223", COMMIT_MESSAGE)
     assert proc.returncode == 1
-    assert (
-        "RULE GIT_APPLY_CHECK:patches/per_file/docs__readme.txt.patch: FAIL"
-        in proc.stdout
-    )
+    assert "RULE GIT_APPLY_CHECK:patches/per_file/docs__readme.txt.patch: FAIL" in proc.stdout
 
 
 def test_line_length_rule_skips_non_python_and_non_js_files(tmp_path: Path) -> None:

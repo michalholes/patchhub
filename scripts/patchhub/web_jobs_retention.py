@@ -150,9 +150,7 @@ def _upsert_compact_derived(
     ).fetchone()
     updated_utc, updated_unix_ms = _now_parts()
     created_utc = str(derived["created_utc"]) if derived is not None else updated_utc
-    created_unix_ms = (
-        int(derived["created_unix_ms"]) if derived is not None else updated_unix_ms
-    )
+    created_unix_ms = int(derived["created_unix_ms"]) if derived is not None else updated_unix_ms
     conn.execute(
         """
         INSERT INTO web_job_derived(
@@ -189,9 +187,7 @@ def _upsert_compact_derived(
         (
             str(row["job_id"]),
             str(
-                derived["applied_files_json"]
-                if derived is not None
-                else row["applied_files_json"]
+                derived["applied_files_json"] if derived is not None else row["applied_files_json"]
             ),
             str(
                 derived["applied_files_source"]
@@ -226,9 +222,7 @@ def _upsert_compact_derived(
     )
 
 
-def _maybe_reclaim(
-    conn: sqlite3.Connection, settings: RetentionSettings, pruned_rows: int
-) -> bool:
+def _maybe_reclaim(conn: sqlite3.Connection, settings: RetentionSettings, pruned_rows: int) -> bool:
     if pruned_rows < settings.reclaim_min_pruned_rows:
         return False
     if settings.reclaim_trigger_policy not in {
@@ -302,9 +296,7 @@ def maybe_compact_terminal_job(
         )
         conn.execute("DELETE FROM web_job_log_lines WHERE job_id = ?", (job_id,))
         conn.execute("DELETE FROM web_job_event_lines WHERE job_id = ?", (job_id,))
-        conn.execute(
-            "UPDATE web_jobs SET row_rev = row_rev + 1 WHERE job_id = ?", (job_id,)
-        )
+        conn.execute("UPDATE web_jobs SET row_rev = row_rev + 1 WHERE job_id = ?", (job_id,))
         compacted_jobs += 1
         pruned_log_rows += raw_log_count
         pruned_event_rows += raw_event_count

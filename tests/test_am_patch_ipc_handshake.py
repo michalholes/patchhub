@@ -226,9 +226,7 @@ def test_drain_ack_succeeds_for_immediate_ack_after_emitted_eos(tmp_path: Path) 
                 before_publish=lambda seq: ipc.begin_shutdown_handshake(eos_seq=seq),
             )
             eos = _read_control_event(fp, event="eos")
-            ok_reply = _send_cmd(
-                fp, cmd="drain_ack", cmd_id="c2", args={"seq": eos["seq"]}
-            )
+            ok_reply = _send_cmd(fp, cmd="drain_ack", cmd_id="c2", args={"seq": eos["seq"]})
             assert ok_reply["ok"] is True
             assert ipc.wait_for_drain_ack() is True
         finally:

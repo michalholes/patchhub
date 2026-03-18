@@ -10,9 +10,7 @@ def default_config_path(scripts_dir: Path) -> Path:
     return scripts_dir / "am_patch" / "am_patch.toml"
 
 
-def resolve_config_path(
-    cli_config: str | None, runner_root: Path, scripts_dir: Path
-) -> Path:
+def resolve_config_path(cli_config: str | None, runner_root: Path, scripts_dir: Path) -> Path:
     """Resolve the runner-owned config path.
 
     - If cli_config is provided, use it (relative paths are resolved against runner_root).

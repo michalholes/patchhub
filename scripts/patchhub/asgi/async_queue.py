@@ -193,9 +193,7 @@ class AsyncJobQueue:
         if prev is None or prev.is_closed():
             self._reset_loop_affine_state()
 
-    async def _call_on_owner_loop(
-        self, op: Callable[[], Coroutine[object, object, _T]]
-    ) -> _T:
+    async def _call_on_owner_loop(self, op: Callable[[], Coroutine[object, object, _T]]) -> _T:
         current = asyncio.get_running_loop()
         owner = self._owner_loop
         if owner is None or owner.is_closed():
@@ -447,9 +445,7 @@ class AsyncJobQueue:
     def _job_dir(self, job_id: str) -> Path:
         return self._jobs_root / job_id
 
-    async def _persist(
-        self, job: JobRecord, *, count_as_job_change: bool = True
-    ) -> None:
+    async def _persist(self, job: JobRecord, *, count_as_job_change: bool = True) -> None:
         if self._job_db is not None:
             await asyncio.to_thread(
                 self._job_db.upsert_job, job, count_as_job_change=count_as_job_change
@@ -516,9 +512,7 @@ class AsyncJobQueue:
 
             job_dir = self._job_dir(job_id)
             runner_log = job_dir / "runner.log"
-            jsonl_path = _job_jsonl_path_from_fields(
-                job_dir, str(job.mode), str(job.issue_id)
-            )
+            jsonl_path = _job_jsonl_path_from_fields(job_dir, str(job.mode), str(job.issue_id))
 
             try:
                 effective_cmd = _inject_web_overrides(

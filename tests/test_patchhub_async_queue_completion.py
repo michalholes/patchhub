@@ -383,9 +383,7 @@ class TestPatchhubAsyncQueueForcedCompletion(unittest.IsolatedAsyncioTestCase):
                     "job_socket_path",
                     side_effect=lambda job_id: str(root / f"{job_id}.sock"),
                 ),
-                patch.object(
-                    async_queue_mod.JobEventBroker, "close", new=recording_close
-                ),
+                patch.object(async_queue_mod.JobEventBroker, "close", new=recording_close),
             ):
                 await queue.start()
                 try:
@@ -430,9 +428,7 @@ class _ControllableExecutor:
         self.started.set()
         await self.released.wait()
         self.running = False
-        return async_queue_mod.ExecResult(
-            return_code=self.return_code, stdout_tail_timed_out=False
-        )
+        return async_queue_mod.ExecResult(return_code=self.return_code, stdout_tail_timed_out=False)
 
 
 class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
@@ -475,9 +471,7 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
                     await asyncio.sleep(0.01)
 
             with (
-                patch.object(
-                    async_queue_mod, "start_event_pump", side_effect=idle_pump
-                ),
+                patch.object(async_queue_mod, "start_event_pump", side_effect=idle_pump),
                 patch.object(
                     async_queue_mod,
                     "job_socket_path",
@@ -540,9 +534,7 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
                     await asyncio.sleep(0.01)
 
             with (
-                patch.object(
-                    async_queue_mod, "start_event_pump", side_effect=idle_pump
-                ),
+                patch.object(async_queue_mod, "start_event_pump", side_effect=idle_pump),
                 patch.object(
                     async_queue_mod,
                     "job_socket_path",
@@ -603,9 +595,7 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
                     await asyncio.sleep(0.01)
 
             with (
-                patch.object(
-                    async_queue_mod, "start_event_pump", side_effect=idle_pump
-                ),
+                patch.object(async_queue_mod, "start_event_pump", side_effect=idle_pump),
                 patch.object(
                     async_queue_mod,
                     "job_socket_path",
