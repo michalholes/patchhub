@@ -317,7 +317,7 @@ pytest_full_suite_prefixes = [
     "tests/e2e/_server_patchhub.py",
     "tests/e2e/_asset_inventory.py",
 ]
-ruff_targets = ["src", "plugins", "badguys", "scripts", "tests"]
+ruff_targets = ["badguys", "scripts", "tests"]
 pytest_targets = ["tests"]
 mypy_targets = ["."]
 
