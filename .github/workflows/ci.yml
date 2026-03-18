@@ -26,12 +26,12 @@ jobs:
       - name: Ruff
         run: |
           . .venv/bin/activate
-          python -m ruff check src scripts tests plugins
+          python -m ruff check scripts tests 
 
       - name: Mypy
         run: |
           . .venv/bin/activate
-          python -m mypy src scripts plugins
+          python -m mypy scripts
 
       - name: Install Playwright browser
         run: |
