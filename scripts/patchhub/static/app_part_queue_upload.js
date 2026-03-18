@@ -23,6 +23,9 @@ function validateAndPreview() {
 	var issueId = String(el("issueId").value || "").trim();
 	var commitMsg = String(el("commitMsg").value || "").trim();
 	var patchPath = normalizePatchPath(String(el("patchPath").value || ""));
+	var targetRepo = String(
+		(el("targetRepo") && el("targetRepo").value) || "",
+	).trim();
 	el("patchPath").value = patchPath;
 
 	var raw = getRawCommand();
@@ -98,6 +101,7 @@ function validateAndPreview() {
 				commitMsg,
 				patchPath,
 				gatePayload.gate_argv || [],
+				targetRepo,
 			) || [];
 		preview = {
 			mode: mode,
@@ -151,6 +155,9 @@ function enqueue() {
 			? String(el("rawCommand").value || "").trim()
 			: "",
 	};
+	var targetRepo = String(
+		(el("targetRepo") && el("targetRepo").value) || "",
+	).trim();
 
 	setUiStatus("enqueue: started mode=" + mode);
 
@@ -187,6 +194,9 @@ function enqueue() {
 	}
 	if (Array.isArray(gatePayload.gate_argv) && gatePayload.gate_argv.length) {
 		body.gate_argv = gatePayload.gate_argv.slice();
+	}
+	if (!body.raw_command && targetRepo) {
+		body.target_repo = targetRepo;
 	}
 
 	apiPost("/api/jobs/enqueue", body).then((r) => {
@@ -371,6 +381,9 @@ function setupUpload() {
 function loadConfig() {
 	return apiGet("/api/config")
 		.then((r) => {
+			var options = [];
+			var currentValue = "";
+			var defaultValue = "";
 			cfg = r || null;
 			if (cfg && cfg.issue && cfg.issue.default_regex) {
 				try {
@@ -381,6 +394,30 @@ function loadConfig() {
 			}
 			if (cfg && cfg.meta && cfg.meta.version) {
 				setText("ampWebVersion", "v" + String(cfg.meta.version));
+			}
+			var targetNode = el("targetRepo");
+			if (targetNode) {
+				currentValue = String(targetNode.value || "").trim();
+				if (cfg && cfg.targeting) {
+					if (Array.isArray(cfg.targeting.options)) {
+						options = cfg.targeting.options
+							.map((item) => String(item || "").trim())
+							.filter((item) => !!item);
+					}
+					defaultValue = String(cfg.targeting.default_target_repo || "").trim();
+				}
+				targetNode.innerHTML = "";
+				options.forEach((item) => {
+					var opt = document.createElement("option");
+					opt.value = item;
+					opt.textContent = item;
+					targetNode.appendChild(opt);
+				});
+				if (options.indexOf(currentValue) >= 0) {
+					targetNode.value = currentValue;
+				} else if (options.indexOf(defaultValue) >= 0) {
+					targetNode.value = defaultValue;
+				}
 			}
 			phCall("refreshHeader");
 			if (cfg && cfg.ui) {

@@ -8,8 +8,10 @@ from .app_support import _err, _is_ascii, _ok
 from .zip_commit_message import (
     ZipCommitConfig,
     ZipIssueConfig,
+    ZipTargetConfig,
     read_commit_message_from_zip_bytes,
     read_issue_number_from_zip_bytes,
+    read_target_repo_from_zip_bytes,
 )
 
 
@@ -42,6 +44,7 @@ def api_upload_patch(self, filename: str, data: bytes) -> tuple[int, bytes]:
     status_msgs.append(f"upload: stored {rel} ({len(data)} bytes)")
 
     issue_id, commit_msg = self._derive_from_filename(dst.name)
+    target_repo = None
     if ext == ".zip" and self.cfg.autofill.zip_commit_enabled:
         zcfg = ZipCommitConfig(
             enabled=True,
@@ -64,12 +67,25 @@ def api_upload_patch(self, filename: str, data: bytes) -> tuple[int, bytes]:
         if zid is not None:
             issue_id = zid
             status_msgs.append(f"autofill: issue from zip {self.cfg.autofill.zip_issue_filename}")
+    if ext == ".zip":
+        ztcfg = ZipTargetConfig(
+            enabled=True,
+            filename="target.txt",
+            max_bytes=128,
+            max_ratio=200,
+        )
+        target_repo, zterr = read_target_repo_from_zip_bytes(data, ztcfg)
+        if target_repo is not None:
+            status_msgs.append("autofill: target from zip target.txt")
+        elif zterr is not None:
+            status_msgs.append(f"autofill: zip target ignored ({zterr})")
     payload: dict[str, Any] = {"stored_rel_path": rel, "bytes": len(data)}
     if self.cfg.autofill.derive_enabled:
         payload["derived_issue"] = issue_id
         payload["derived_commit_message"] = commit_msg
         if issue_id:
             status_msgs.append(f"autofill: derived issue={issue_id}")
+    payload["derived_target_repo"] = target_repo
     payload["status"] = status_msgs
     return _ok(payload)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +23,14 @@ from .app_support import (
 from .command_parse import CommandParseError, parse_runner_command
 from .indexing import compute_stats, iter_runs, runs_signature
 from .models import run_to_list_item_json
+from .targeting import validate_targeting_config
 from .zip_commit_message import (
     ZipCommitConfig,
     ZipIssueConfig,
+    ZipTargetConfig,
     read_commit_message_from_zip_path,
     read_issue_number_from_zip_path,
+    read_target_repo_from_zip_path,
     zip_contains_patch_file,
 )
 
@@ -43,6 +47,23 @@ def _autofill_scan_dir_rel(self) -> str | None:
     if scan_dir.startswith(prefix + "/"):
         return scan_dir[len(prefix) + 1 :]
     return None
+
+
+def _targeting_default_repo(self) -> str:
+    target_cfg = getattr(self.cfg, "targeting", None)
+    value = str(getattr(target_cfg, "default_target_repo", "patchhub") or "").strip()
+    return value or "patchhub"
+
+
+def _target_options(self) -> list[str]:
+    runner_cfg_path = (self.repo_root / self.cfg.runner.runner_config_toml).resolve()
+    try:
+        return validate_targeting_config(
+            runner_config_toml=runner_cfg_path,
+            default_target_repo=_targeting_default_repo(self),
+        )
+    except (OSError, ValueError, tomllib.TOMLDecodeError):
+        return [_targeting_default_repo(self)]
 
 
 def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]:
@@ -105,6 +126,7 @@ def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]:
 
 def api_config(self) -> tuple[int, bytes]:
     runner_cfg_path = (self.repo_root / self.cfg.runner.runner_config_toml).resolve()
+    target_options = _target_options(self)
     success_rel = compute_success_archive_rel(
         self.repo_root, runner_cfg_path, self.cfg.paths.patches_root
     )
@@ -170,6 +192,13 @@ def api_config(self) -> tuple[int, bytes]:
             "commit_ascii_only": self.cfg.autofill.commit_ascii_only,
             "issue_default_if_no_match": self.cfg.autofill.issue_default_if_no_match,
             "commit_default_if_no_match": self.cfg.autofill.commit_default_if_no_match,
+        },
+        "targeting": {
+            "options": target_options,
+            "default_target_repo": _targeting_default_repo(self),
+            "zip_target_prefill_enabled": bool(
+                getattr(getattr(self.cfg, "targeting", None), "zip_target_prefill_enabled", True)
+            ),
         },
     }
     return _json_bytes(data)
@@ -265,6 +294,8 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
     zip_commit_err: str | None = None
     zip_issue_used = False
     zip_issue_err: str | None = None
+    zip_target_repo: str | None = None
+    zip_target_err: str | None = None
     if os.path.splitext(best_name)[1].lower() == ".zip" and self.cfg.autofill.zip_commit_enabled:
         zcfg = ZipCommitConfig(
             enabled=True,
@@ -291,6 +322,17 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
             zip_issue_used = True
         else:
             zip_issue_err = zerr2
+    if os.path.splitext(best_name)[1].lower() == ".zip":
+        ztcfg = ZipTargetConfig(
+            enabled=True,
+            filename="target.txt",
+            max_bytes=128,
+            max_ratio=200,
+        )
+        zip_target_repo, zip_target_err = read_target_repo_from_zip_path(
+            d / best_name,
+            ztcfg,
+        )
 
     payload: dict[str, Any] = {
         "found": True,
@@ -313,6 +355,7 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
     if self.cfg.autofill.derive_enabled:
         payload["derived_issue"] = issue_id
         payload["derived_commit_message"] = commit_msg
+    payload["derived_target_repo"] = zip_target_repo
     if zip_commit_used:
         payload["status"].append(
             f"autofill: commit from zip {self.cfg.autofill.zip_commit_filename}"
@@ -323,6 +366,10 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
         payload["status"].append(f"autofill: issue from zip {self.cfg.autofill.zip_issue_filename}")
     elif zip_issue_err:
         payload["status"].append(f"autofill: zip issue ignored ({zip_issue_err})")
+    if zip_target_repo is not None:
+        payload["status"].append("autofill: target from zip target.txt")
+    elif zip_target_err:
+        payload["status"].append(f"autofill: zip target ignored ({zip_target_err})")
     return _ok(payload)
 
 

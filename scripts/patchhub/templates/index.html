@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PatchHub</title>
   <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/target_selector.css" />
 </head>
 <body>
   <div id="dropOverlay" class="drop-overlay" aria-hidden="true">
@@ -117,7 +118,8 @@
             class="input start-run-issue"
             placeholder="issue id (auto if empty for patch; required for -w)"
           />
-          <input id="commitMsg" class="input" placeholder="message (required for patch and -f)" />
+          <input id="commitMsg" class="input start-run-commit" placeholder="message (required for patch and -f)" />
+          <select id="targetRepo" class="input start-run-target"></select>
           <button type="button" id="enqueueBtn" class="btn btn-danger btn-start" disabled>Start</button>
         </div>
 

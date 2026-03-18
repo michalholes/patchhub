@@ -149,18 +149,22 @@ def build_canonical_command(
     commit_message: str,
     patch_path: str,
     gate_argv: list[str] | None = None,
+    target_repo: str = "",
 ) -> list[str]:
     gate_tail = _validated_gate_argv(list(gate_argv or []))
+    target_tail = []
+    if target_repo:
+        target_tail = ["--target-repo-name", target_repo]
     if mode == "finalize_live":
-        return runner_prefix + ["-f", commit_message] + gate_tail
+        return runner_prefix + ["-f", commit_message] + target_tail + gate_tail
     if mode == "finalize_workspace":
-        return runner_prefix + ["-w", issue_id] + gate_tail
+        return runner_prefix + ["-w", issue_id] + target_tail + gate_tail
     if mode == "rerun_latest":
         argv = runner_prefix + [issue_id, commit_message]
         if patch_path:
             argv.append(patch_path)
         argv.append("-l")
-        return argv + gate_tail
+        return argv + target_tail + gate_tail
     if mode in ("patch", "repair"):
-        return runner_prefix + [issue_id, commit_message, patch_path] + gate_tail
+        return runner_prefix + [issue_id, commit_message, patch_path] + target_tail + gate_tail
     raise CommandParseError(f"Unsupported mode: {mode}")

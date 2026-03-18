@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +104,12 @@ class AutofillConfig:
 
 
 @dataclass(frozen=True)
+class TargetingConfig:
+    default_target_repo: str = "patchhub"
+    zip_target_prefill_enabled: bool = True
+
+
+@dataclass(frozen=True)
 class AppConfig:
     server: ServerConfig
     meta: MetaConfig
@@ -114,6 +120,7 @@ class AppConfig:
     indexing: IndexingConfig
     ui: UiConfig
     autofill: AutofillConfig
+    targeting: TargetingConfig = field(default_factory=TargetingConfig)
 
 
 def _must_get(d: dict[str, Any], key: str) -> Any:
@@ -141,6 +148,7 @@ def load_config(path: Path) -> AppConfig:
     indexing = raw.get("indexing", {})
     ui = raw.get("ui", {})
     autofill = raw.get("autofill", {})
+    targeting = raw.get("targeting", {})
 
     return AppConfig(
         server=ServerConfig(
@@ -238,5 +246,9 @@ def load_config(path: Path) -> AppConfig:
             zip_issue_max_bytes=int(autofill.get("zip_issue_max_bytes", 128)),
             zip_issue_max_ratio=int(autofill.get("zip_issue_max_ratio", 200)),
             scan_zip_require_patch=bool(autofill.get("scan_zip_require_patch", False)),
+        ),
+        targeting=TargetingConfig(
+            default_target_repo=str(targeting.get("default_target_repo", "patchhub")),
+            zip_target_prefill_enabled=bool(targeting.get("zip_target_prefill_enabled", True)),
         ),
     )

@@ -32,6 +32,17 @@ function applyAutofillFromPayload(p) {
 		}
 	}
 
+	if (
+		cfg.targeting &&
+		cfg.targeting.zip_target_prefill_enabled &&
+		p.derived_target_repo != null
+	) {
+		const n4 = el("targetRepo");
+		if (n4 && phCall("shouldOverwriteField", "targetRepo", n4)) {
+			n4.value = String(p.derived_target_repo || "");
+		}
+	}
+
 	phCall("validateAndPreview");
 }
 
@@ -73,6 +84,7 @@ function pollLatestPatchOnce() {
 				dirty.issueId = false;
 				dirty.commitMsg = false;
 				dirty.patchPath = false;
+				dirty.targetRepo = false;
 			}
 		} catch (_) {}
 		PH.call("clearGateOverrides");

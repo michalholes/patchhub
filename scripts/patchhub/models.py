@@ -121,6 +121,10 @@ class JobRecord:
     effective_patch_kind: str | None = None
     selected_patch_entries: list[str] = field(default_factory=list)
     selected_repo_paths: list[str] = field(default_factory=list)
+    zip_target_repo: str | None = None
+    selected_target_repo: str | None = None
+    effective_runner_target_repo: str | None = None
+    target_mismatch: bool = False
     applied_files: list[str] = field(default_factory=list)
     applied_files_source: str = "unavailable"
     last_log_seq: int = 0
@@ -196,6 +200,22 @@ class JobRecord:
             selected_repo_paths=[
                 str(item) for item in list(payload.get("selected_repo_paths") or [])
             ],
+            zip_target_repo=(
+                str(payload.get("zip_target_repo"))
+                if payload.get("zip_target_repo") is not None
+                else None
+            ),
+            selected_target_repo=(
+                str(payload.get("selected_target_repo"))
+                if payload.get("selected_target_repo") is not None
+                else None
+            ),
+            effective_runner_target_repo=(
+                str(payload.get("effective_runner_target_repo"))
+                if payload.get("effective_runner_target_repo") is not None
+                else None
+            ),
+            target_mismatch=bool(payload.get("target_mismatch", False)),
             applied_files=[str(item) for item in list(payload.get("applied_files") or [])],
             applied_files_source=str(payload.get("applied_files_source", "unavailable")),
             last_log_seq=_coerce_int(payload.get("last_log_seq", 0), 0),
@@ -204,7 +224,16 @@ class JobRecord:
         )
 
     def to_json(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        if self.zip_target_repo is None:
+            payload.pop("zip_target_repo", None)
+        if self.selected_target_repo is None:
+            payload.pop("selected_target_repo", None)
+        if self.effective_runner_target_repo is None:
+            payload.pop("effective_runner_target_repo", None)
+        if not self.target_mismatch:
+            payload.pop("target_mismatch", None)
+        return payload
 
 
 def compute_commit_summary(commit_message: str, *, max_len: int = 60) -> str:

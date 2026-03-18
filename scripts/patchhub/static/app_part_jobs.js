@@ -127,6 +127,7 @@ function clearRerunLatestFormFields(statusText) {
 	dirty.issueId = false;
 	dirty.commitMsg = false;
 	dirty.patchPath = false;
+	dirty.targetRepo = false;
 	if (statusText) setUiStatus(statusText);
 	phCall("validateAndPreview");
 }
@@ -170,6 +171,9 @@ function extractRerunLatestValues(job) {
 		issueId: issueId,
 		commitMsg: commitMsg,
 		patchPath: patchPath,
+		targetRepo: String(
+			detail.selected_target_repo || detail.effective_runner_target_repo || "",
+		).trim(),
 		jobId: String(detail.job_id || "").trim(),
 	};
 }
@@ -226,9 +230,13 @@ function applyRerunLatestValues(values, sourceLabel) {
 	el("issueId").value = String(values.issueId || "");
 	el("commitMsg").value = String(values.commitMsg || "");
 	el("patchPath").value = normalizePatchPath(String(values.patchPath || ""));
+	if (el("targetRepo") && String(values.targetRepo || "").trim()) {
+		el("targetRepo").value = String(values.targetRepo || "").trim();
+	}
 	dirty.issueId = false;
 	dirty.commitMsg = false;
 	dirty.patchPath = false;
+	dirty.targetRepo = false;
 	if (sourceLabel) {
 		setUiStatus(
 			"rerun_latest: prepared form from " +
@@ -646,6 +654,7 @@ function computeCanonicalPreview(
 	commitMsg,
 	patchPath,
 	gateArgv,
+	targetRepo,
 ) {
 	var prefix =
 		cfg && cfg.runner && cfg.runner.command
@@ -654,28 +663,32 @@ function computeCanonicalPreview(
 	var argv = prefix.slice();
 
 	var gateTail = Array.isArray(gateArgv) ? gateArgv.slice() : [];
+	var targetTail = [];
+	if (String(targetRepo || "")) {
+		targetTail = ["--target-repo-name", String(targetRepo || "")];
+	}
 	if (mode === "finalize_live") {
 		argv.push("-f");
 		argv.push(String(commitMsg || ""));
-		return argv.concat(gateTail);
+		return argv.concat(targetTail, gateTail);
 	}
 	if (mode === "finalize_workspace") {
 		argv.push("-w");
 		argv.push(String(issueId || ""));
-		return argv.concat(gateTail);
+		return argv.concat(targetTail, gateTail);
 	}
 	if (mode === "rerun_latest") {
 		argv.push(String(issueId || ""));
 		argv.push(String(commitMsg || ""));
 		if (String(patchPath || "")) argv.push(String(patchPath || ""));
 		argv.push("-l");
-		return argv.concat(gateTail);
+		return argv.concat(targetTail, gateTail);
 	}
 
 	argv.push(String(issueId || ""));
 	argv.push(String(commitMsg || ""));
 	argv.push(String(patchPath || ""));
-	return argv.concat(gateTail);
+	return argv.concat(targetTail, gateTail);
 }
 
 if (PH && typeof PH.register === "function") {

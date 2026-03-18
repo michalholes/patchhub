@@ -23,14 +23,17 @@ from .models import (
 )
 from .pm_validation_runtime import build_patch_zip_pm_validation
 from .run_applied_files import collect_job_applied_files
+from .targeting import validate_selected_target_repo, validate_targeting_config
 from .web_jobs_db import WebJobsDatabase
 from .web_jobs_derived import read_effective_log_tail
 from .web_jobs_legacy_fs import list_legacy_job_jsons, load_legacy_job_record
 from .zip_commit_message import (
     ZipCommitConfig,
     ZipIssueConfig,
+    ZipTargetConfig,
     read_commit_message_from_zip_path,
     read_issue_number_from_zip_path,
+    read_target_repo_from_zip_path,
 )
 from .zip_patch_subset import (
     build_zip_patch_manifest,
@@ -92,6 +95,67 @@ def _try_fill_issue_from_zip(self, patch_path: str) -> str:
     return zid or ""
 
 
+def _runner_target_options(self) -> list[str]:
+    target_cfg = getattr(self.cfg, "targeting", None)
+    default_target_repo = (
+        str(getattr(target_cfg, "default_target_repo", "patchhub") or "").strip() or "patchhub"
+    )
+    runner_cfg_path = (self.repo_root / self.cfg.runner.runner_config_toml).resolve()
+    try:
+        return validate_targeting_config(
+            runner_config_toml=runner_cfg_path,
+            default_target_repo=default_target_repo,
+        )
+    except (OSError, ValueError):
+        return [default_target_repo]
+
+
+def _target_flag_from_argv(argv: list[str]) -> str | None:
+    items = [str(item or "") for item in list(argv or [])]
+    try:
+        idx = items.index("--target-repo-name")
+    except ValueError:
+        return None
+    if idx + 1 >= len(items):
+        return None
+    token = str(items[idx + 1] or "").strip()
+    return token or None
+
+
+def _zip_target_config() -> ZipTargetConfig:
+    return ZipTargetConfig(
+        enabled=True,
+        filename="target.txt",
+        max_bytes=128,
+        max_ratio=200,
+    )
+
+
+def _resolve_patch_zip_path_for_target(self, patch_path: str) -> Path | None:
+    raw = str(patch_path or "").strip()
+    if not raw or Path(raw).suffix.lower() != ".zip":
+        return None
+    prefix = self.cfg.paths.patches_root.rstrip("/")
+    rel = raw
+    if rel.startswith(prefix + "/"):
+        rel = rel[len(prefix) + 1 :]
+    try:
+        zpath = self.jail.resolve_rel(rel)
+    except Exception:
+        return None
+    if not zpath.exists() or not zpath.is_file():
+        return None
+    return zpath
+
+
+def _read_zip_target_from_patch_path(self, patch_path: str) -> str | None:
+    zpath = _resolve_patch_zip_path_for_target(self, patch_path)
+    if zpath is None:
+        return None
+    value, _err_reason = read_target_repo_from_zip_path(zpath, _zip_target_config())
+    return value
+
+
 def _selected_patch_entries_from_body(body: dict[str, Any]) -> list[str]:
     raw = body.get("selected_patch_entries")
     if raw is None:
@@ -121,6 +185,17 @@ def _gate_argv_from_body(body: dict[str, Any]) -> list[str]:
         raise ValueError(str(e)) from e
 
 
+def _strip_target_flag(argv: list[str]) -> list[str]:
+    items = list(argv)
+    try:
+        idx = items.index("--target-repo-name")
+    except ValueError:
+        return items
+    if idx + 1 >= len(items):
+        return items[:idx]
+    return items[:idx] + items[idx + 2 :]
+
+
 def _canonical_tail_parts(job: JobRecord) -> tuple[list[str], list[str]]:
     argv = [str(item or "") for item in list(job.canonical_command or [])]
     if not argv:
@@ -131,7 +206,7 @@ def _canonical_tail_parts(job: JobRecord) -> tuple[list[str], list[str]]:
         return [], []
     rest = argv[idx + 1 :]
     if job.mode == "finalize_live":
-        pos = list(rest)
+        pos = _strip_target_flag(list(rest))
         try:
             pos.remove("-f")
         except ValueError:
@@ -141,7 +216,7 @@ def _canonical_tail_parts(job: JobRecord) -> tuple[list[str], list[str]]:
         except GateArgvError:
             return [], []
     if job.mode == "finalize_workspace":
-        pos = list(rest)
+        pos = _strip_target_flag(list(rest))
         try:
             pos.remove("-w")
         except ValueError:
@@ -151,7 +226,7 @@ def _canonical_tail_parts(job: JobRecord) -> tuple[list[str], list[str]]:
         except GateArgvError:
             return [], []
     if job.mode == "rerun_latest":
-        pos = list(rest)
+        pos = _strip_target_flag(list(rest))
         try:
             pos.remove("-l")
         except ValueError:
@@ -162,7 +237,7 @@ def _canonical_tail_parts(job: JobRecord) -> tuple[list[str], list[str]]:
             return [], []
     if job.mode in ("patch", "repair"):
         try:
-            return split_gate_argv(list(rest))
+            return split_gate_argv(_strip_target_flag(list(rest)))
         except GateArgvError:
             return [], []
     return [], []
@@ -265,6 +340,25 @@ def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
             payload["effective_patch_path"] = patch_path
     if not payload.get("effective_patch_kind") and payload.get("effective_patch_path"):
         payload["effective_patch_kind"] = "original"
+    effective_target = payload.get("effective_runner_target_repo") or _target_flag_from_argv(
+        list(job.canonical_command or [])
+    )
+    if effective_target:
+        payload["effective_runner_target_repo"] = effective_target
+    if not payload.get("selected_target_repo") and effective_target:
+        payload["selected_target_repo"] = effective_target
+    if not payload.get("zip_target_repo"):
+        patch_path = str(
+            payload.get("effective_patch_path") or payload.get("original_patch_path") or ""
+        )
+        zip_target_repo = _read_zip_target_from_patch_path(self, patch_path)
+        if zip_target_repo:
+            payload["zip_target_repo"] = zip_target_repo
+    payload["target_mismatch"] = bool(
+        payload.get("zip_target_repo")
+        and payload.get("selected_target_repo")
+        and payload.get("zip_target_repo") != payload.get("selected_target_repo")
+    )
 
     jobs_root = getattr(self, "jobs_root", self.patches_root / "artifacts" / "web_jobs")
     files, source = collect_job_applied_files(
@@ -290,11 +384,18 @@ def api_patch_zip_manifest(self, qs: dict[str, str]) -> tuple[int, bytes]:
         )
         manifest = build_zip_patch_manifest(patch_path=patch_path, zpath=zpath)
         pm_validation = build_patch_zip_pm_validation(self, patch_path)
+        derived_target_repo = _read_zip_target_from_patch_path(self, patch_path)
     except ValueError as e:
         return _err(str(e), status=400)
     except Exception:
         return _err("Cannot inspect patch zip", status=500)
-    return _ok({"manifest": manifest, "pm_validation": pm_validation})
+    return _ok(
+        {
+            "manifest": manifest,
+            "pm_validation": pm_validation,
+            "derived_target_repo": derived_target_repo,
+        }
+    )
 
 
 def _queue_block_reason(self) -> str | None:
@@ -325,26 +426,38 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
     mode: JobMode = cast(JobMode, mode_s)
 
     runner_prefix = self.cfg.runner.command
-
     issue_id = str(body.get("issue_id", ""))
     commit_message = str(body.get("commit_message", ""))
     patch_path = str(body.get("patch_path", ""))
     raw_command = str(body.get("raw_command", ""))
+    target_repo = str(body.get("target_repo", "")).strip()
     try:
+        target_options = _runner_target_options(self)
         selected_patch_entries = _selected_patch_entries_from_body(body)
         gate_argv = _gate_argv_from_body(body)
-    except ValueError as e:
+    except (OSError, ValueError) as e:
         return _err(str(e), status=400)
 
     original_patch_path = patch_path or None
     effective_patch_path = patch_path or None
     effective_patch_kind = "original" if patch_path else None
     selected_repo_paths: list[str] = []
+    zip_target_repo: str | None = None
+    selected_target_repo: str | None = target_repo or None
+    effective_runner_target_repo: str | None = None
+    target_mismatch = False
 
     if raw_command and selected_patch_entries:
         return _err("raw_command cannot be combined with selected_patch_entries", status=400)
     if raw_command and gate_argv:
         return _err("raw_command cannot be combined with gate_argv", status=400)
+    if raw_command and target_repo:
+        return _err("raw_command cannot be combined with target_repo", status=400)
+    if target_repo:
+        try:
+            target_repo = validate_selected_target_repo(target_repo, target_options)
+        except ValueError as e:
+            return _err(str(e), status=400)
 
     if raw_command:
         try:
@@ -361,6 +474,8 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
         original_patch_path = patch_path or None
         effective_patch_path = patch_path or None
         effective_patch_kind = "original" if patch_path else None
+        effective_runner_target_repo = _target_flag_from_argv(canonical)
+        zip_target_repo = _read_zip_target_from_patch_path(self, patch_path)
     else:
         if mode == "finalize_live":
             if not commit_message:
@@ -372,7 +487,9 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 commit_message,
                 "",
                 gate_argv,
+                target_repo=target_repo,
             )
+            effective_runner_target_repo = target_repo or None
         elif mode == "finalize_workspace":
             if not issue_id or not issue_id.isdigit():
                 return _err("Missing/invalid issue_id", status=400)
@@ -383,7 +500,9 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 "",
                 "",
                 gate_argv,
+                target_repo=target_repo,
             )
+            effective_runner_target_repo = target_repo or None
         elif mode == "rerun_latest":
             if not issue_id or not issue_id.isdigit():
                 return _err("Missing/invalid issue_id", status=400)
@@ -396,7 +515,10 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 commit_message,
                 patch_path,
                 gate_argv,
+                target_repo=target_repo,
             )
+            effective_runner_target_repo = target_repo or None
+            zip_target_repo = _read_zip_target_from_patch_path(self, patch_path)
         else:
             if not issue_id and patch_path:
                 issue_id = _try_fill_issue_from_zip(self, patch_path)
@@ -470,6 +592,15 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 commit_message,
                 str(effective_patch_path or patch_path),
                 gate_argv,
+                target_repo=target_repo,
+            )
+            effective_runner_target_repo = target_repo or None
+            zip_target_repo = _read_zip_target_from_patch_path(
+                self,
+                str(effective_patch_path or patch_path),
+            )
+            target_mismatch = bool(
+                zip_target_repo and selected_target_repo and zip_target_repo != selected_target_repo
             )
             commit_summary = compute_commit_summary(commit_message)
             if not commit_summary:
@@ -489,10 +620,17 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 effective_patch_kind=effective_patch_kind,
                 selected_patch_entries=selected_patch_entries,
                 selected_repo_paths=selected_repo_paths,
+                zip_target_repo=zip_target_repo,
+                selected_target_repo=selected_target_repo,
+                effective_runner_target_repo=effective_runner_target_repo,
+                target_mismatch=target_mismatch,
             )
             self.queue.enqueue(job)
             return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})
 
+    target_mismatch = bool(
+        zip_target_repo and selected_target_repo and zip_target_repo != selected_target_repo
+    )
     commit_summary = compute_commit_summary(commit_message)
     if not commit_summary:
         commit_summary = f"({mode})"
@@ -513,6 +651,10 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
         effective_patch_kind=effective_patch_kind,
         selected_patch_entries=selected_patch_entries,
         selected_repo_paths=selected_repo_paths,
+        zip_target_repo=zip_target_repo,
+        selected_target_repo=selected_target_repo,
+        effective_runner_target_repo=effective_runner_target_repo,
+        target_mismatch=target_mismatch,
     )
     self.queue.enqueue(job)
     return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})

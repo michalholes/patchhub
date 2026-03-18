@@ -283,6 +283,12 @@ function wireButtons() {
 		dirty.patchPath = true;
 		phCall("validateAndPreview");
 	});
+	if (el("targetRepo")) {
+		el("targetRepo").addEventListener("change", () => {
+			dirty.targetRepo = true;
+			phCall("validateAndPreview");
+		});
+	}
 
 	var browse = el("browsePatch");
 	if (browse) {
