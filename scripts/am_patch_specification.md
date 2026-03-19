@@ -282,8 +282,14 @@ printing any normal stdout line (e.g., `DO:`, `OK:`, `FAIL:`, `RUN:`,
 a newline, so output never concatenates onto the status line. - enabled
 in `normal`, `warning`, `verbose`, `debug`
 
+Start summary (always printed at the beginning):
+- The first human summary line MUST be exactly:
+  `START: issue=<issue-id-or-(none)> mode=<mode> repo=<effective-target-repo-name> verbosity=<verbosity> log_level=<log-level>`
+- `<effective-target-repo-name>` MUST be the canonical effective target repo name resolved for the run.
+- The START summary and the NDJSON/IPC `hello` event MUST describe the same resolved target repo.
+
 Final summary (always printed at the end): - SUCCESS: -
-`RESULT: SUCCESS` - `FILES:` block (only when `PUSH: OK`), formatted
+`RESULT: SUCCESS` - `REPO: <effective-target-repo-name>` - `FILES:` block (only when `PUSH: OK`), formatted
 strictly:
 
     FILES:
@@ -298,11 +304,13 @@ strictly:
 -   `LOG: <path>`
 -   CANCELED:
     -   `RESULT: CANCELED`
+    -   `REPO: <effective-target-repo-name>`
     -   `STAGE: <stage-id>`
     -   `REASON: cancel requested`
     -   `LOG: <path>`
 -   FAIL:
     -   `RESULT: FAIL`
+    -   `REPO: <effective-target-repo-name>`
     -   `STAGE: <stage-id>[, <stage-id>...]`
     -   When multiple failures occur in a single run, STAGE MUST be a
         single line with a comma-separated list of all known failing
@@ -316,16 +324,15 @@ fixed FAIL summary shape.
 
 Canonical machine terminal summary:
 - The NDJSON `type="result"` event is the canonical machine terminal summary carrier.
-- It MUST include at minimum: `ok`, `return_code`, `terminal_status`, `final_stage`, `final_reason`, `final_commit_sha`, `push_status`, `log_path`, `json_path`.
+- It MUST include at minimum: `ok`, `return_code`, `terminal_status`, `final_stage`, `final_reason`, `final_commit_sha`, `push_status`, `log_path`, `json_path`, `effective_target_repo_name`.
 - `terminal_status` MUST be one of `success`, `fail`, `canceled`.
 - `json_path` denotes the current-run NDJSON file path when `json_out` is enabled; otherwise it MUST be `null`.
+- `effective_target_repo_name` MUST be the canonical effective target repo name resolved for the run.
 - The human final summary text and the summary `type="log"` events are deterministic renders of this same canonical terminal summary and MUST remain consistent with it.
 
 Quiet sinks: - If `--verbosity quiet`, the console prints only START +
-RESULT (plus error detail on FAIL). - If `--log-level quiet`, the log
-file contains only START + RESULT (plus error detail on FAIL), except
-that the final `CANCELED` summary still logs `STAGE`, `REASON`, and
-`LOG`.
+final summary (plus error detail on FAIL). - If `--log-level quiet`, the
+log file contains only START + final summary (plus error detail on FAIL).
 
 Priority rule (normative): - If patch application fails (e.g.,
 `git apply` fails in unified patch mode), the final FAIL summary MUST
@@ -1638,14 +1645,16 @@ Behavior:
 Format:
 - One JSON object per line (NDJSON).
 - Event types: hello, log, result.
+- hello events include: `seq`, `ts_mono_ms`, `runner_mode`, `issue_id`, `screen_level`, `log_level`, `effective_target_repo_name`.
 - log events include: `seq`, `ts_mono_ms`, `stage`, `kind`, `sev`, `ch`, `summary`, `bypass`, `msg`.
-- result events include: `seq`, `ts_mono_ms`, `stage`, `ok`, `return_code`, `terminal_status`, `final_stage`, `final_reason`, `final_commit_sha`, `push_status`, `log_path`, `json_path`.
+- result events include: `seq`, `ts_mono_ms`, `stage`, `ok`, `return_code`, `terminal_status`, `final_stage`, `final_reason`, `final_commit_sha`, `push_status`, `log_path`, `json_path`, `effective_target_repo_name`.
 - `terminal_status` MUST be `success`, `fail`, or `canceled`.
 - `final_stage` MUST be the deterministic terminal stage summary or `null` when not applicable.
 - `final_reason` MUST be the deterministic terminal reason summary or `null` when not applicable.
 - `final_commit_sha` MUST be the final commit sha for success paths or `null` when not applicable.
 - `push_status` MUST be `OK`, `FAIL`, or `null` when commit/push is not applicable.
 - `json_path` denotes the current-run NDJSON file path when `json_out` is enabled and `null` otherwise.
+- `effective_target_repo_name` MUST be the canonical effective target repo name resolved for the run.
 - Machine-facing liveness heartbeats MUST remain `type="log"` events.
 - For liveness heartbeats, `kind` MUST be `HEARTBEAT`, `sev` MUST be `DEBUG`, `ch` MUST be `DETAIL`, `summary` MUST be `false`, `bypass` MUST be `false`, and `msg` MUST be `HEARTBEAT`.
 - Live subprocess stdout payload MUST use `kind="SUBPROCESS_STDOUT"`.
