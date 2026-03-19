@@ -191,6 +191,7 @@ The runtime version MUST NOT be hardcoded in code.
   token" for each logical payload, including at minimum:
   - runs list,
   - jobs list,
+  - patches inventory list,
   - header/status summary,
   - latest patch discovery.
 - The UI MUST supply the last-seen token on refresh.
@@ -212,7 +213,7 @@ Backoff sequence
   by editing one value.
 
 Reset and advance rules
-- The UI MUST track last-seen change tokens (sig) for: jobs, runs, header, latest patch discovery.
+- The UI MUST track last-seen change tokens (sig) for: jobs, runs, patches inventory, header, latest patch discovery.
 - On a refresh attempt, if all sig values are unchanged, the UI MUST advance
   one step in the backoff sequence (capped at the last element).
 - If any sig value changes, the UI MUST reset to the first element.
@@ -298,8 +299,9 @@ Debug support
 
 Goal: prevent overlapping requests that create backend pressure when responses are slow.
 
-- For each refresh endpoint (jobs, runs, header/stats, ui_snapshot, latest patch),
-  the UI MUST enforce single-flight: at most one in-flight request per endpoint.
+- For each refresh endpoint (jobs, runs, patches inventory, header/stats,
+  ui_snapshot, latest patch), the UI MUST enforce single-flight: at most one
+  in-flight request per endpoint.
 - If a periodic tick occurs while a request for that endpoint is still in-flight,
   the UI MUST NOT start a second request for the same endpoint.
 - If a user action triggers a refresh while a request is in-flight, the UI MUST
@@ -318,6 +320,7 @@ Payload
 - The response MUST include, at minimum:
   - jobs list (thin, see 2.11),
   - runs list (thin, see 2.11),
+  - patches list (thin, see 2.11),
   - workspaces list (thin, see 2.11),
   - header/status summary for stable overview rendering.
 - The snapshot header payload MUST contain only stable overview fields.
@@ -326,7 +329,7 @@ Payload
 
 Tokens and caching
 - The server MUST compute and expose a stable sig for each sub-payload:
-  - jobs_sig, runs_sig, workspaces_sig, header_sig.
+  - jobs_sig, runs_sig, patches_sig, workspaces_sig, header_sig.
 - header_sig MUST cover all user-visible state present in snapshot.header.
 - Volatile diagnostics fields exposed by /api/debug/diagnostics MUST NOT be
   included in header_sig and MUST NOT invalidate the overview snapshot.
@@ -334,9 +337,9 @@ Tokens and caching
 - The full snapshot response MUST include the authoritative current overview seq.
 - The response MUST include:
   { ok: true, seq: <int>,
-    snapshot: { jobs: [...], runs: [...], workspaces: [...], header: {...} },
-    sigs: { jobs: <jobs_sig>, runs: <runs_sig>, workspaces: <workspaces_sig>,
-      header: <header_sig>, snapshot: <snapshot_sig> } }
+    snapshot: { jobs: [...], runs: [...], patches: [...], workspaces: [...], header: {...} },
+    sigs: { jobs: <jobs_sig>, runs: <runs_sig>, patches: <patches_sig>,
+      workspaces: <workspaces_sig>, header: <header_sig>, snapshot: <snapshot_sig> } }
 - The snapshot endpoint MUST support ETag/304 using snapshot_sig.
 
 Client behavior
@@ -376,6 +379,7 @@ Payload requirements
   - seq: <int>
   - sigs.jobs
   - sigs.runs
+  - sigs.patches
   - sigs.workspaces
   - sigs.header
   - sigs.snapshot
@@ -398,7 +402,7 @@ Goal: transfer overview changes without re-sending the full snapshot.
 Cursor model
 - PatchHub MUST use exactly one monotonic cursor seq for the entire overview
   snapshot model.
-- Separate cursors for jobs, runs, workspaces, or header are forbidden.
+- Separate cursors for jobs, runs, patches, workspaces, or header are forbidden.
 
 Endpoint
 - GET /api/ui_snapshot_delta?since_seq=<int>
@@ -408,11 +412,13 @@ Delta payload
   - seq: <int>
   - sigs.jobs
   - sigs.runs
+  - sigs.patches
   - sigs.workspaces
   - sigs.header
   - sigs.snapshot
   - jobs: { added: [...], updated: [...], removed: [...] }
   - runs: { added: [...], updated: [...], removed: [...] }
+  - patches: { added: [...], updated: [...], removed: [...] }
   - workspaces: { added: [...], updated: [...], removed: [...] }
   - header_changed: <bool>
   - header: {...} only when header_changed is true
@@ -541,6 +547,8 @@ Definitions:
 - call(...) MUST be exception-safe:
   - Exceptions thrown by a capability handler MUST be caught inside the dispatcher.
   - The exception MUST NOT propagate to the top-level UI runtime.
+- Each capability name MUST have exactly one authoritative registered owner.
+- Duplicate registration of the same capability name is forbidden.
 - The dispatcher MUST be fault-aware:
   - When a capability throws, its owning module MUST be marked faulted and further calls MAY be short-circuited to defaults.
 
@@ -1161,6 +1169,7 @@ Shared pool placement and local-surface rules:
 
 Left sidebar order (top to bottom):
 - Active job
+- Patches
 - Workspaces
 - Stats
 - Runs
@@ -1186,7 +1195,8 @@ behavior remain unchanged.
 
 7.1.6A Sidebar Collapsible Lists (Runs, Jobs)
 
-The main UI includes three sidebar lists that are operator convenience only:
+The main UI includes four sidebar lists that are operator convenience only:
+- Patches list (left sidebar; above Workspaces)
 - Workspaces list (left sidebar; above Stats and Runs)
 - Runs list (left sidebar)
 - Jobs list (right sidebar)
@@ -1194,6 +1204,9 @@ The main UI includes three sidebar lists that are operator convenience only:
 These lists MUST be collapsible and MUST be hidden by default.
 
 HTML elements (templates/index.html):
+- Patches:
+  - toggle button: <button id="patchesCollapse" ...>
+  - wrapper: <div id="patchesWrap" class="hidden"> ... </div>
 - Workspaces:
   - toggle button: <button id="workspacesCollapse" ...>
   - wrapper: <div id="workspacesWrap" class="hidden"> ... </div>
@@ -1206,10 +1219,12 @@ HTML elements (templates/index.html):
 
 Behavior (static/app.js):
 - Default visibility:
+  - patchesVisible = false
   - workspacesVisible = false
   - runsVisible = false
   - jobsVisible = false
 - UI state persistence uses localStorage keys:
+  - amp.ui.patchesVisible ("1" or "0")
   - amp.ui.workspacesVisible ("1" or "0")
   - amp.ui.runsVisible ("1" or "0")
   - amp.ui.jobsVisible ("1" or "0")
@@ -1303,6 +1318,67 @@ Quick action rules:
 
 Forbidden in visible item text:
 - job_id (may exist only as an internal data attribute for selection)
+
+7.1.6AA Patch Inventory List (UI)
+
+The Patches list is an operator convenience view and the authoritative UI surface
+for selectable patch artifacts.
+
+Terminology rule:
+- The UI label for this card MUST be "Patches".
+
+Inventory scope:
+- The inventory MUST scan only:
+  - direct child files under patches_root
+  - direct child files under upload_dir, if upload_dir resolves under patches_root
+- Both scans MUST be non-recursive.
+- The inventory MUST NOT traverse nested directories under patches_root.
+- This forbids recursive inclusion of successful/, unsuccessful/, artifacts/,
+  logs/, workspaces/, or any other nested subtree.
+- If upload_dir is patches/incoming, only direct child files under
+  patches/incoming are included from that subtree.
+
+Candidate filtering:
+- Returned items MUST be limited to:
+  - .zip files that contain at least one .patch entry
+  - .patch files
+  - .diff files
+- Directories and all other file types MUST be excluded.
+
+Ordering:
+- Items MUST be sorted by mtime descending.
+- Ties MUST be broken by stored_rel_path lexicographically ascending.
+
+Per-item behavior:
+- Clicking an item MUST load that patch into the Start form, but MUST remain
+  PHASE 1 only.
+- Click-load MUST:
+  - prepare the form for a new patch load
+  - set mode = patch
+  - set patchPath = stored_rel_path
+  - clear rawCommand
+  - apply authoritative derived issue / commit / target metadata from backend payload
+  - refresh preview and validation
+- Click-load MUST NOT enqueue a job and MUST NOT start processing before
+  explicit Start.
+
+Delete behavior:
+- Each item MUST expose a delete control.
+- Delete MUST require explicit operator confirmation.
+- Confirmed delete MUST use the existing /api/fs/delete endpoint against
+  stored_rel_path.
+- If the deleted path equals the currently loaded patchPath, the UI MUST clear:
+  - patchPath
+  - PM validation payload
+  - zip subset state
+  - preview / validation state derived from that path
+
+Refresh behavior:
+- The Patches list MUST NOT create its own timer.
+- In ACTIVE mode, it MUST refresh only from the already-centralized visible-tab
+  refresh timer and only while the Patches card is visible.
+- In IDLE mode, it MUST refresh from the same overview snapshot model used by
+  /api/ui_snapshot, /api/events, and /api/ui_snapshot_delta.
 
 7.1.6B rerun_latest Autofill Authority (UI)
 
@@ -1666,6 +1742,8 @@ Rules:
 7.2.5b GET /api/patches/latest
 Purpose:
 - Used by UI autofill/polling to find latest matching file in scan_dir.
+- This endpoint is latest-discovery only.
+- This endpoint MUST NOT be used as the source for the sidebar Patches inventory.
 
 Defaulting:
 - If scan_dir is empty, it defaults to cfg.paths.patches_root.
@@ -1706,6 +1784,45 @@ Output (found):
   "derived_commit_message": "<string|null>",        (only if derive_enabled)
   "derived_target_repo": "<string|null>"            (see Section 5.3.1; only for zip inputs)
 }
+
+7.2.5c GET /api/patches/inventory
+Output schema (success):
+{
+  "ok": true,
+  "items": [<PatchInventoryItem>, ...],
+  "sig": "<string>"
+}
+
+PatchInventoryItem schema:
+{
+  "stored_rel_path": "<string>",
+  "filename": "<string>",
+  "kind": "zip|patch|diff",
+  "source_bucket": "patches_root|upload_dir",
+  "mtime_utc": "<UTC ISO Z string>",
+  "derived_issue": "<string|null>",
+  "derived_commit_message": "<string|null>",
+  "derived_target_repo": "<string|null>"
+}
+
+Rules:
+- This endpoint is the authoritative source for the sidebar Patches inventory.
+- The inventory MUST scan only:
+  - direct child files under patches_root
+  - direct child files under upload_dir, if upload_dir resolves under patches_root
+- Both scans MUST be non-recursive.
+- Directories MUST be ignored.
+- Candidate files are limited to:
+  - .zip files that contain at least one .patch entry
+  - .patch files
+  - .diff files
+- Returned items MUST be sorted by mtime descending, then stored_rel_path
+  ascending.
+- The endpoint MUST support ETag/304 using sig.
+- derived_issue and derived_commit_message MUST use the same authoritative
+  derivation rules as PatchHub patch intake.
+- derived_target_repo MUST use the same authoritative target derivation used by
+  PatchHub patch intake; for non-zip items it MUST be null.
 
 7.2.6 GET /api/runs?issue_id=<int>&result=<string>&limit=<int>
 Inputs:
@@ -1812,6 +1929,8 @@ Output:
   "ok": true,
   "manifest": <ZipPatchManifest JSON>,
   "pm_validation": <PatchPmValidation JSON>,
+  "derived_issue": "<string|null>",
+  "derived_commit_message": "<string|null>",
   "derived_target_repo": "<string|null>"            (see Section 5.3.1; only for zip inputs)
 }
 Error 400 if path missing, path is not a zip, or the zip cannot be resolved.
@@ -1988,6 +2107,7 @@ Event payload:
   "sigs": {
     "jobs": "<string>",
     "runs": "<string>",
+    "patches": "<string>",
     "workspaces": "<string>",
     "header": "<string>",
     "snapshot": "<string>"
@@ -2007,12 +2127,14 @@ Output (success):
   "sigs": {
     "jobs": "<string>",
     "runs": "<string>",
+    "patches": "<string>",
     "workspaces": "<string>",
     "header": "<string>",
     "snapshot": "<string>"
   },
   "jobs": { "added": [...], "updated": [...], "removed": [...] },
   "runs": { "added": [...], "updated": [...], "removed": [...] },
+  "patches": { "added": [...], "updated": [...], "removed": [...] },
   "workspaces": { "added": [...], "updated": [...], "removed": [...] },
   "header_changed": <bool>,
   "header": { ... }
