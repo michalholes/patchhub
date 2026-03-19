@@ -1,9 +1,9 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.1
+Verzia 1.2.2
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
-Basic principles (HARD): 
+## 0 Basic principles (HARD): 
 
 1. Vzdy si precitaj vsetky subory v project files a riad sa nimi. 
 2. Ak je potrebna zmena specifikacie, je potrebne ju zmenit este pred implementaciou pomocou patchu v samostatnom issue. Riadiaci chat je povinny vyrobit patch (plati am patch authoring manual) a poskytnut ho spolu s implementacnym handoffom. 
@@ -39,7 +39,8 @@ RC = Kontrakt riadiacich chatov
    scripts/ su sucastou projektu, ale nepredstavuju runtime processing layer.
 8. Ak ziadam kontrolu, chcem aby bola hlbkova, kvalifikovana, kvalitna a overila kazdu okolnost
 9. Sucastou kazdeho implementacneho handoffu musi byt povinnost napisat znenie jedneho nadpisu v instrukciach pre tvorbu patchov, pricom riadiaci chat nahodne vyberie jeho cislo od 1-8. 
-10. Ak bol zisteny nedostatok v kode oproti specifikacii, je povolene iba spravit version bump specifikacie. Ine upravy specifikacie ako version bump su v takomto pripade zakazane.
+10. Ak bol zisteny nedostatok v kode oproti specifikacii, je zakazane menit specifikaciu. 
+10a. Ak bol zisteny nedostatok v kode aj v specifikacii, je povinne menit specifikaciu aj kod. 
 11. Monolith gate (platí pre src/, plugins/ aj scripts/):
    Ak hrozí pád monolith gate, handoff MUSÍ explicitne navrhnúť štruktúru zmien tak, aby prešla prahmi v am_patch.toml.
 
