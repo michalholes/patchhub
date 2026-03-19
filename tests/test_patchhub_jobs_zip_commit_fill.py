@@ -23,11 +23,20 @@ from scripts.patchhub.config import (
 from scripts.patchhub.fs_jail import FsJail
 
 
-def _write_runner_config(repo_root: Path) -> None:
+def _write_runner_config(
+    repo_root: Path,
+    *,
+    target_repo_roots: list[str] | None = None,
+) -> None:
     path = repo_root / "scripts" / "am_patch" / "am_patch.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
+    raw_values = target_repo_roots or [
+        "audiomason2=../audiomason2",
+        "/home/pi/patchhub",
+    ]
+    rendered = ", ".join(json.dumps(value) for value in raw_values)
     path.write_text(
-        '[paths]\ntarget_repo_roots = ["audiomason2=../audiomason2", "/home/pi/patchhub"]\n',
+        f"[paths]\ntarget_repo_roots = [{rendered}]\n",
         encoding="utf-8",
     )
 
@@ -120,8 +129,12 @@ class _SelfDummy:
     queue: _QueueDummy
 
 
-def _mk_self(tmp_path: Path) -> _SelfDummy:
-    _write_runner_config(tmp_path)
+def _mk_self(
+    tmp_path: Path,
+    *,
+    target_repo_roots: list[str] | None = None,
+) -> _SelfDummy:
+    _write_runner_config(tmp_path, target_repo_roots=target_repo_roots)
     cfg = _cfg()
     jail = FsJail(
         repo_root=tmp_path,
@@ -266,6 +279,27 @@ def test_enqueue_raw_command_rejects_invalid_target_repo(tmp_path: Path) -> None
     assert status == 400
     payload = json.loads(raw.decode("utf-8"))
     assert "target_repo" in payload["error"]
+
+
+def test_enqueue_rejects_duplicate_root_binding_registry(tmp_path: Path) -> None:
+    s = _mk_self(
+        tmp_path,
+        target_repo_roots=[
+            "patchhub=.",
+            "audiomason2=.",
+        ],
+    )
+
+    body = {
+        "mode": "patch",
+        "raw_command": (
+            'python3 scripts/am_patch.py 1 "x" patches/x.zip --target-repo-name patchhub'
+        ),
+    }
+    status, raw = api_jobs_enqueue(s, body)
+    assert status == 400
+    payload = json.loads(raw.decode("utf-8"))
+    assert "duplicate target_repo_roots root" in payload["error"]
 
 
 def test_enqueue_raw_command_rejects_patch_to_finalize_live_mode_mismatch(

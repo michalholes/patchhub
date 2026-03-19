@@ -14,11 +14,20 @@ sys.path.insert(0, str(_SCRIPTS))
 from patchhub import app_api_core as core
 
 
-def _write_runner_config(repo_root: Path) -> None:
+def _write_runner_config(
+    repo_root: Path,
+    *,
+    target_repo_roots: list[str] | None = None,
+) -> None:
     path = repo_root / "scripts" / "am_patch" / "am_patch.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
+    raw_values = target_repo_roots or [
+        "audiomason2=../audiomason2",
+        "/home/pi/patchhub",
+    ]
+    rendered = ", ".join(json.dumps(value) for value in raw_values)
     path.write_text(
-        '[paths]\ntarget_repo_roots = ["audiomason2=../audiomason2", "/home/pi/patchhub"]\n',
+        f"[paths]\ntarget_repo_roots = [{rendered}]\n",
         encoding="utf-8",
     )
 
@@ -72,3 +81,20 @@ class TestApiParseCommand(unittest.TestCase):
         obj = json.loads(body.decode("utf-8"))
         self.assertFalse(obj.get("ok"))
         self.assertIn("target_repo", obj["error"])
+
+    def test_parse_rejects_duplicate_token_binding_registry(self) -> None:
+        raw = 'python3 scripts/am_patch.py 219 "x" patches/y.zip --target-repo-name patchhub'
+        with TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            _write_runner_config(
+                repo_root,
+                target_repo_roots=[
+                    "patchhub=.",
+                    "patchhub=../other",
+                ],
+            )
+            status, body = core.api_parse_command(_targeting_self(repo_root), {"raw": raw})
+        self.assertEqual(status, 400)
+        obj = json.loads(body.decode("utf-8"))
+        self.assertFalse(obj.get("ok"))
+        self.assertIn("duplicate target_repo_roots token", obj["error"])

@@ -72,7 +72,8 @@ def derive_target_options(
         raise ValueError("runner config [paths] must be a TOML object")
     raw_values = list(paths.get("target_repo_roots", []) or [])
     options: list[str] = []
-    seen: set[str] = set()
+    seen_tokens: set[str] = set()
+    seen_roots: set[Path] = set()
     for raw in raw_values:
         text = str(raw).strip()
         if not text:
@@ -88,9 +89,12 @@ def derive_target_options(
             if resolved_root is None:
                 continue
             token = canonical_target_repo_name_from_root(resolved_root)
-        if token in seen:
-            continue
-        seen.add(token)
+        if token in seen_tokens:
+            raise ValueError(f"duplicate target_repo_roots token: {token!r}")
+        if resolved_root in seen_roots:
+            raise ValueError(f"duplicate target_repo_roots root: {resolved_root}")
+        seen_tokens.add(token)
+        seen_roots.add(resolved_root)
         options.append(token)
     return sorted(options)
 
