@@ -343,7 +343,13 @@ class Logger:
         )
 
     def emit_json_hello(
-        self, *, issue_id: str | None, mode: str, verbosity: str, log_level: str
+        self,
+        *,
+        issue_id: str | None,
+        mode: str,
+        verbosity: str,
+        log_level: str,
+        effective_target_repo_name: str | None = None,
     ) -> None:
         with self._io_lock:
             ipc_stream = self._ipc_stream
@@ -360,6 +366,7 @@ class Logger:
                 "issue_id": issue_id,
                 "screen_level": str(verbosity or ""),
                 "log_level": str(log_level or ""),
+                "effective_target_repo_name": effective_target_repo_name,
             }
             if self.json_enabled and self._json_fp is not None:
                 with contextlib.suppress(Exception):

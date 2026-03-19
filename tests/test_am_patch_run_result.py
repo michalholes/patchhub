@@ -54,6 +54,7 @@ def _mk_context(
         log_level="quiet",
         json_path=json_path,
         isolated_work_patch_dir=None,
+        effective_target_repo_name="patchhub",
     )
     return ctx, logger, json_path
 
@@ -168,6 +169,7 @@ def test_finalize_and_report_emits_failure_result_fields(
     assert result_evt["final_reason"] == "gates failed"
     assert result_evt["final_commit_sha"] is None
     assert result_evt["push_status"] is None
+    assert result_evt["effective_target_repo_name"] == "patchhub"
     assert result_evt["json_path"] == str(json_path)
 
 
@@ -200,4 +202,5 @@ def test_finalize_and_report_emits_success_result_fields(
     assert result_evt["final_reason"] is None
     assert result_evt["final_commit_sha"] == "deadbeef"
     assert result_evt["push_status"] == "OK"
+    assert result_evt["effective_target_repo_name"] == "patchhub"
     assert result_evt["json_path"] == str(json_path)

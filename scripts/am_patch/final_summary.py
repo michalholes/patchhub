@@ -20,6 +20,7 @@ class TerminalSummary:
     final_reason: str | None
     final_commit_sha: str | None
     push_status: str | None
+    effective_target_repo_name: str | None
     log_path: Path
     json_path: Path | None
     final_pushed_files: list[str] | None
@@ -37,6 +38,7 @@ def build_terminal_summary(
     final_fail_reason: str | None,
     log_path: Path,
     json_path: Path | None,
+    effective_target_repo_name: str | None = None,
 ) -> TerminalSummary:
     terminal_status = _terminal_status(exit_code)
     return TerminalSummary(
@@ -47,6 +49,7 @@ def build_terminal_summary(
         final_reason=_final_reason(terminal_status, final_fail_reason),
         final_commit_sha=(final_commit_sha if terminal_status == "success" else None),
         push_status=_push_status(commit_and_push, push_ok_for_posthook),
+        effective_target_repo_name=effective_target_repo_name,
         log_path=log_path,
         json_path=json_path,
         final_pushed_files=_final_pushed_files(
@@ -66,6 +69,7 @@ def result_event_payload(summary: TerminalSummary) -> dict[str, object]:
         "final_reason": summary.final_reason,
         "final_commit_sha": summary.final_commit_sha,
         "push_status": summary.push_status,
+        "effective_target_repo_name": summary.effective_target_repo_name,
         "log_path": str(summary.log_path),
         "json_path": str(summary.json_path) if summary.json_path is not None else None,
     }
@@ -124,14 +128,22 @@ def _render_success_lines(
     summary: TerminalSummary,
 ) -> list[tuple[str, str, bool, bool]]:
     lines: list[tuple[str, str, bool, bool]] = [("RESULT: SUCCESS\n", "RESULT", True, True)]
+    lines.append(
+        (
+            f"REPO: {summary.effective_target_repo_name or ''}\n",
+            "REPO",
+            True,
+            True,
+        )
+    )
     if summary.push_status == "OK" and summary.final_pushed_files is not None:
-        lines.append(("FILES:\n\n", "FILES", False, False))
-        lines.extend((f"{line}\n", "TEXT", False, False) for line in summary.final_pushed_files)
-    lines.append((f"COMMIT: {summary.final_commit_sha or '(none)'}\n", "COMMIT", False, False))
+        lines.append(("FILES:\n\n", "FILES", True, True))
+        lines.extend((f"{line}\n", "TEXT", True, True) for line in summary.final_pushed_files)
+    lines.append((f"COMMIT: {summary.final_commit_sha or '(none)'}\n", "COMMIT", True, True))
     if summary.commit_and_push:
         push_text = summary.push_status or "UNKNOWN"
-        lines.append((f"PUSH: {push_text}\n", "PUSH", False, False))
-    lines.append((f"LOG: {summary.log_path}\n", "TEXT", False, True))
+        lines.append((f"PUSH: {push_text}\n", "PUSH", True, True))
+    lines.append((f"LOG: {summary.log_path}\n", "TEXT", True, True))
     return lines
 
 
@@ -140,28 +152,40 @@ def _render_canceled_lines(
 ) -> list[tuple[str, str, bool, bool]]:
     return [
         ("RESULT: CANCELED\n", "RESULT", True, True),
-        (f"STAGE: {summary.final_stage or 'INTERNAL'}\n", "STAGE", False, True),
+        (
+            f"REPO: {summary.effective_target_repo_name or ''}\n",
+            "REPO",
+            True,
+            True,
+        ),
+        (f"STAGE: {summary.final_stage or 'INTERNAL'}\n", "STAGE", True, True),
         (
             f"REASON: {summary.final_reason or 'cancel requested'}\n",
             "REASON",
-            False,
+            True,
             True,
         ),
-        (f"LOG: {summary.log_path}\n", "TEXT", False, True),
+        (f"LOG: {summary.log_path}\n", "TEXT", True, True),
     ]
 
 
 def _render_fail_lines(summary: TerminalSummary) -> list[tuple[str, str, bool, bool]]:
     return [
         ("RESULT: FAIL\n", "RESULT", True, True),
-        (f"STAGE: {summary.final_stage or 'INTERNAL'}\n", "STAGE", False, False),
+        (
+            f"REPO: {summary.effective_target_repo_name or ''}\n",
+            "REPO",
+            True,
+            True,
+        ),
+        (f"STAGE: {summary.final_stage or 'INTERNAL'}\n", "STAGE", True, True),
         (
             f"REASON: {summary.final_reason or 'unexpected error'}\n",
             "REASON",
-            False,
-            False,
+            True,
+            True,
         ),
-        (f"LOG: {summary.log_path}\n", "TEXT", False, False),
+        (f"LOG: {summary.log_path}\n", "TEXT", True, True),
     ]
 
 

@@ -10,6 +10,7 @@ import pytest
 def _import_am_patch():
     scripts_dir = Path(__file__).parent.parent / "scripts"
     sys.path.insert(0, str(scripts_dir))
+    from am_patch.errors import CANCEL_EXIT_CODE
     from am_patch.final_summary import (
         build_terminal_summary,
         emit_final_summary,
@@ -17,7 +18,13 @@ def _import_am_patch():
     )
     from am_patch.log import Logger
 
-    return Logger, build_terminal_summary, emit_final_summary, render_summary_lines
+    return (
+        CANCEL_EXIT_CODE,
+        Logger,
+        build_terminal_summary,
+        emit_final_summary,
+        render_summary_lines,
+    )
 
 
 def _mk_logger(
@@ -27,7 +34,7 @@ def _mk_logger(
     log_level: str,
     json_enabled: bool = False,
 ):
-    logger_cls, *_ = _import_am_patch()
+    _, logger_cls, *_ = _import_am_patch()
     log_path = tmp_path / "am_patch.log"
     symlink_path = tmp_path / "am_patch.symlink"
     return logger_cls(
@@ -39,6 +46,18 @@ def _mk_logger(
         json_enabled=json_enabled,
         json_path=(tmp_path / "am_patch.jsonl") if json_enabled else None,
     )
+
+
+def _summary_events(tmp_path: Path) -> list[tuple[str, str]]:
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    return [
+        (evt["kind"], evt["msg"])
+        for evt in events
+        if evt.get("type") == "log" and evt.get("summary") is True
+    ]
 
 
 def _expected_render(
@@ -64,7 +83,7 @@ def _expected_render(
 def test_success_summary_log_events_and_human_output_share_one_render(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
-    _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
+    _, _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
     logger = _mk_logger(tmp_path, screen_level="normal", log_level="normal", json_enabled=True)
     log_path = tmp_path / "am_patch.log"
     summary = build_terminal_summary(
@@ -77,6 +96,7 @@ def test_success_summary_log_events_and_human_output_share_one_render(
         final_fail_reason=None,
         log_path=log_path,
         json_path=tmp_path / "am_patch.jsonl",
+        effective_target_repo_name="patchhub",
     )
     try:
         emit_final_summary(
@@ -92,15 +112,7 @@ def test_success_summary_log_events_and_human_output_share_one_render(
 
     out = capsys.readouterr().out
     data = log_path.read_text(encoding="utf-8")
-    events = [
-        json.loads(line)
-        for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    summary_events = [
-        (evt["kind"], evt["msg"])
-        for evt in events
-        if evt.get("type") == "log" and evt.get("summary") is True
-    ]
+    summary_events = _summary_events(tmp_path)
     expected_screen, expected_log, expected_machine = _expected_render(
         summary,
         screen_quiet=False,
@@ -110,12 +122,74 @@ def test_success_summary_log_events_and_human_output_share_one_render(
     assert out == expected_screen
     assert data == expected_log
     assert summary_events == expected_machine
+    assert "REPO: patchhub\n" in out
+    assert "REPO: patchhub\n" in data
+    assert ("REPO", "REPO: patchhub") in summary_events
+
+
+def test_success_summary_quiet_keeps_full_final_summary_on_screen_and_log(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _, _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
+    logger = _mk_logger(tmp_path, screen_level="quiet", log_level="quiet", json_enabled=True)
+    log_path = tmp_path / "am_patch.log"
+    summary = build_terminal_summary(
+        exit_code=0,
+        commit_and_push=True,
+        final_commit_sha="abc1234",
+        final_pushed_files=["alpha.py", "beta.py"],
+        push_ok_for_posthook=True,
+        final_fail_stage=None,
+        final_fail_reason=None,
+        log_path=log_path,
+        json_path=tmp_path / "am_patch.jsonl",
+        effective_target_repo_name="patchhub",
+    )
+    try:
+        emit_final_summary(
+            logger=logger,
+            summary=summary,
+            final_fail_detail=None,
+            final_fail_fingerprint=None,
+            screen_quiet=True,
+            log_quiet=True,
+        )
+    finally:
+        logger.close()
+
+    expected_summary = (
+        "RESULT: SUCCESS\n"
+        "REPO: patchhub\n"
+        "FILES:\n\n"
+        "alpha.py\n"
+        "beta.py\n"
+        "COMMIT: abc1234\n"
+        "PUSH: OK\n"
+        f"LOG: {log_path}\n"
+    )
+    expected_events = [
+        ("RESULT", "RESULT: SUCCESS"),
+        ("REPO", "REPO: patchhub"),
+        ("FILES", "FILES:\n"),
+        ("TEXT", "alpha.py"),
+        ("TEXT", "beta.py"),
+        ("COMMIT", "COMMIT: abc1234"),
+        ("PUSH", "PUSH: OK"),
+        ("TEXT", f"LOG: {log_path}"),
+    ]
+
+    out = capsys.readouterr().out
+    data = log_path.read_text(encoding="utf-8")
+
+    assert out == expected_summary
+    assert data == expected_summary
+    assert _summary_events(tmp_path) == expected_events
 
 
 def test_fail_summary_keeps_quiet_sinks_and_machine_render_consistent(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
-    _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
+    _, _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
     logger = _mk_logger(tmp_path, screen_level="quiet", log_level="quiet", json_enabled=True)
     log_path = tmp_path / "am_patch.log"
     summary = build_terminal_summary(
@@ -128,6 +202,7 @@ def test_fail_summary_keeps_quiet_sinks_and_machine_render_consistent(
         final_fail_reason="invalid inputs",
         log_path=log_path,
         json_path=tmp_path / "am_patch.jsonl",
+        effective_target_repo_name="patchhub",
     )
     detail = "ERROR DETAIL: PREFLIGHT:PATCH_ASCII: bad patch\n"
     fingerprint = "AM_PATCH_FAILURE_FINGERPRINT:\n- stage: PREFLIGHT\n- category: PATCH_ASCII\n"
@@ -143,31 +218,77 @@ def test_fail_summary_keeps_quiet_sinks_and_machine_render_consistent(
     finally:
         logger.close()
 
+    expected_summary = (
+        f"RESULT: FAIL\nREPO: patchhub\nSTAGE: PREFLIGHT\nREASON: invalid inputs\nLOG: {log_path}\n"
+    )
+    expected_events = [
+        ("RESULT", "RESULT: FAIL"),
+        ("REPO", "REPO: patchhub"),
+        ("STAGE", "STAGE: PREFLIGHT"),
+        ("REASON", "REASON: invalid inputs"),
+        ("TEXT", f"LOG: {log_path}"),
+    ]
+
     out = capsys.readouterr().out
     data = log_path.read_text(encoding="utf-8")
-    events = [
-        json.loads(line)
-        for line in (tmp_path / "am_patch.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    summary_events = [
-        (evt["kind"], evt["msg"])
-        for evt in events
-        if evt.get("type") == "log" and evt.get("summary") is True
-    ]
-    expected_screen, expected_log, expected_machine = _expected_render(
-        summary,
-        screen_quiet=True,
-        log_quiet=True,
-    )
 
-    assert out == detail + expected_screen
-    assert data == detail + fingerprint + expected_log
-    assert summary_events == expected_machine
+    assert out == detail + expected_summary
+    assert data == detail + fingerprint + expected_summary
+    assert _summary_events(tmp_path) == expected_events
     assert "AM_PATCH_FAILURE_FINGERPRINT" not in out
 
 
+def test_canceled_summary_quiet_keeps_full_final_summary_on_screen_and_log(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    cancel_exit_code, _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
+    logger = _mk_logger(tmp_path, screen_level="quiet", log_level="quiet", json_enabled=True)
+    log_path = tmp_path / "am_patch.log"
+    summary = build_terminal_summary(
+        exit_code=cancel_exit_code,
+        commit_and_push=False,
+        final_commit_sha=None,
+        final_pushed_files=None,
+        push_ok_for_posthook=None,
+        final_fail_stage="RUN",
+        final_fail_reason="ignored on cancel",
+        log_path=log_path,
+        json_path=tmp_path / "am_patch.jsonl",
+        effective_target_repo_name="patchhub",
+    )
+    try:
+        emit_final_summary(
+            logger=logger,
+            summary=summary,
+            final_fail_detail=None,
+            final_fail_fingerprint=None,
+            screen_quiet=True,
+            log_quiet=True,
+        )
+    finally:
+        logger.close()
+
+    expected_summary = (
+        f"RESULT: CANCELED\nREPO: patchhub\nSTAGE: RUN\nREASON: cancel requested\nLOG: {log_path}\n"
+    )
+    expected_events = [
+        ("RESULT", "RESULT: CANCELED"),
+        ("REPO", "REPO: patchhub"),
+        ("STAGE", "STAGE: RUN"),
+        ("REASON", "REASON: cancel requested"),
+        ("TEXT", f"LOG: {log_path}"),
+    ]
+
+    out = capsys.readouterr().out
+    data = log_path.read_text(encoding="utf-8")
+
+    assert out == expected_summary
+    assert data == expected_summary
+    assert _summary_events(tmp_path) == expected_events
+
+
 def test_fail_summary_keeps_log_summary_when_screen_sink_fails(tmp_path: Path) -> None:
-    _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
+    _, _, build_terminal_summary, emit_final_summary, _ = _import_am_patch()
     logger = _mk_logger(tmp_path, screen_level="normal", log_level="normal")
     log_path = tmp_path / "am_patch.log"
     summary = build_terminal_summary(
@@ -180,6 +301,7 @@ def test_fail_summary_keeps_log_summary_when_screen_sink_fails(tmp_path: Path) -
         final_fail_reason="gates failed",
         log_path=log_path,
         json_path=None,
+        effective_target_repo_name="patchhub",
     )
 
     def _write_screen(_message: str) -> None:
@@ -205,6 +327,7 @@ def test_fail_summary_keeps_log_summary_when_screen_sink_fails(tmp_path: Path) -
     data = log_path.read_text(encoding="utf-8")
 
     assert "RESULT: FAIL" in data
+    assert "REPO: patchhub" in data
     assert "STAGE: GATE_COMPILE, GATE_RUFF, GATE_MYPY, GATE_DOCS, GATE_MONOLITH" in data
     assert "REASON: gates failed" in data
     assert f"LOG: {log_path}" in data

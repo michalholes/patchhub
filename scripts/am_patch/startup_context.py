@@ -152,6 +152,7 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
         verbosity=verbosity,
         log_level=log_level,
         symlink_path=paths.symlink_path,
+        effective_target_repo_name=effective_target_repo_name,
     )
     logger = startup.logger
     ipc = startup.ipc

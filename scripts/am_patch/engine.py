@@ -765,6 +765,7 @@ def finalize_and_report(ctx: RunContext, result: RunResult) -> int:
         final_fail_reason=result.final_fail_reason,
         log_path=log_path,
         json_path=json_path,
+        effective_target_repo_name=getattr(ctx, "effective_target_repo_name", None),
     )
 
     with suppress(Exception):

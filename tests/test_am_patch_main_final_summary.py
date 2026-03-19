@@ -110,6 +110,7 @@ def test_finalize_and_report_reuses_one_terminal_summary_object(
         log_level="normal",
         json_path=tmp_path / "am_patch.jsonl",
         isolated_work_patch_dir=None,
+        effective_target_repo_name="patchhub",
     )
     result = RunResult(
         exit_code=0,
@@ -138,6 +139,7 @@ def test_finalize_and_report_reuses_one_terminal_summary_object(
     assert captured["json_summary"].terminal_status == "success"
     assert captured["json_summary"].final_commit_sha == "deadbeef"
     assert captured["json_summary"].push_status == "OK"
+    assert captured["json_summary"].effective_target_repo_name == "patchhub"
 
 
 def test_finalize_and_report_keeps_fail_summary_when_json_result_emit_fails(
@@ -170,6 +172,7 @@ def test_finalize_and_report_keeps_fail_summary_when_json_result_emit_fails(
         log_level="normal",
         json_path=None,
         isolated_work_patch_dir=None,
+        effective_target_repo_name="patchhub",
     )
     result = RunResult(
         exit_code=1,
@@ -193,6 +196,7 @@ def test_finalize_and_report_keeps_fail_summary_when_json_result_emit_fails(
     assert rc == 1
     data = log_path.read_text(encoding="utf-8")
     assert "RESULT: FAIL" in data
+    assert "REPO: patchhub" in data
     assert "STAGE: GATE_COMPILE, GATE_RUFF, GATE_MYPY, GATE_DOCS, GATE_MONOLITH" in data
     assert "REASON: gates failed" in data
     assert f"LOG: {log_path}" in data

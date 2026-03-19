@@ -108,8 +108,12 @@ def test_ipc_receives_start_and_hello_before_runtime_work(tmp_path: Path) -> Non
         assert ctx.ipc is not None
         assert [event["type"] for event in ctx.ipc.events[:2]] == ["log", "hello"]
         assert ctx.ipc.events[0]["kind"] == "START"
+        assert ctx.ipc.events[0]["msg"] == (
+            "START: issue=501 mode=workspace repo=audiomason2 verbosity=quiet log_level=quiet"
+        )
         assert ctx.ipc.events[1]["issue_id"] == "501"
         assert ctx.ipc.events[1]["runner_mode"] == "workspace"
+        assert ctx.ipc.events[1]["effective_target_repo_name"] == "audiomason2"
     finally:
         if ctx is not None:
             if ctx.ipc is not None:
@@ -176,6 +180,10 @@ def test_ipc_waits_for_ready_before_start_and_hello(tmp_path: Path) -> None:
             "hello",
             "log",
         ]
+        assert ctx.ipc.events[0]["msg"] == (
+            "START: issue=777 mode=workspace repo=audiomason2 verbosity=quiet log_level=quiet"
+        )
+        assert ctx.ipc.events[1]["effective_target_repo_name"] == "audiomason2"
         assert ctx.ipc.events[2]["sev"] == "DEBUG"
     finally:
         if ctx is not None:
@@ -259,6 +267,11 @@ def test_ipc_handshake_timeout_is_fail_open_and_human_debug_only(
             "log",
         ]
         assert ctx.ipc.events[0]["kind"] == "START"
+        assert ctx.ipc.events[0]["msg"] == (
+            "START: issue=778 mode=workspace repo=audiomason2 verbosity="
+            f"{verbosity} log_level={log_level}"
+        )
+        assert ctx.ipc.events[1]["effective_target_repo_name"] == "audiomason2"
         assert ctx.ipc.events[2]["msg"] == (
             "DEBUG: IPC startup handshake timed out; continuing legacy IPC"
         )

@@ -28,6 +28,7 @@ def build_startup_logger_and_ipc(
     verbosity: str,
     log_level: str,
     symlink_path: Path,
+    effective_target_repo_name: str | None = None,
 ) -> StartupLoggerIpc:
     logger = Logger(
         log_path=log_path,
@@ -98,6 +99,7 @@ def build_startup_logger_and_ipc(
         channel="CORE",
         message=(
             f"START: issue={cli.issue_id or '(none)'} mode={cli.mode} "
+            f"repo={effective_target_repo_name or ''} "
             f"verbosity={verbosity} log_level={log_level}\n"
         ),
         summary=True,
@@ -108,6 +110,7 @@ def build_startup_logger_and_ipc(
         mode=cli.mode,
         verbosity=verbosity,
         log_level=log_level,
+        effective_target_repo_name=effective_target_repo_name,
     )
     if startup_handshake_enabled and ipc is not None:
         msg = (
