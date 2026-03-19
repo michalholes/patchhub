@@ -653,7 +653,7 @@ For repair patches, the chat MUST provide evidence of:
 
 1.  `git apply --check` success per file
 2.  `python -m compileall` success (at least modified files)
-2.  all pytest tests
+2a.  all pytest tests
 3.  validator evidence as defined in PM patch validator (HARD)
 4.  implementation evidence as defined above
 
