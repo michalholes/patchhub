@@ -220,13 +220,6 @@ def _parse_repair_requires_supplemental(raw_output: str) -> list[str]:
     return []
 
 
-def _authority_label(path: Path, *, patches_root: Path) -> str:
-    try:
-        return str(path.relative_to(patches_root)).replace("\\", "/")
-    except ValueError:
-        return str(path)
-
-
 def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
     patch_rel, patch_zip = resolve_patch_zip_path(
         jail=self.jail,
@@ -242,35 +235,8 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as td:
         temp_root = Path(td)
         workspace_snapshot: Path | None = None
-        if overlay_path is None:
-            success_archive = _latest_success_archive(self.repo_root, self.patches_root, self.cfg)
-            if success_archive is not None:
-                workspace_snapshot = success_archive
-                authority_sources.append(
-                    _authority_label(success_archive, patches_root=self.patches_root)
-                )
-            else:
-                try:
-                    workspace_snapshot = _live_workspace_snapshot(
-                        self.repo_root,
-                        temp_root / "live_workspace_snapshot.zip",
-                    )
-                except Exception as exc:
-                    return {
-                        "status": _STATUS_MISSING_CONTEXT,
-                        "effective_mode": "initial",
-                        "issue_id": issue_id,
-                        "commit_message": commit_message,
-                        "patch_path": patch_rel,
-                        "authority_sources": [],
-                        "supplemental_files": [],
-                        "raw_output": (
-                            "PHB could not obtain a workspace snapshot fallback.\n" + str(exc)
-                        ),
-                    }
-                authority_sources.append("live_workspace_snapshot")
-        else:
-            authority_sources.append(_authority_label(overlay_path, patches_root=self.patches_root))
+        if overlay_path is not None:
+            authority_sources.append(str(overlay_path))
 
         proc = _run_validator(
             repo_root=self.repo_root,
@@ -293,10 +259,6 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                 )
                 if success_archive is not None:
                     workspace_snapshot = success_archive
-                    authority_label = _authority_label(
-                        success_archive,
-                        patches_root=self.patches_root,
-                    )
                 else:
                     try:
                         workspace_snapshot = _live_workspace_snapshot(
@@ -316,9 +278,9 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                             + "\n\n[repair supplemental snapshot error]\n"
                             + str(exc),
                         }
-                    authority_label = "live_workspace_snapshot"
-                if authority_label not in authority_sources:
-                    authority_sources.append(authority_label)
+                authority_input = str(workspace_snapshot)
+                if authority_input not in authority_sources:
+                    authority_sources.append(authority_input)
                 proc = _run_validator(
                     repo_root=self.repo_root,
                     issue_id=issue_id,

@@ -220,19 +220,21 @@ def test_info_pool_strip_prefers_pm_validation_summary_over_hints() -> None:
     app_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app.js"
     pm_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_pm_validation.js"
     pool_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_info_pool.js"
-    raw_output = json.dumps("RESULT: FAIL\nRULE PATCH_BASENAME: FAIL - issue_mismatch")
+    raw_output = json.dumps(
+        "RESULT: FAIL\nRULE VALIDATION_ERROR: FAIL - workspace_snapshot_required_for_initial_mode"
+    )
     script = (
         _node_prelude(app_path, pm_path, pool_path)
         + f"""
 window.PH.call("initInfoPoolUi");
 setInfoPoolHint("enqueue", "missing commit message or patch path");
 window.PH.call("setPmValidationPayload", {{
-  status: "fail",
+  status: "missing_context",
   effective_mode: "initial",
   issue_id: "330",
   commit_message: "Use PM validator at zip load",
   patch_path: "issue_330_v1.zip",
-  authority_sources: ["audiomason2-main_20260315.zip"],
+  authority_sources: [],
   supplemental_files: [],
   raw_output: {raw_output},
 }});
@@ -243,7 +245,7 @@ process.stdout.write(JSON.stringify({{
 """
     )
     result = _run_node(script)
-    assert result["summary"] == "PM validation: FAIL"
+    assert result["summary"] == "PM validation: MISSING CONTEXT"
 
 
 def test_info_pool_modal_shows_pm_validation_section_and_raw_output() -> None:

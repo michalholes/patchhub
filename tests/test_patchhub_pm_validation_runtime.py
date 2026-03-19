@@ -188,7 +188,7 @@ def _mk_self(tmp_path: Path) -> _SelfDummy:
     return _SelfDummy(repo_root=tmp_path, cfg=cfg, jail=jail, patches_root=patches_root)
 
 
-def test_zip_manifest_includes_pm_validation_and_prefers_success_archive(
+def test_zip_manifest_includes_pm_validation_without_initial_authority_fallback(
     tmp_path: Path,
 ) -> None:
     s = _mk_self(tmp_path)
@@ -213,9 +213,10 @@ def test_zip_manifest_includes_pm_validation_and_prefers_success_archive(
     payload = json.loads(raw.decode("utf-8"))
     assert payload["manifest"]["patch_entry_count"] == 1
     pm_validation = payload["pm_validation"]
-    assert pm_validation["status"] == "pass"
+    assert pm_validation["status"] == "missing_context"
     assert pm_validation["effective_mode"] == "initial"
-    assert pm_validation["authority_sources"] == ["audiomason2-main_20260315.zip"]
+    assert pm_validation["authority_sources"] == []
+    assert "workspace_snapshot_required_for_initial_mode" in pm_validation["raw_output"]
 
 
 def test_build_pm_validation_uses_repair_overlay_only_when_available(
@@ -242,7 +243,7 @@ def test_build_pm_validation_uses_repair_overlay_only_when_available(
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
     assert payload["status"] == "pass"
     assert payload["effective_mode"] == "repair-overlay-only"
-    assert payload["authority_sources"] == ["patched_issue601_v01.zip"]
+    assert payload["authority_sources"] == [str(s.patches_root / "patched_issue601_v01.zip")]
     assert payload["supplemental_files"] == []
 
 
@@ -269,9 +270,8 @@ def test_build_pm_validation_repair_escalates_with_exact_supplemental_files(
     assert payload["status"] == "pass"
     assert payload["effective_mode"] == "repair-supplemental"
     assert payload["supplemental_files"] == [relpath]
-    assert payload["authority_sources"] == [
-        "patched_issue601_v01.zip",
-        "live_workspace_snapshot",
-    ]
+    assert payload["authority_sources"][0] == str(s.patches_root / "patched_issue601_v01.zip")
+    assert payload["authority_sources"][1].endswith("repair_workspace_snapshot.zip")
+    assert payload["authority_sources"][1] != "live_workspace_snapshot"
     assert "[overlay-only]" in payload["raw_output"]
     assert "[repair-supplemental]" in payload["raw_output"]
