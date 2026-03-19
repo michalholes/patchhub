@@ -396,11 +396,12 @@ _HELP_BY_KEY: dict[str, str] = {
         "See: scripts/am_patch_policy_glossary.md## Key: artifacts_root"
     ),
     "target_repo_name": (
-        "ASCII-only bare repo token selector for the /home/pi/<name> target family. "
-        "Default: audiomason2. Failure zip target.txt is derived from the selected root."
+        "ASCII-only bare repo token selector resolved through target_repo_roots. "
+        "Default: audiomason2. Failure zip target.txt is written from the selected token."
     ),
     "target_repo_roots": (
-        "Optional registry of allowed target repository roots. "
+        "Optional target binding registry using token=root entries. "
+        "Legacy canonical root-only entries remain supported. "
         "Dedicated CLI and --override replace the whole list value. "
         "See: scripts/am_patch_policy_glossary.md## Key: target_repo_roots"
     ),

@@ -370,9 +370,9 @@ def test_finalize_workspace_ignores_selector_inputs_when_workspace_binding_exist
     policy = Policy()
     policy.patch_dir = str(tmp_path / "patches")
     policy.target_repo_name = "rogue"
-    policy.active_target_repo_root = "/home/pi/rogue"
-    policy.repo_root = "/home/pi/rogue"
-    policy.target_repo_roots = ["/home/pi/phase2_binding"]
+    policy.active_target_repo_root = "/srv/targets/rogue"
+    policy.repo_root = "/srv/targets/rogue"
+    policy.target_repo_roots = ["phase2_binding=/srv/targets/phase2_binding"]
     policy.current_log_symlink_enabled = False
     policy.verbosity = "quiet"
     policy.log_level = "quiet"
@@ -383,7 +383,7 @@ def test_finalize_workspace_ignores_selector_inputs_when_workspace_binding_exist
     cfg.write_text("", encoding="utf-8")
     ctx = build_paths_and_logger(cli, policy, cfg, "test")
     try:
-        assert ctx.repo_root == Path("/home/pi/phase2_binding")
+        assert ctx.repo_root == Path("/srv/targets/phase2_binding")
         assert ctx.effective_target_repo_name == "phase2_binding"
     finally:
         if ctx.ipc is not None:
@@ -407,7 +407,7 @@ def test_finalize_workspace_allowlist_still_applies_with_workspace_binding(
     )
     policy = Policy()
     policy.patch_dir = str(tmp_path / "patches")
-    policy.target_repo_roots = ["/home/pi/other"]
+    policy.target_repo_roots = ["other=/srv/targets/other"]
     policy.current_log_symlink_enabled = False
     policy.verbosity = "quiet"
     policy.log_level = "quiet"

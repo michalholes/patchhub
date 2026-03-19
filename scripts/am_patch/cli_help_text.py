@@ -23,14 +23,14 @@ Options:
       Root-layout default: am_patch.toml in runner_root
 
   --target-repo-name NAME
-      Set target_repo_name selector input for the /home/pi/<name> target family.
+      Set the bare target_repo_name token resolved through target_repo_roots.
       [default: audiomason2]
 
   --active-target-repo-root PATH
       Set explicit target repository root path selector.
 
   --target-repo-roots CSV
-      Replace the allowed target repository roots registry.
+      Replace the target_repo_roots binding registry.
 
   -q, -v, -n, -d, --verbosity {{debug, verbose, normal, warning, quiet}}
       Control screen output amount. [default: verbose]
@@ -102,14 +102,14 @@ CORE / INFO
       Root-layout default: am_patch.toml in runner_root
 
   --target-repo-name NAME
-      Set target_repo_name selector input for the /home/pi/<name> target family.
+      Set the bare target_repo_name token resolved through target_repo_roots.
       [default: audiomason2]
 
   --active-target-repo-root PATH
       Set explicit target repository root path selector.
 
   --target-repo-roots CSV
-      Replace the allowed target repository roots registry.
+      Replace the target_repo_roots binding registry.
 
   --version
       Print runner version and exit.

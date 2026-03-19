@@ -71,6 +71,9 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
             issue_dir_template=policy.workspace_issue_dir_template,
             repo_dir_name=policy.workspace_repo_dir_name,
             meta_filename=policy.workspace_meta_filename,
+            timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
+            runner_root=getattr(ctx, "runner_root", None),
+            target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
         )
         ws_for_posthook = ws
 

@@ -60,4 +60,4 @@ def test_policy_schema_exposes_target_repo_name() -> None:
     assert target["type"] == "str"
     assert target["section"] == ""
     assert target["default"] == "audiomason2"
-    assert "bare repo token selector" in target["help"]
+    assert "resolved through target_repo_roots" in target["help"]

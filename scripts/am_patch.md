@@ -13,6 +13,7 @@ This manual describes how *you* use the new runner day-to-day so that runs are d
   - Root layout: `am_patch.toml`
 - Runner-owned artifacts live under artifacts_root.
 - The target surface consists of `target_repo_roots`, `active_target_repo_root`, and `target_repo_name`.
+- `target_repo_roots` is the binding registry; `target_repo_name` is a bare token resolved through that registry.
 - Zip patch inputs may carry a root-level `target.txt`.
 - The normative target-selection contract is defined in `scripts/am_patch_specification.md` section 3.1.1.
 - The dedicated target CLI keys are:
@@ -206,10 +207,12 @@ If you used `-o` (allow no-op), SUCCESS does **not** imply a code change.
 
 ---
 
-## Directory layout (expected)
+## Directory layout (example)
 
-- Repo root: `/home/pi/audiomason2`
-- Patches root: `/home/pi/audiomason2/patches`
+- Repo root: whichever binding root is selected for the run
+  (for example the root bound to `patchhub`)
+- Patches root: the configured runner-owned patch root under
+  `artifacts_root` (for example `patches/`)
 - Runner config (persistent):
   - Legacy embedded layout: `scripts/am_patch/am_patch.toml`
   - Root layout: `am_patch.toml` in the runner root
@@ -234,7 +237,7 @@ The runner excludes the following from the archived changed/touched subset when 
 This reduces archive size without changing patch semantics or gates behavior.
 
 Each failure zip also carries a root-level `target.txt` with the
-effective `target_repo_name` derived by the normative target-selection
+effective selected target token from the normative target-selection
 contract in `scripts/am_patch_specification.md` section 3.1.1. The file
 uses the token format defined in section 3.1.2.
 
@@ -250,8 +253,9 @@ Note on failure subsets:
 ## Standard workflow (workspace mode)
 
 ### 1) Create / receive a patch script
-A patch script is a Python file stored under:
-- `/home/pi/audiomason2/patches/`
+A patch script is a Python file stored under the configured runner patch root,
+for example:
+- `patches/`
 
 It MUST declare a `FILES = [...]` list (repo-relative paths).
 

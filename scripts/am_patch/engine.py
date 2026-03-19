@@ -423,6 +423,8 @@ def run_mode(ctx: RunContext) -> RunResult:
             policy=policy,
             paths=paths,
             repo_root=repo_root,
+            runner_root=runner_root,
+            effective_target_repo_name=str(getattr(ctx, "effective_target_repo_name", "")),
             patch_script=patch_script,
             unified_mode=unified_mode,
             files_declared=files_current,

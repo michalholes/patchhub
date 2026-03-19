@@ -7,6 +7,12 @@ from am_patch.errors import RunnerError
 
 
 @dataclass(frozen=True)
+class TargetBinding:
+    token: str
+    root: Path
+
+
+@dataclass(frozen=True)
 class RootModel:
     runner_root: Path
     artifacts_root: Path
@@ -25,18 +31,6 @@ def _resolve_runner_relative(raw: str | None, *, runner_root: Path) -> Path | No
     path = Path(text)
     base = path if path.is_absolute() else (runner_root / path)
     return base.resolve()
-
-
-def _resolved_registry(raw_values: list[str], *, runner_root: Path) -> tuple[Path, ...]:
-    out: list[Path] = []
-    seen: set[Path] = set()
-    for raw in raw_values:
-        resolved = _resolve_runner_relative(raw, runner_root=runner_root)
-        if resolved is None or resolved in seen:
-            continue
-        out.append(resolved)
-        seen.add(resolved)
-    return tuple(out)
 
 
 def _resolve_artifacts_root(policy: object, *, runner_root: Path) -> Path:
@@ -90,23 +84,107 @@ def canonical_target_repo_name_from_root(root: Path) -> str:
     return _validate_repo_token(parts[3], field="effective_target_repo_name")
 
 
-def _candidate_target_root(repo_name: str) -> Path:
-    return Path("/home/pi") / _validate_repo_token(repo_name, field="target_repo_name")
-
-
 def _selected_source(policy: object, key: str) -> str:
     src = getattr(policy, "_src", {}) or {}
     return str(src.get(key, "default"))
 
 
-def _choose_target_root(
+def _legacy_binding_token(root: Path) -> str:
+    try:
+        return canonical_target_repo_name_from_root(root)
+    except RunnerError as exc:
+        raise RunnerError(
+            "CONFIG",
+            "INVALID",
+            "legacy target_repo_roots entries must canonically match /home/pi/<name>",
+        ) from exc
+
+
+def resolve_target_bindings(
+    raw_values: list[str], *, runner_root: Path
+) -> tuple[TargetBinding, ...]:
+    bindings: list[TargetBinding] = []
+    seen_tokens: set[str] = set()
+    seen_roots: set[Path] = set()
+    for raw in raw_values:
+        text = str(raw).strip()
+        if not text:
+            continue
+        if "=" in text:
+            raw_token, raw_root = text.split("=", 1)
+            token = _validate_repo_token(raw_token, field="target_repo_roots token")
+            resolved_root = _resolve_runner_relative(raw_root, runner_root=runner_root)
+            if resolved_root is None:
+                raise RunnerError(
+                    "CONFIG",
+                    "INVALID",
+                    "target_repo_roots binding root must be non-empty",
+                )
+        else:
+            resolved_root = _resolve_runner_relative(text, runner_root=runner_root)
+            if resolved_root is None:
+                continue
+            token = _legacy_binding_token(resolved_root)
+        if token in seen_tokens:
+            raise RunnerError(
+                "CONFIG",
+                "INVALID",
+                f"duplicate target_repo_roots token: {token!r}",
+            )
+        if resolved_root in seen_roots:
+            raise RunnerError(
+                "CONFIG",
+                "INVALID",
+                f"duplicate target_repo_roots root: {resolved_root}",
+            )
+        bindings.append(TargetBinding(token=token, root=resolved_root))
+        seen_tokens.add(token)
+        seen_roots.add(resolved_root)
+    return tuple(bindings)
+
+
+def target_binding_for_token(
+    bindings: tuple[TargetBinding, ...],
+    token: str,
+    *,
+    field: str,
+) -> TargetBinding:
+    wanted = _validate_repo_token(token, field=field)
+    for binding in bindings:
+        if binding.token == wanted:
+            return binding
+    raise RunnerError(
+        "CONFIG",
+        "INVALID",
+        f"{field} must resolve via target_repo_roots binding registry: {wanted!r}",
+    )
+
+
+def target_binding_for_root(
+    bindings: tuple[TargetBinding, ...],
+    root: Path,
+    *,
+    field: str,
+) -> TargetBinding:
+    resolved = root.resolve()
+    for binding in bindings:
+        if binding.root == resolved:
+            return binding
+    raise RunnerError(
+        "CONFIG",
+        "INVALID",
+        f"{field} must resolve to an entry from target_repo_roots",
+    )
+
+
+def _choose_target_binding(
     *,
     policy: object,
     runner_root: Path,
-    registry: tuple[Path, ...],
+    bindings: tuple[TargetBinding, ...],
     patch_target_repo_name: str | None,
     workspace_target_repo_name: str | None,
-) -> Path:
+) -> TargetBinding:
     active_target = _resolve_runner_relative(
         getattr(policy, "active_target_repo_root", None), runner_root=runner_root
     )
@@ -119,24 +197,36 @@ def _choose_target_root(
     target_src = _selected_source(policy, "target_repo_name")
 
     if workspace_target_repo_name is not None:
-        return _candidate_target_root(workspace_target_repo_name)
+        return target_binding_for_token(
+            bindings,
+            workspace_target_repo_name,
+            field="workspace target_repo_name",
+        )
     if active_target is not None and active_src == "cli":
-        return active_target
+        return target_binding_for_root(
+            bindings,
+            active_target,
+            field="active_target_repo_root",
+        )
     if repo_root_alias is not None and repo_src == "cli":
-        return repo_root_alias
+        return target_binding_for_root(bindings, repo_root_alias, field="repo_root")
     if target_src == "cli":
-        return _candidate_target_root(target_repo_name)
+        return target_binding_for_token(bindings, target_repo_name, field="target_repo_name")
     if patch_target_repo_name is not None:
-        return _candidate_target_root(patch_target_repo_name)
+        return target_binding_for_token(
+            bindings,
+            patch_target_repo_name,
+            field="patch target_repo_name",
+        )
     if active_target is not None:
-        return active_target
+        return target_binding_for_root(
+            bindings,
+            active_target,
+            field="active_target_repo_root",
+        )
     if repo_root_alias is not None:
-        return repo_root_alias
-    if target_src == "config":
-        return _candidate_target_root(target_repo_name)
-    if not registry:
-        return runner_root
-    return _candidate_target_root(target_repo_name)
+        return target_binding_for_root(bindings, repo_root_alias, field="repo_root")
+    return target_binding_for_token(bindings, target_repo_name, field="target_repo_name")
 
 
 def resolve_root_model(
@@ -148,28 +238,22 @@ def resolve_root_model(
 ) -> RootModel:
     runner_root = runner_root.resolve()
     artifacts_root, patch_root = resolve_patch_root(policy, runner_root=runner_root)
-    registry = _resolved_registry(
-        list(getattr(policy, "target_repo_roots", []) or []), runner_root=runner_root
+    bindings = resolve_target_bindings(
+        list(getattr(policy, "target_repo_roots", []) or []),
+        runner_root=runner_root,
     )
-    active_target = _choose_target_root(
+    selected = _choose_target_binding(
         policy=policy,
         runner_root=runner_root,
-        registry=registry,
+        bindings=bindings,
         patch_target_repo_name=patch_target_repo_name,
         workspace_target_repo_name=workspace_target_repo_name,
     )
-    if active_target != runner_root and active_target not in registry:
-        raise RunnerError(
-            "CONFIG",
-            "INVALID",
-            "active_target_repo_root must resolve to runner_root "
-            "or an entry from target_repo_roots",
-        )
     return RootModel(
         runner_root=runner_root,
         artifacts_root=artifacts_root,
-        active_target_repo_root=active_target,
-        effective_target_repo_name=canonical_target_repo_name_from_root(active_target),
-        target_repo_roots=registry,
+        active_target_repo_root=selected.root,
+        effective_target_repo_name=selected.token,
+        target_repo_roots=tuple(binding.root for binding in bindings),
         patch_root=patch_root,
     )

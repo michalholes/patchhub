@@ -22,7 +22,6 @@ from am_patch.issue_diff import (
     derive_finalize_pseudo_issue_id,
     make_issue_diff_zip,
 )
-from am_patch.root_model import canonical_target_repo_name_from_root
 
 
 @dataclass(frozen=True)
@@ -50,6 +49,7 @@ def build_artifacts(
     issue_diff_base_sha: str | None,
     issue_diff_paths: list[str],
     ws_attempt: int | None,
+    effective_target_repo_name: str | None,
 ) -> ArtifactSummary:
     success_zip: Path | None = None
     failure_zip: Path | None = None
@@ -173,6 +173,13 @@ def build_artifacts(
         for name, data in failed_patch_blobs_for_zip:
             include_patch_blobs.append((name, data))
 
+        selected_target_repo_name = str(effective_target_repo_name or "").strip()
+        if not selected_target_repo_name:
+            raise RunnerError(
+                "POSTHOOK",
+                "CONFIG",
+                "missing effective_target_repo_name for failure target.txt",
+            )
         make_failure_zip(
             logger,
             failure_zip,
@@ -181,7 +188,7 @@ def build_artifacts(
             include_repo_files=files_for_fail_zip,
             include_patch_blobs=include_patch_blobs,
             include_patch_paths=include_patch_paths,
-            target_repo_name=canonical_target_repo_name_from_root(repo_root),
+            target_repo_name=selected_target_repo_name,
             log_dir_name=policy.failure_zip_log_dir,
             patch_dir_name=policy.failure_zip_patch_dir,
         )

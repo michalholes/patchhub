@@ -220,6 +220,7 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
                 ),
                 issue_diff_base_sha=result.issue_diff_base_sha,
                 issue_diff_paths=result.issue_diff_paths,
+                effective_target_repo_name=getattr(ctx, "effective_target_repo_name", None),
             )
             if (
                 result.exit_code != 0

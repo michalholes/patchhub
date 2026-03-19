@@ -56,7 +56,7 @@ def test_finalize_from_cwd_materializes_active_target_repo_root(
 ) -> None:
     _, _, build_paths_and_logger = _import_am_patch()
     runtime_mod, old = _runtime_state()
-    resolved = Path("/home/pi/patchhub")
+    resolved = (tmp_path / "targets" / "patchhub").resolve()
     monkeypatch.setattr(
         "am_patch.startup_context.resolve_repo_root_strict_from_cwd",
         lambda timeout_s=0: resolved,
@@ -65,7 +65,7 @@ def test_finalize_from_cwd_materializes_active_target_repo_root(
     ctx = None
     try:
         policy = _make_policy(tmp_path)
-        policy.target_repo_roots = [str(resolved)]
+        policy.target_repo_roots = [f"patchhub={resolved}"]
         cfg = tmp_path / "am_patch_test.toml"
         cfg.write_text("", encoding="utf-8")
 
@@ -108,10 +108,11 @@ def test_finalize_from_cwd_still_uses_existing_root_allowlist_validation(
     _, runner_error_cls, build_paths_and_logger = _import_am_patch()
     monkeypatch.setattr(
         "am_patch.startup_context.resolve_repo_root_strict_from_cwd",
-        lambda timeout_s=0: Path("/home/pi/rogue"),
+        lambda timeout_s=0: (tmp_path / "targets" / "rogue").resolve(),
     )
     policy = _make_policy(tmp_path)
-    policy.target_repo_roots = ["/home/pi/patchhub"]
+    patchhub_root = (tmp_path / "targets" / "patchhub").resolve()
+    policy.target_repo_roots = [f"patchhub={patchhub_root}"]
     cfg = tmp_path / "am_patch_test.toml"
     cfg.write_text("", encoding="utf-8")
 
@@ -120,4 +121,38 @@ def test_finalize_from_cwd_still_uses_existing_root_allowlist_validation(
 
     assert excinfo.value.stage == "CONFIG"
     assert excinfo.value.category == "INVALID"
-    assert "active_target_repo_root must resolve to runner_root" in excinfo.value.message
+    assert (
+        "active_target_repo_root must resolve to an entry from target_repo_roots"
+        in excinfo.value.message
+    )
+
+
+@pytest.mark.parametrize(
+    "target_repo_roots",
+    [
+        [
+            "patchhub=/srv/targets/patchhub",
+            "patchhub=/srv/targets/patchhub_backup",
+        ],
+        [
+            "patchhub=/srv/targets/patchhub",
+            "mirror=/srv/targets/patchhub",
+        ],
+    ],
+)
+def test_duplicate_binding_registry_entries_fail_config_invalid(
+    target_repo_roots: list[str], tmp_path: Path
+) -> None:
+    _, runner_error_cls, build_paths_and_logger = _import_am_patch()
+    policy = _make_policy(tmp_path)
+    policy.target_repo_roots = target_repo_roots
+    cfg = tmp_path / "am_patch_test.toml"
+    cfg.write_text("", encoding="utf-8")
+    cli = SimpleNamespace(issue_id="999", mode="workspace")
+
+    with pytest.raises(runner_error_cls) as excinfo:
+        build_paths_and_logger(cli, policy, cfg, "test")
+
+    assert excinfo.value.stage == "CONFIG"
+    assert excinfo.value.category == "INVALID"
+    assert "duplicate target_repo_roots" in excinfo.value.message

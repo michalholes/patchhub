@@ -298,7 +298,9 @@ Type: optional[str]
 Default: null
 Meaning: Legacy backward-compatibility alias for selecting the active target repository root.
 Notes:
-- If null, the runner uses active_target_repo_root or defaults to runner_root.
+- If null, target selection continues through
+  active_target_repo_root and target_repo_name resolution via
+  target_repo_roots.
 - If repo_root selects a non-runner target, it is subject to the same registry rules as active_target_repo_root.
 - New configurations should prefer active_target_repo_root.
 Related: active_target_repo_root, target_repo_roots
@@ -583,10 +585,12 @@ Related: patch_dir_name, patch_layout_logs_dir, patch_layout_json_dir, patch_lay
 Key: target_repo_roots
 Type: list[str]
 Default: []
-Meaning: Optional registry of allowed git target repository roots.
+Meaning: Optional binding registry of allowed git target repositories.
 Notes:
-- Relative entries are resolved against runner_root.
-- Entries constrain explicit path selection and name-derived target paths.
+- Preferred entries use `token=root` syntax.
+- Relative roots are resolved against runner_root.
+- Legacy root-only entries remain supported only when the resolved path canonically matches `/home/pi/<name>`.
+- Entries constrain explicit path selection and token-derived target selection.
 - This key does not enable multi-target execution in a single run.
 - See: scripts/am_patch_specification.md section 3.1.1
 Related: active_target_repo_root, target_repo_name, repo_root
@@ -599,7 +603,7 @@ Meaning: Explicit path selector for the git repository patched by the current ru
 Notes:
 - Relative values are resolved against runner_root.
 - If null, target selection continues via scripts/am_patch_specification.md section 3.1.1.
-- The effective value must resolve either to runner_root or to one entry from target_repo_roots.
+- The effective value must resolve to exactly one entry from target_repo_roots.
 - The selected effective target root is the single authoritative runtime truth.
 Related: target_repo_roots, target_repo_name, artifacts_root, repo_root
 
@@ -607,12 +611,12 @@ Related: target_repo_roots, target_repo_name, artifacts_root, repo_root
 Key: target_repo_name
 Type: str
 Default: audiomason2
-Meaning: Bare repo-token selector input for the `/home/pi/<name>` target family.
+Meaning: Bare repo-token selector input resolved through `target_repo_roots`.
 Notes:
 - This key is not a path.
 - Valid values are ASCII-only, exactly one non-empty token, with no whitespace,
   no `/`, no `\`, and no embedded newline.
-- When selected, the candidate target path is `/home/pi/<target_repo_name>`.
-- After target selection resolves, the effective metadata value is derived from the selected effective target root.
+- The selected token must match exactly one configured binding in `target_repo_roots`.
+- After target selection resolves, the effective metadata value remains the selected token.
 - See: scripts/am_patch_specification.md section 3.1.1
 Related: active_target_repo_root, target_repo_roots

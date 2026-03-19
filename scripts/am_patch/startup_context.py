@@ -73,6 +73,8 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
             meta_filename=policy.workspace_meta_filename,
             timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
             write_back=False,
+            runner_root=runner_root,
+            target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
         )
 
     if getattr(cli, "finalize_from_cwd", False):

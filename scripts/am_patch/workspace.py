@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 
 from .errors import RunnerError
 from .log import Logger
+from .root_model import resolve_target_bindings, target_binding_for_root
 
 
 @dataclass
@@ -192,26 +193,17 @@ def _validate_target_repo_name(value: Any) -> str:
     return token
 
 
-def _target_repo_name_from_canonical_path(path: Path, *, field: str) -> str:
-    resolved = path.resolve()
-    parts = resolved.parts
-    if len(parts) != 4 or parts[:3] != ("/", "home", "pi"):
+def _binding_registry(*, runner_root: Path | None, target_repo_roots: list[str] | None):
+    if runner_root is None or target_repo_roots is None:
         raise RunnerError(
             "PREFLIGHT",
             "WORKSPACE",
-            f"{field} must canonically resolve to /home/pi/<name>",
+            "workspace target migration requires target_repo_roots binding registry",
         )
-    return _validate_target_repo_name(parts[3])
+    return resolve_target_bindings(list(target_repo_roots or []), runner_root=runner_root.resolve())
 
 
-def _try_target_repo_name_from_path(path: Path) -> str | None:
-    try:
-        return _target_repo_name_from_canonical_path(path, field="path")
-    except RunnerError:
-        return None
-
-
-def _target_repo_name_from_origin(origin: str, *, field: str) -> str:
+def _local_path_from_origin(origin: str, *, field: str) -> Path:
     raw = str(origin).strip()
     if not raw:
         raise RunnerError(
@@ -225,16 +217,52 @@ def _target_repo_name_from_origin(origin: str, *, field: str) -> str:
             raise RunnerError(
                 "PREFLIGHT",
                 "WORKSPACE",
-                f"{field} must use file:///home/pi/<name> or /home/pi/<name>",
+                f"{field} must use a local file:// URL or an absolute local path",
             )
         raw = unquote(parsed.path)
     elif "://" in raw:
         raise RunnerError(
             "PREFLIGHT",
             "WORKSPACE",
-            f"{field} must use file:///home/pi/<name> or /home/pi/<name>",
+            f"{field} must use a local file:// URL or an absolute local path",
         )
-    return _target_repo_name_from_canonical_path(Path(raw), field=field)
+    path = Path(raw)
+    if not path.is_absolute():
+        raise RunnerError(
+            "PREFLIGHT",
+            "WORKSPACE",
+            f"{field} must use a local file:// URL or an absolute local path",
+        )
+    return path.resolve()
+
+
+def _target_repo_name_from_bound_path(
+    path: Path,
+    *,
+    runner_root: Path | None,
+    target_repo_roots: list[str] | None,
+    field: str,
+) -> str:
+    bindings = _binding_registry(
+        runner_root=runner_root,
+        target_repo_roots=target_repo_roots,
+    )
+    return target_binding_for_root(bindings, path, field=field).token
+
+
+def _target_repo_name_from_origin(
+    origin: str,
+    *,
+    runner_root: Path | None,
+    target_repo_roots: list[str] | None,
+    field: str,
+) -> str:
+    return _target_repo_name_from_bound_path(
+        _local_path_from_origin(origin, field=field),
+        runner_root=runner_root,
+        target_repo_roots=target_repo_roots,
+        field=field,
+    )
 
 
 def _read_repo_origin_url(
@@ -293,6 +321,8 @@ def load_or_migrate_workspace_target_repo_name(
     logger: Logger | None = None,
     timeout_s: int = 0,
     write_back: bool = True,
+    runner_root: Path | None = None,
+    target_repo_roots: list[str] | None = None,
 ) -> str:
     ws_root, repo_dir, meta_path = _workspace_paths(
         workspaces_dir,
@@ -309,24 +339,14 @@ def load_or_migrate_workspace_target_repo_name(
     origin = _read_repo_origin_url(repo_dir, logger=logger, timeout_s=timeout_s)
     target_repo_name = _target_repo_name_from_origin(
         origin,
+        runner_root=runner_root,
+        target_repo_roots=target_repo_roots,
         field="workspace clone origin",
     )
     if write_back:
         meta["target_repo_name"] = target_repo_name
         _write_meta(meta_path, meta)
     return target_repo_name
-
-
-def _expected_workspace_target_repo_name(
-    live_repo: Path,
-    *,
-    logger: Logger,
-) -> str:
-    direct = _try_target_repo_name_from_path(live_repo)
-    if direct is not None:
-        return direct
-    origin = _read_repo_origin_url(live_repo, logger=logger, timeout_s=0)
-    return _target_repo_name_from_origin(origin, field="live repository origin")
 
 
 def open_existing_workspace(
@@ -337,6 +357,9 @@ def open_existing_workspace(
     issue_dir_template: str = "issue_{issue}",
     repo_dir_name: str = "repo",
     meta_filename: str = "meta.json",
+    timeout_s: int = 0,
+    runner_root: Path | None = None,
+    target_repo_roots: list[str] | None = None,
 ) -> Workspace:
     ws_root, repo_dir, meta_path = _workspace_paths(
         workspaces_dir,
@@ -358,7 +381,10 @@ def open_existing_workspace(
             repo_dir_name=repo_dir_name,
             meta_filename=meta_filename,
             logger=logger,
+            timeout_s=timeout_s,
             write_back=True,
+            runner_root=runner_root,
+            target_repo_roots=target_repo_roots,
         )
         meta = _read_workspace_meta_strict(meta_path)
     base_sha, attempt, message, target_repo_name = _validate_workspace_meta_contract(
@@ -394,6 +420,10 @@ def ensure_workspace(
     soft_reset: bool,
     message: str | None,
     *,
+    effective_target_repo_name: str,
+    runner_root: Path,
+    target_repo_roots: list[str] | None,
+    timeout_s: int = 0,
     issue_dir_template: str = "issue_{issue}",
     repo_dir_name: str = "repo",
     meta_filename: str = "meta.json",
@@ -407,7 +437,7 @@ def ensure_workspace(
     meta_path = ws_root / meta_filename
 
     repo_exists = repo_dir.exists()
-    expected_target_repo_name: str | None = None
+    expected_target_repo_name = _validate_target_repo_name(effective_target_repo_name)
     meta: dict[str, Any] = {}
     if repo_exists:
         meta = _read_workspace_meta_strict(meta_path)
@@ -415,16 +445,8 @@ def ensure_workspace(
             meta,
             require_target_repo_name=False,
         )
-        expected_target_repo_name = _expected_workspace_target_repo_name(
-            live_repo,
-            logger=logger,
-        )
         attempt = existing_attempt + 1
     else:
-        expected_target_repo_name = _expected_workspace_target_repo_name(
-            live_repo,
-            logger=logger,
-        )
         attempt = 1
 
     # Per-issue history (kept until workspace deletion on successful runs).
@@ -465,7 +487,10 @@ def ensure_workspace(
             repo_dir_name=repo_dir_name,
             meta_filename=meta_filename,
             logger=logger,
+            timeout_s=timeout_s,
             write_back=True,
+            runner_root=runner_root,
+            target_repo_roots=target_repo_roots,
         )
         meta = _read_workspace_meta_strict(meta_path)
         persisted, _, _, _ = _validate_workspace_meta_contract(

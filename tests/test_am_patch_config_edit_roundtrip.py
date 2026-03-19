@@ -105,6 +105,17 @@ def test_config_edit_roundtrip_handles_root_model_keys() -> None:
     assert "active_target_repo_root" not in top_level_keys
 
 
+def test_shipped_config_uses_runner_relative_target_binding_examples() -> None:
+    cfg_path = Path(__file__).parent.parent / "scripts" / "am_patch" / "am_patch.toml"
+    original = cfg_path.read_text(encoding="utf-8")
+
+    assert 'target_repo_roots = ["patchhub=.", "audiomason2=../audiomason2"]' in original
+    assert '# active_target_repo_root = "."' in original
+    assert '# patch_dir = "patches"' in original
+    assert "/home/pi/audiomason2" not in original
+    assert "/home/pi/patchhub" not in original
+
+
 def test_config_edit_roundtrip_keeps_target_selection_comments() -> None:
     from pathlib import Path
 
@@ -118,12 +129,18 @@ def test_config_edit_roundtrip_keeps_target_selection_comments() -> None:
         cfg_path.read_text(encoding="utf-8"),
         {
             "target_repo_name": "patchhub",
-            "target_repo_roots": ["/home/pi/audiomason2", "/home/pi/patchhub"],
-            "active_target_repo_root": "/home/pi/patchhub",
+            "target_repo_roots": [
+                "audiomason2=/srv/targets/audiomason2",
+                "patchhub=/srv/targets/patchhub",
+            ],
+            "active_target_repo_root": "/srv/targets/patchhub",
         },
         schema,
     )
 
-    assert "/home/pi/<name>" in updated
-    assert 'target_repo_roots = ["/home/pi/audiomason2", "/home/pi/patchhub"]' in updated
-    assert 'active_target_repo_root = "/home/pi/patchhub"' in updated
+    assert "token=root bindings" in updated
+    assert (
+        'target_repo_roots = ["audiomason2=/srv/targets/audiomason2", '
+        '"patchhub=/srv/targets/patchhub"]'
+    ) in updated
+    assert 'active_target_repo_root = "/srv/targets/patchhub"' in updated

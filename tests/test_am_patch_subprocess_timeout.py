@@ -342,7 +342,7 @@ def test_build_paths_and_logger_defaults_target_to_runner_root(
     try:
         policy = policy_cls()
         policy.repo_root = None
-        policy.target_repo_roots = ["/home/pi/audiomason2", "/home/pi/patchhub"]
+        policy.target_repo_roots = ["audiomason2=targets/audiomason2", "patchhub=targets/patchhub"]
         policy.current_log_symlink_enabled = False
         policy.verbosity = "quiet"
         policy.log_level = "warning"
@@ -356,7 +356,7 @@ def test_build_paths_and_logger_defaults_target_to_runner_root(
         ctx = build_paths_and_logger(cli, policy, cfg, "test")
         expected_runner_root = Path(__file__).resolve().parent.parent
         assert ctx.runner_root == expected_runner_root
-        assert ctx.repo_root == Path("/home/pi/audiomason2")
+        assert ctx.repo_root == expected_runner_root / "targets" / "audiomason2"
         assert ctx.effective_target_repo_name == "audiomason2"
         assert ctx.artifacts_root == expected_runner_root
         log_data = ctx.log_path.read_text(encoding="utf-8")
@@ -418,7 +418,7 @@ def test_build_paths_and_logger_breaks_active_tty_status_before_failure_dump(
     ctx = None
     try:
         policy = policy_cls()
-        policy.target_repo_roots = ["/home/pi/audiomason2"]
+        policy.target_repo_roots = ["audiomason2=targets/audiomason2"]
         policy.patch_dir = str(tmp_path / "patches")
         policy.current_log_symlink_enabled = False
         policy.verbosity = "normal"
@@ -679,8 +679,10 @@ def test_build_paths_and_logger_supports_cross_repo_target_and_artifacts_root(
         artifacts.mkdir()
 
         policy = policy_cls()
-        policy.target_repo_roots = ["/home/pi/audiomason2", "/home/pi/patchhub"]
-        policy.active_target_repo_root = "/home/pi/patchhub"
+        policy.target_repo_roots = ["audiomason2=targets/audiomason2", "patchhub=targets/patchhub"]
+        policy.active_target_repo_root = str(
+            (Path(__file__).resolve().parent.parent / "targets" / "patchhub").resolve()
+        )
         policy.artifacts_root = str(artifacts)
         policy.current_log_symlink_enabled = False
         policy.verbosity = "quiet"
@@ -691,7 +693,10 @@ def test_build_paths_and_logger_supports_cross_repo_target_and_artifacts_root(
         cfg.write_text("", encoding="utf-8")
 
         ctx = build_paths_and_logger(cli, policy, cfg, "test")
-        assert ctx.repo_root == Path("/home/pi/patchhub")
+        assert (
+            ctx.repo_root
+            == (Path(__file__).resolve().parent.parent / "targets" / "patchhub").resolve()
+        )
         assert ctx.effective_target_repo_name == "patchhub"
         assert ctx.artifacts_root == artifacts.resolve()
         assert ctx.patch_root == artifacts.resolve() / policy.patch_dir_name
