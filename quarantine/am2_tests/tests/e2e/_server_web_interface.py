@@ -89,10 +89,9 @@ def main() -> None:
 
     from importlib import import_module
 
-    from plugins.web_interface.core import WebInterfacePlugin
-
     from audiomason.core.config import ConfigResolver
     from audiomason.core.loader import PluginLoader
+    from plugins.web_interface.core import WebInterfacePlugin
 
     import_plugin_cls = import_module("plugins.import.plugin").ImportPlugin
 

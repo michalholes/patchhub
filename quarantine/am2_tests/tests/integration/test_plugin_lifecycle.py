@@ -1,7 +1,6 @@
 """Integration tests for plugin lifecycle (load, run, unload)."""
 
 import pytest
-
 from audiomason.core.loader import PluginLoader
 
 

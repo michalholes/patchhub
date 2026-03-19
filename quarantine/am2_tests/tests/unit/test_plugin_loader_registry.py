@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from audiomason.core.config_service import ConfigService
 from audiomason.core.errors import PluginError
 from audiomason.core.loader import PluginLoader

@@ -6,7 +6,6 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
-
 from audiomason.core.config import ConfigResolver
 
 fingerprint_json = import_module("plugins.import.fingerprints").fingerprint_json

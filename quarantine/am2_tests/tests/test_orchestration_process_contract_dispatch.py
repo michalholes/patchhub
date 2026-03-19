@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from audiomason.core.context import ProcessingContext
 from audiomason.core.jobs.model import JobState, JobType
 from audiomason.core.orchestration import Orchestrator

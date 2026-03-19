@@ -5,7 +5,6 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
-
 from audiomason.core.config import ConfigResolver
 from audiomason.core.logging import VerbosityLevel, get_verbosity, set_verbosity
 

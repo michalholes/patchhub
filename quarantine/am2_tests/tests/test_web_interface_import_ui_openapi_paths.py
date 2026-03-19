@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from plugins.web_interface.core import WebInterfacePlugin
-
 from audiomason.core.loader import PluginLoader
+from plugins.web_interface.core import WebInterfacePlugin
 
 
 def test_web_interface_openapi_contains_import_ui_editor_paths() -> None:

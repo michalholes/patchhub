@@ -5,9 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from plugins.cmd_interface.plugin import CLIPlugin
-
 from audiomason.core.errors import PluginError
+from plugins.cmd_interface.plugin import CLIPlugin
 
 
 def _write_plugin_yaml(plugin_dir: Path, *, name: str, commands: list[str]) -> None:

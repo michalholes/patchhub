@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from audiomason.core.config import ConfigResolver
 from audiomason.core.errors import ConfigError
 

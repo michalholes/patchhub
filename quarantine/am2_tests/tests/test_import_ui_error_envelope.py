@@ -6,7 +6,6 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
-
 from audiomason.core.config import ConfigResolver
 
 ImportWizardEngine = import_module("plugins.import.engine").ImportWizardEngine

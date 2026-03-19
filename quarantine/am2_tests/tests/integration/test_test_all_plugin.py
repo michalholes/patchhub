@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from audiomason.core.context import ProcessingContext
 from audiomason.core.loader import PluginLoader
 

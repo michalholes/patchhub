@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from plugins.id3_tagger.plugin import ID3TaggerPlugin
-
 from audiomason.core import ProcessingContext
+from plugins.id3_tagger.plugin import ID3TaggerPlugin
 
 
 def test_build_context_tags_returns_canonical_order_and_values(tmp_path: Path) -> None:

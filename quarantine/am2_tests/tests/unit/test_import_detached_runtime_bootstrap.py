@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from audiomason.core.config import ConfigResolver
 from audiomason.core.jobs.model import JobState
 from audiomason.core.orchestration import Orchestrator

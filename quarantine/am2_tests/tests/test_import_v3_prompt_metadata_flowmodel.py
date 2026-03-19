@@ -6,7 +6,6 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
-
 from audiomason.core.config import ConfigResolver
 
 FinalizeError = import_module("plugins.import.errors").FinalizeError

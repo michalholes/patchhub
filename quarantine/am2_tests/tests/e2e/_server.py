@@ -21,9 +21,8 @@ def _bootstrap_paths() -> Path:
 def main() -> None:
     repo_root = _bootstrap_paths()
 
-    from plugins.web_interface.core import WebInterfacePlugin
-
     from audiomason.core.loader import PluginLoader
+    from plugins.web_interface.core import WebInterfacePlugin
 
     host = os.getenv("E2E_HOST", "127.0.0.1")
     port = int(os.getenv("E2E_PORT", "8081"))

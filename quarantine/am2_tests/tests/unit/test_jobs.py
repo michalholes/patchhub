@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from audiomason.core.jobs.api import JobService, _utcnow_iso
 from audiomason.core.jobs.model import JobState, JobType
 from audiomason.core.jobs.store import JobStore

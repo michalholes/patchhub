@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from audiomason.core.config import ConfigResolver
 from audiomason.core.diagnostics import is_diagnostics_enabled
 from audiomason.core.logging import VerbosityLevel, set_verbosity
