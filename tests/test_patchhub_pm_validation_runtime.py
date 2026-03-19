@@ -23,7 +23,8 @@ from scripts.patchhub.fs_jail import FsJail
 from scripts.patchhub.pm_validation_runtime import build_patch_zip_pm_validation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_TARGET = "audiomason2"
+DEFAULT_TARGET = "patchhub"
+FOREIGN_TARGET = "audiomason2"
 
 
 def _write(path: Path, text: str) -> None:
@@ -197,6 +198,41 @@ def test_zip_manifest_includes_pm_validation_without_initial_authority_fallback(
     after = "def value():\n    return 2\n"
     current = "def value():\n    return 999\n"
     _write(tmp_path / relpath, current)
+    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
+    _write_zip(
+        baseline_path,
+        {relpath: before.encode("utf-8")},
+    )
+    _write_zip(
+        s.patches_root / "audiomason2-main_20260316.zip",
+        {relpath: current.encode("utf-8")},
+    )
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Use PM validator at zip load",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    status, raw = api_patch_zip_manifest(s, {"path": "issue_601_v1.zip"})
+    assert status == 200
+    payload = json.loads(raw.decode("utf-8"))
+    assert payload["manifest"]["patch_entry_count"] == 1
+    pm_validation = payload["pm_validation"]
+    assert pm_validation["status"] == "pass"
+    assert pm_validation["effective_mode"] == "initial"
+    assert pm_validation["authority_sources"] == [str(baseline_path)]
+    assert "RESULT: PASS" in pm_validation["raw_output"]
+
+
+def test_build_pm_validation_initial_requires_target_matched_local_baseline(
+    tmp_path: Path,
+) -> None:
+    s = _mk_self(tmp_path)
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
     _write_zip(
         s.patches_root / "audiomason2-main_20260315.zip",
         {relpath: before.encode("utf-8")},
@@ -206,17 +242,14 @@ def test_zip_manifest_includes_pm_validation_without_initial_authority_fallback(
         issue="601",
         commit="Use PM validator at zip load",
         members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
     )
 
-    status, raw = api_patch_zip_manifest(s, {"path": "issue_601_v1.zip"})
-    assert status == 200
-    payload = json.loads(raw.decode("utf-8"))
-    assert payload["manifest"]["patch_entry_count"] == 1
-    pm_validation = payload["pm_validation"]
-    assert pm_validation["status"] == "missing_context"
-    assert pm_validation["effective_mode"] == "initial"
-    assert pm_validation["authority_sources"] == []
-    assert "workspace_snapshot_required_for_initial_mode" in pm_validation["raw_output"]
+    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert payload["status"] == "missing_context"
+    assert payload["effective_mode"] == "initial"
+    assert payload["authority_sources"] == []
+    assert "workspace_snapshot_required_for_initial_mode" in payload["raw_output"]
 
 
 def test_build_pm_validation_uses_repair_overlay_only_when_available(
@@ -254,6 +287,7 @@ def test_build_pm_validation_repair_escalates_with_exact_supplemental_files(
     relpath = "tests/test_sample.txt"
     before = "a\n"
     after = "b\n"
+    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
     _write(tmp_path / relpath, before)
     _patch_zip(
         s.patches_root / "issue_601_v1.zip",
@@ -265,13 +299,59 @@ def test_build_pm_validation_repair_escalates_with_exact_supplemental_files(
         s.patches_root / "patched_issue601_v01.zip",
         {"target.txt": (DEFAULT_TARGET + "\n").encode("ascii")},
     )
+    _write_zip(
+        baseline_path,
+        {relpath: before.encode("utf-8")},
+    )
 
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
     assert payload["status"] == "pass"
     assert payload["effective_mode"] == "repair-supplemental"
     assert payload["supplemental_files"] == [relpath]
-    assert payload["authority_sources"][0] == str(s.patches_root / "patched_issue601_v01.zip")
-    assert payload["authority_sources"][1].endswith("repair_workspace_snapshot.zip")
-    assert payload["authority_sources"][1] != "live_workspace_snapshot"
+    assert payload["authority_sources"] == [
+        str(s.patches_root / "patched_issue601_v01.zip"),
+        str(baseline_path),
+    ]
     assert "[overlay-only]" in payload["raw_output"]
     assert "[repair-supplemental]" in payload["raw_output"]
+
+
+def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay(
+    tmp_path: Path,
+) -> None:
+    s = _mk_self(tmp_path)
+    relpath = "scripts/extra.py"
+    before = "VALUE = 1\n"
+    after = "VALUE = 2\n"
+    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
+    foreign_path = s.patches_root / "audiomason2-main_20260316.zip"
+    _write(tmp_path / relpath, before)
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Use PM validator at zip load",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+    _write_zip(
+        s.patches_root / "patched_issue601_v01.zip",
+        {"target.txt": (DEFAULT_TARGET + "\n").encode("ascii")},
+    )
+    _write_zip(
+        baseline_path,
+        {relpath: before.encode("utf-8")},
+    )
+    _write_zip(
+        foreign_path,
+        {relpath: before.encode("utf-8")},
+    )
+
+    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert payload["status"] == "pass"
+    assert payload["effective_mode"] == "repair-supplemental"
+    assert payload["supplemental_files"] == [relpath]
+    assert payload["authority_sources"] == [
+        str(s.patches_root / "patched_issue601_v01.zip"),
+        str(baseline_path),
+    ]
+    assert str(foreign_path) not in payload["authority_sources"]

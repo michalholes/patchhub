@@ -4,18 +4,16 @@ import ast
 import json
 import subprocess
 import sys
-import tempfile
-import tomllib
-import zipfile
 from pathlib import Path
 from typing import Any
 
-from .app_support import compute_success_archive_rel
 from .zip_commit_message import (
     ZipCommitConfig,
     ZipIssueConfig,
+    ZipTargetConfig,
     read_commit_message_from_zip_path,
     read_issue_number_from_zip_path,
+    read_target_repo_from_zip_path,
 )
 from .zip_patch_subset import resolve_patch_zip_path
 
@@ -52,6 +50,15 @@ def _zip_issue_cfg(cfg: Any) -> ZipIssueConfig:
     )
 
 
+def _zip_target_cfg() -> ZipTargetConfig:
+    return ZipTargetConfig(
+        enabled=True,
+        filename="target.txt",
+        max_bytes=128,
+        max_ratio=200,
+    )
+
+
 def _derive_validation_inputs(self: Any, zpath: Path) -> tuple[str, str]:
     issue_id, _issue_err = read_issue_number_from_zip_path(zpath, _zip_issue_cfg(self.cfg))
     commit_message, _commit_err = read_commit_message_from_zip_path(
@@ -82,30 +89,32 @@ def _latest_file_by_pattern(root: Path, pattern: str) -> Path | None:
     return best
 
 
-def _runner_config_path(repo_root: Path, cfg: Any) -> Path:
-    rel = str(getattr(getattr(cfg, "runner", object()), "runner_config_toml", "")).strip()
-    return (repo_root / rel).resolve()
+def _read_zip_target(path: Path) -> tuple[str | None, str | None]:
+    return read_target_repo_from_zip_path(path, _zip_target_cfg())
 
 
-def _latest_success_archive(repo_root: Path, patches_root: Path, cfg: Any) -> Path | None:
-    runner_cfg_path = _runner_config_path(repo_root, cfg)
-    if not runner_cfg_path.exists():
+def _latest_local_baseline_snapshot(patches_root: Path, target: str) -> Path | None:
+    clean_target = str(target or "").strip()
+    if not clean_target or not patches_root.exists():
         return None
-    raw = tomllib.loads(runner_cfg_path.read_text(encoding="utf-8"))
-    paths_cfg = raw.get("paths", {})
-    cleanup_glob = str(paths_cfg.get("success_archive_cleanup_glob_template", "")).strip()
-    archive_dir = str(paths_cfg.get("success_archive_dir", "patch_dir")).strip() or "patch_dir"
-    dest_root = patches_root if archive_dir == "patch_dir" else (patches_root / "successful")
-    if cleanup_glob:
-        latest = _latest_file_by_pattern(dest_root, cleanup_glob)
-        if latest is not None:
-            return latest.resolve()
-    try:
-        rel = compute_success_archive_rel(repo_root, runner_cfg_path, str(cfg.paths.patches_root))
-    except Exception:
-        return None
-    candidate = (patches_root / rel).resolve()
-    return candidate if candidate.exists() and candidate.is_file() else None
+    best: Path | None = None
+    best_key = (-1, "")
+    prefix = f"{clean_target}-main_"
+    for candidate in patches_root.iterdir():
+        if not candidate.is_file():
+            continue
+        if not candidate.name.startswith(prefix) or candidate.suffix != ".zip":
+            continue
+        try:
+            stat = candidate.stat()
+        except OSError:
+            continue
+        rel = candidate.relative_to(patches_root).as_posix()
+        key = (int(getattr(stat, "st_mtime_ns", 0)), rel)
+        if key > best_key:
+            best = candidate
+            best_key = key
+    return None if best is None else best.resolve()
 
 
 def _latest_repair_overlay(patches_root: Path, issue_id: str) -> Path | None:
@@ -113,33 +122,6 @@ def _latest_repair_overlay(patches_root: Path, issue_id: str) -> Path | None:
     if not clean_issue.isdigit():
         return None
     return _latest_file_by_pattern(patches_root, f"patched_issue{clean_issue}_*.zip")
-
-
-def _manual_workspace_snapshot(repo_root: Path, dest_zip: Path) -> Path:
-    with zipfile.ZipFile(dest_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for fp in sorted(repo_root.rglob("*")):
-            if not fp.is_file():
-                continue
-            rel = fp.relative_to(repo_root)
-            if ".git" in rel.parts:
-                continue
-            zf.write(fp, arcname=str(rel).replace("\\", "/"))
-    return dest_zip
-
-
-def _live_workspace_snapshot(repo_root: Path, dest_zip: Path) -> Path:
-    git_dir = repo_root / ".git"
-    if git_dir.exists():
-        proc = subprocess.run(
-            ["git", "archive", "--format=zip", "-o", str(dest_zip), "HEAD"],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode == 0 and dest_zip.exists():
-            return dest_zip
-    return _manual_workspace_snapshot(repo_root, dest_zip)
 
 
 def _raw_output(stdout: str, stderr: str) -> str:
@@ -220,6 +202,28 @@ def _parse_repair_requires_supplemental(raw_output: str) -> list[str]:
     return []
 
 
+def _missing_context_payload(
+    *,
+    effective_mode: str,
+    issue_id: str,
+    commit_message: str,
+    patch_path: str,
+    authority_sources: list[str],
+    supplemental_files: list[str],
+    raw_output: str,
+) -> dict[str, Any]:
+    return {
+        "status": _STATUS_MISSING_CONTEXT,
+        "effective_mode": effective_mode,
+        "issue_id": issue_id,
+        "commit_message": commit_message,
+        "patch_path": patch_path,
+        "authority_sources": authority_sources,
+        "supplemental_files": supplemental_files,
+        "raw_output": raw_output,
+    }
+
+
 def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
     patch_rel, patch_zip = resolve_patch_zip_path(
         jail=self.jail,
@@ -231,84 +235,104 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
     effective_mode = "repair-overlay-only" if overlay_path is not None else "initial"
     authority_sources: list[str] = []
     supplemental_files: list[str] = []
+    workspace_snapshot: Path | None = None
 
-    with tempfile.TemporaryDirectory() as td:
-        temp_root = Path(td)
-        workspace_snapshot: Path | None = None
-        if overlay_path is not None:
-            authority_sources.append(str(overlay_path))
+    if overlay_path is not None:
+        authority_sources.append(str(overlay_path))
+    else:
+        initial_target, initial_target_err = _read_zip_target(patch_zip)
+        if initial_target is None:
+            return _missing_context_payload(
+                effective_mode=effective_mode,
+                issue_id=issue_id,
+                commit_message=commit_message,
+                patch_path=patch_rel,
+                authority_sources=authority_sources,
+                supplemental_files=supplemental_files,
+                raw_output=f"zip_target_missing_or_invalid:{initial_target_err or 'unknown'}",
+            )
+        workspace_snapshot = _latest_local_baseline_snapshot(self.patches_root, initial_target)
+        if workspace_snapshot is not None:
+            authority_sources.append(str(workspace_snapshot))
 
-        proc = _run_validator(
-            repo_root=self.repo_root,
-            issue_id=issue_id,
-            commit_message=commit_message,
-            patch_zip=patch_zip,
-            workspace_snapshot=workspace_snapshot,
-            repair_overlay=overlay_path,
-            supplemental_files=[],
-        )
-        raw = _raw_output(proc.stdout, proc.stderr)
+    proc = _run_validator(
+        repo_root=self.repo_root,
+        issue_id=issue_id,
+        commit_message=commit_message,
+        patch_zip=patch_zip,
+        workspace_snapshot=workspace_snapshot,
+        repair_overlay=overlay_path,
+        supplemental_files=[],
+    )
+    raw = _raw_output(proc.stdout, proc.stderr)
 
-        if overlay_path is not None:
-            supplemental_files = _parse_repair_requires_supplemental(raw)
-            if supplemental_files:
-                success_archive = _latest_success_archive(
-                    self.repo_root,
-                    self.patches_root,
-                    self.cfg,
+    if overlay_path is not None:
+        supplemental_files = _parse_repair_requires_supplemental(raw)
+        if supplemental_files:
+            repair_target, repair_target_err = _read_zip_target(overlay_path)
+            if repair_target is None:
+                return _missing_context_payload(
+                    effective_mode=effective_mode,
+                    issue_id=issue_id,
+                    commit_message=commit_message,
+                    patch_path=patch_rel,
+                    authority_sources=authority_sources,
+                    supplemental_files=supplemental_files,
+                    raw_output=raw.rstrip("\n")
+                    + "\n\n[repair supplemental missing context]\n"
+                    + f"zip_target_missing_or_invalid:{repair_target_err or 'unknown'}",
                 )
-                if success_archive is not None:
-                    workspace_snapshot = success_archive
-                else:
-                    try:
-                        workspace_snapshot = _live_workspace_snapshot(
-                            self.repo_root,
-                            temp_root / "repair_workspace_snapshot.zip",
-                        )
-                    except Exception as exc:
-                        return {
-                            "status": _STATUS_MISSING_CONTEXT,
-                            "effective_mode": "repair-overlay-only",
-                            "issue_id": issue_id,
-                            "commit_message": commit_message,
-                            "patch_path": patch_rel,
-                            "authority_sources": authority_sources,
-                            "supplemental_files": supplemental_files,
-                            "raw_output": raw.rstrip("\n")
-                            + "\n\n[repair supplemental snapshot error]\n"
-                            + str(exc),
-                        }
-                authority_input = str(workspace_snapshot)
-                if authority_input not in authority_sources:
-                    authority_sources.append(authority_input)
+            workspace_snapshot = _latest_local_baseline_snapshot(
+                self.patches_root,
+                repair_target,
+            )
+            if workspace_snapshot is None:
                 proc = _run_validator(
                     repo_root=self.repo_root,
                     issue_id=issue_id,
                     commit_message=commit_message,
                     patch_zip=patch_zip,
-                    workspace_snapshot=workspace_snapshot,
+                    workspace_snapshot=None,
                     repair_overlay=overlay_path,
                     supplemental_files=supplemental_files,
                 )
                 rerun_raw = _raw_output(proc.stdout, proc.stderr)
-                effective_mode = "repair-supplemental"
-                raw = (
-                    "[overlay-only]\n"
+                return _missing_context_payload(
+                    effective_mode=effective_mode,
+                    issue_id=issue_id,
+                    commit_message=commit_message,
+                    patch_path=patch_rel,
+                    authority_sources=authority_sources,
+                    supplemental_files=supplemental_files,
+                    raw_output="[overlay-only]\n"
                     + raw.rstrip("\n")
                     + "\n\n[repair-supplemental]\n"
-                    + rerun_raw
+                    + rerun_raw,
                 )
+            authority_sources.append(str(workspace_snapshot))
+            proc = _run_validator(
+                repo_root=self.repo_root,
+                issue_id=issue_id,
+                commit_message=commit_message,
+                patch_zip=patch_zip,
+                workspace_snapshot=workspace_snapshot,
+                repair_overlay=overlay_path,
+                supplemental_files=supplemental_files,
+            )
+            rerun_raw = _raw_output(proc.stdout, proc.stderr)
+            effective_mode = "repair-supplemental"
+            raw = "[overlay-only]\n" + raw.rstrip("\n") + "\n\n[repair-supplemental]\n" + rerun_raw
 
-        return {
-            "status": _parse_status(proc.returncode, raw),
-            "effective_mode": effective_mode,
-            "issue_id": issue_id,
-            "commit_message": commit_message,
-            "patch_path": patch_rel,
-            "authority_sources": authority_sources,
-            "supplemental_files": supplemental_files,
-            "raw_output": raw,
-        }
+    return {
+        "status": _parse_status(proc.returncode, raw),
+        "effective_mode": effective_mode,
+        "issue_id": issue_id,
+        "commit_message": commit_message,
+        "patch_path": patch_rel,
+        "authority_sources": authority_sources,
+        "supplemental_files": supplemental_files,
+        "raw_output": raw,
+    }
 
 
 def pm_validation_json(payload: dict[str, Any]) -> str:

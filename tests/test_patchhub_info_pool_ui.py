@@ -220,21 +220,19 @@ def test_info_pool_strip_prefers_pm_validation_summary_over_hints() -> None:
     app_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app.js"
     pm_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_pm_validation.js"
     pool_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_info_pool.js"
-    raw_output = json.dumps(
-        "RESULT: FAIL\nRULE VALIDATION_ERROR: FAIL - workspace_snapshot_required_for_initial_mode"
-    )
+    raw_output = json.dumps("RESULT: PASS\nRULE MONOLITH: PASS - gate_passed")
     script = (
         _node_prelude(app_path, pm_path, pool_path)
         + f"""
 window.PH.call("initInfoPoolUi");
 setInfoPoolHint("enqueue", "missing commit message or patch path");
 window.PH.call("setPmValidationPayload", {{
-  status: "missing_context",
+  status: "pass",
   effective_mode: "initial",
   issue_id: "330",
   commit_message: "Use PM validator at zip load",
   patch_path: "issue_330_v1.zip",
-  authority_sources: [],
+  authority_sources: ["patchhub-main_20260315.zip"],
   supplemental_files: [],
   raw_output: {raw_output},
 }});
@@ -245,7 +243,7 @@ process.stdout.write(JSON.stringify({{
 """
     )
     result = _run_node(script)
-    assert result["summary"] == "PM validation: MISSING CONTEXT"
+    assert result["summary"] == "PM validation: PASS"
 
 
 def test_info_pool_modal_shows_pm_validation_section_and_raw_output() -> None:
