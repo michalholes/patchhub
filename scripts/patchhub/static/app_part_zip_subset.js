@@ -459,7 +459,9 @@
 			return true;
 		}
 		if (action === "retry") {
-			fetchManifestForCurrentPath();
+			if (!isPatchZipMode()) return false;
+			state.key = zipSubsetStateKey();
+			fetchManifestForCurrentPath(state.key);
 			return true;
 		}
 		return false;

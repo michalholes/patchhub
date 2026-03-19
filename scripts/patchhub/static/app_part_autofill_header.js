@@ -101,21 +101,7 @@ function pollLatestPatchOnce() {
 		if (!token || token === latestToken) return;
 		latestToken = token;
 		// New patch token: reset UI state deterministically.
-		try {
-			if (typeof dirty === "object" && dirty) {
-				dirty.issueId = false;
-				dirty.commitMsg = false;
-				dirty.patchPath = false;
-				dirty.targetRepo = false;
-			}
-		} catch (_) {}
-		PH.call("clearGateOverrides");
-		try {
-			const m = el("mode");
-			if (m) m.value = "patch";
-			const rc = el("rawCommand");
-			if (rc) rc.value = "";
-		} catch (_) {}
+		prepareFormForNewPatchLoad();
 		applyAutofillFromPayload(r);
 
 		if (cfg && cfg.ui && cfg.ui.clear_output_on_autofill) {

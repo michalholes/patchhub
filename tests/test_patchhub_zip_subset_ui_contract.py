@@ -39,6 +39,7 @@ import fs from "fs";
 import vm from "vm";
 const elements = new Map();
 const registry = new Map();
+const documentListeners = new Map();
 function makeClassList() {
   const items = new Set();
   return {
@@ -75,13 +76,13 @@ function makeNode(id) {
 global.window = { AMP_PATCHHUB_UI: {}, PH: {
   register(name, exports) { registry.set(String(name), exports || {}); },
   call(name, ...args) {
-    for (const exports of registry.values()) {
+    for (const exports of [...registry.values()].reverse()) {
       if (exports && typeof exports[name] === "function") return exports[name](...args);
     }
     return null;
   },
   has(name) {
-    for (const exports of registry.values()) {
+    for (const exports of [...registry.values()].reverse()) {
       if (exports && typeof exports[name] === "function") return true;
     }
     return false;
@@ -93,7 +94,15 @@ global.document = {
     if (!elements.has(key)) elements.set(key, makeNode(key));
     return elements.get(key);
   },
-  addEventListener() {},
+  addEventListener(name, cb) {
+    const key = String(name);
+    if (!documentListeners.has(key)) documentListeners.set(key, []);
+    documentListeners.get(key).push(cb);
+  },
+};
+global.__dispatchDocumentEvent = (name, event) => {
+  const items = documentListeners.get(String(name)) || [];
+  for (const cb of items) cb(event || {});
 };
 global.cfg = {
   targeting: { zip_target_prefill_enabled: true },
@@ -296,3 +305,220 @@ process.stdout.write(JSON.stringify({
     result = _run_node(script)
     assert result["mode"] == "finalize_live"
     assert result["uiError"] == "stop"
+
+
+def test_zip_subset_retry_fetches_new_manifest_after_error() -> None:
+    subset_js = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_zip_subset.js"
+    script = (
+        _node_prelude(subset_js)
+        + """
+const pending = [];
+global.apiGet = (path) => new Promise((resolve) => { pending.push({ path, resolve }); });
+document.getElementById("mode").value = "patch";
+document.getElementById("patchPath").value = "patches/issue_350_v1.zip";
+window.PH.call("syncZipSubsetUiFromInputs");
+pending[0].resolve({ ok: false, error: "manifest failed" });
+await Promise.resolve();
+await Promise.resolve();
+const strip = document.getElementById("zipSubsetStrip");
+__dispatchDocumentEvent("click", {
+  target: {
+    closest(selector) {
+      return selector === "#zipSubsetStrip" ? strip : null;
+    },
+  },
+});
+pending[1].resolve({
+  ok: true,
+  manifest: {
+    selectable: true,
+    patch_entry_count: 2,
+    entries: [
+      { zip_member: "patches/per_file/a.patch", repo_path: "a", selectable: true },
+      { zip_member: "patches/per_file/b.patch", repo_path: "b", selectable: true },
+    ],
+  },
+  pm_validation: { ok: true, retried: true },
+});
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  requestCount: pending.length,
+  actions: pending.map((item) => item.path),
+  stripAction: strip.dataset.action || "",
+  stripHtml: strip.innerHTML,
+  subsetState: window.PH.call("getZipSubsetValidationState"),
+  pmPayload: global.__pmPayload,
+}));
+"""
+    )
+    result = _run_node(script)
+    assert result["requestCount"] == 2
+    assert result["actions"] == [
+        "/api/patches/zip_manifest?path=patches%2Fissue_350_v1.zip",
+        "/api/patches/zip_manifest?path=patches%2Fissue_350_v1.zip",
+    ]
+    assert result["stripAction"] == "open"
+    assert "Loading target files..." not in result["stripHtml"]
+    assert result["subsetState"] == {"ok": True, "hint": ""}
+    assert result["pmPayload"] == {"ok": True, "retried": True}
+
+
+def test_polling_same_path_new_content_refetches_manifest_and_replaces_state() -> None:
+    autofill_js = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_autofill_header.js"
+    subset_js = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_zip_subset.js"
+    script = (
+        _node_prelude(autofill_js, subset_js)
+        + """
+const pollPending = [];
+const manifestPending = [];
+global.latestToken = "";
+global.lastAutofillClearedToken = "";
+global.pushApiStatus = () => {};
+global.setUiError = (msg) => { global.__uiError = String(msg || ""); };
+cfg.autofill.enabled = true;
+window.PH.register("test_validate", {
+  validateAndPreview() {
+    return window.PH.call("syncZipSubsetUiFromInputs");
+  },
+});
+global.apiGetETag = (_name, _path) => new Promise((resolve) => { pollPending.push(resolve); });
+global.apiGet = (path) => new Promise((resolve) => { manifestPending.push({ path, resolve }); });
+document.getElementById("mode").value = "patch";
+pollLatestPatchOnce();
+pollPending[0]({
+  ok: true,
+  found: true,
+  token: "tok-1",
+  stored_rel_path: "patches/issue_350_v1.zip",
+  derived_issue: "350",
+  derived_commit_message: "first load",
+});
+await Promise.resolve();
+await Promise.resolve();
+manifestPending[0].resolve({
+  ok: true,
+  manifest: { selectable: true, patch_entry_count: 1, entries: [] },
+  pm_validation: { ok: true, first: true },
+  derived_target_repo: "patchhub",
+});
+await Promise.resolve();
+await Promise.resolve();
+pollLatestPatchOnce();
+pollPending[1]({
+  ok: true,
+  found: true,
+  token: "tok-2",
+  stored_rel_path: "patches/issue_350_v1.zip",
+  derived_issue: "350",
+  derived_commit_message: "second load",
+});
+await Promise.resolve();
+await Promise.resolve();
+manifestPending[1].resolve({
+  ok: true,
+  manifest: { selectable: true, patch_entry_count: 2, entries: [] },
+  pm_validation: { ok: true, second: true },
+  derived_target_repo: "audiomason2",
+});
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  manifestRequestCount: manifestPending.length,
+  manifestPaths: manifestPending.map((item) => item.path),
+  patchLoadSeq: window.__ph_patch_load_seq,
+  patchPath: document.getElementById("patchPath").value,
+  commitMsg: document.getElementById("commitMsg").value,
+  targetRepo: document.getElementById("targetRepo").value,
+  pmPayload: global.__pmPayload,
+}));
+"""
+    )
+    result = _run_node(script)
+    assert result["manifestRequestCount"] == 2
+    assert result["manifestPaths"] == [
+        "/api/patches/zip_manifest?path=patches%2Fissue_350_v1.zip",
+        "/api/patches/zip_manifest?path=patches%2Fissue_350_v1.zip",
+    ]
+    assert result["patchLoadSeq"] == 2
+    assert result["patchPath"] == "patches/issue_350_v1.zip"
+    assert result["commitMsg"] == "second load"
+    assert result["targetRepo"] == "audiomason2"
+    assert result["pmPayload"] == {"ok": True, "second": True}
+
+
+def test_start_after_autofill_loaded_patch_enqueues_once() -> None:
+    autofill_js = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_autofill_header.js"
+    subset_js = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_zip_subset.js"
+    queue_js = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_queue_upload.js"
+    script = (
+        _node_prelude(autofill_js, subset_js, queue_js)
+        + """
+const pollPending = [];
+const manifestPending = [];
+global.latestToken = "";
+global.lastAutofillClearedToken = "";
+global.pushApiStatus = () => {};
+global.setUiError = (msg) => { global.__uiError = String(msg || ""); };
+global.setInfoPoolHint = () => {};
+global.tickMissingPatchClear = () => {};
+global.computeCanonicalPreview = () => [];
+global.apiGetETag = (_name, _path) => new Promise((resolve) => { pollPending.push(resolve); });
+global.apiGet = (path) => new Promise((resolve) => { manifestPending.push({ path, resolve }); });
+global.apiPost = (_path, body) => {
+  global.__postCalls = (global.__postCalls || 0) + 1;
+  global.__postedBody = body;
+  return Promise.resolve({ ok: true, job_id: "job-1" });
+};
+cfg.autofill.enabled = true;
+cfg.autofill.overwrite_policy = "only_if_empty";
+document.getElementById("mode").value = "patch";
+pollLatestPatchOnce();
+pollPending[0]({
+  ok: true,
+  found: true,
+  token: "tok-1",
+  stored_rel_path: "patches/issue_350_v1.zip",
+  derived_issue: "350",
+  derived_commit_message: "ready to start",
+});
+await Promise.resolve();
+await Promise.resolve();
+manifestPending[0].resolve({
+  ok: true,
+  manifest: {
+    selectable: true,
+    patch_entry_count: 1,
+    entries: [
+      { zip_member: "patches/per_file/app.patch", repo_path: "app", selectable: true },
+    ],
+  },
+  pm_validation: { ok: true },
+  derived_target_repo: "patchhub",
+});
+await Promise.resolve();
+await Promise.resolve();
+const enqueueBtn = document.getElementById("enqueueBtn");
+enqueue();
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  disabled: enqueueBtn.disabled,
+  postCalls: global.__postCalls || 0,
+  postedBody: global.__postedBody,
+  selectedJobId: global.selectedJobId,
+}));
+"""
+    )
+    result = _run_node(script)
+    assert result["disabled"] is False
+    assert result["postCalls"] == 1
+    assert result["postedBody"] == {
+        "mode": "patch",
+        "raw_command": "",
+        "issue_id": "350",
+        "commit_message": "ready to start",
+        "patch_path": "patches/issue_350_v1.zip",
+        "target_repo": "patchhub",
+    }
+    assert result["selectedJobId"] == "job-1"
