@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.2
+Verzia 1.2.3
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -9,10 +9,11 @@ HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo v
 2. Ak je potrebna zmena specifikacie, je potrebne ju zmenit este pred implementaciou pomocou patchu v samostatnom issue. Riadiaci chat je povinny vyrobit patch (plati am patch authoring manual) a poskytnut ho spolu s implementacnym handoffom. 
 3. Ak ma prebehnut implementacia vo viac ako 1 casti systemu (napr. viac plugins, core+plugin, amp+patchhub,...) musi byt rozdelena na viac handoffov so samostatnymi issues. 
 4. Ked udam cislo issue, udam vzdy prve cislo. Nasledujuce issues maju potom cislo iterovane o +1. 
-5. Ak hladas bug, ocakavam, ze najdes koren bugu aj so vsetkymi dosledkami, ktore sposobuje.
+5. Ak hladas bug, ocakavam, ze najdes koren bugu aj so vsetkymi dosledkami, ktore sposobuje. Ak pri hladani najdes aj iny bug, ocakavam, ze ma na to upozornis.
 6. Ak je na deterministicku diagnostiku, ktora sa tyka suborov mimo repo, je potrebne spusti 2 a viac prikazov, chaty musia vyrobit skript, ktory userovi poskytnu ako downloadable artifact. User ho ulozi do patches/. Skript musi vysledok ulozit do patches/. Takisto musia chaty po vytvoreni skriptu poskytnut userovi v codeboxe prikaz aj so vsetkymi flags. Vystup zo skriptu potom user uploadne chatu a chat ho musi automaticky preskumat a pokracovat v sulace s instrukciami pre projektove chaty (PM). 
 7. Specifikacia projektu AudioMason2 sa sklada zo suboru docs/specification.jsonl.
-8. Ak je potrebne updatnut specku, v handoffe musia byt presne anchors, medzi ktore maju implementacne chaty vlozit text. Text updatu musi byt v handoffe presne specifikovany.
+8. Ak je potrebne updatnut specku, v uz vo freze musia byt presne anchors, medzi ktore maju implementacne chaty vlozit text. Text updatu musi byt v handoffe presne specifikovany.
+9. Ak vykonavas kontrolu patchu, ocakavam, ze bude hlboka a nie formalna. Musis si preto pprejst cely zmeneny kod a pochopit, ako funguje. Testy robi amp, tie nemusis robit. Chcem vediet, ci patch riesi vsetky problemy uplne, kvalitne a korektne a ci nevytvara nove.
 
 Terminologia (HARD):
 PM = Patch authoring manual
