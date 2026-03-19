@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.5
+Verzia 1.2.6
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -142,6 +142,8 @@ Každý handoff musí obsahovať:
 - Definíciu success criteria
 
 Handoff musí byť formulovaný tak, aby implementačný chat mohol vykonať iba implementáciu bez ďalšieho rozhodovania.
+
+Handoff MUSI obsahovat sekciu PLAN FREEZE, ktora prepise odsuhlaseny plan do ocislovanych bodov P1..Pn bez zmeny poctu bodov, ich hranic, rozsahu alebo vyznamu. Kazdy Pi MUSI predstavovat jednu samostatnu povinnost. Pri bugfixe musia byt koren problemu, kazdy samostatny symptom, kazdy znamy downstream dosledok a kazde pozadovane preventivne alebo ochranne spravanie uvedene ako samostatny Pi, ak predstavuju odlisne povinnosti. Handoff MUSI obsahovat aj PLAN COVERAGE MATRIX mapujuci kazdy Pi na konkretnu sekciu handoffu a SELF-CHECK potvrdzujuci, ze ziaden znamy symptom ani dosledok nezostal mimo PLAN FREEZE. Absencia PLAN FREEZE, PLAN COVERAGE MATRIX alebo SELF-CHECK = handoff je neplatny.
 
 ---
 

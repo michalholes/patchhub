@@ -2,7 +2,7 @@
 
 # Patch Authoring Manual (PM)
 
-AUTHORITATIVE -- AudioMason2 Status: active Version: v2.44
+AUTHORITATIVE -- AudioMason2 Status: active Version: v2.45
 
 This manual defines what a chat must produce so that the user can run
 the patch successfully and close the issue.
@@ -265,6 +265,7 @@ The chat MUST provide:
 2.  A canonical invocation command in a code block.
 3.  The exact PATCH argument used in invocation.
 4.  A validator evidence block as defined in PM patch validator (HARD).
+5.  An IMPLEMENTATION EVIDENCE MATRIX block and a RESIDUALS block as defined below.
 
 Canonical invocation format (NO VARIANTS):
 
@@ -277,6 +278,26 @@ Canonical invocation format (NO VARIANTS):
 
 If invocation command is missing or malformed, the patch is
 NON-COMPLIANT.
+
+## Implementation evidence matrix (HARD)
+
+For every initial patch and every repair patch, the chat MUST provide an IMPLEMENTATION EVIDENCE MATRIX mapping every authoritative handoff item identifier to implementation evidence.
+
+The matrix MUST reuse the exact authoritative handoff item identifiers from the handoff without renumbering, aliasing, merging, or omission.
+
+Required format:
+
+<item-id> -> status=<implemented|no-op (already satisfied)> ; files=<paths> ; anchors=<anchors>
+
+Rules:
+- every authoritative handoff item identifier MUST appear exactly once
+- implicit coverage is forbidden
+- every `no-op (already satisfied)` claim MUST be backed by inspected evidence
+- any partial, unevidenced, or deferred item MUST be listed in RESIDUALS using the same identifier, or `none`
+- if RESIDUALS is non-empty, the chat MUST NOT claim full fix, complete implementation, or issue fully resolved
+
+Missing IMPLEMENTATION EVIDENCE MATRIX or missing RESIDUALS = NON-COMPLIANT.
+
 
 ## Inspection Proof (HARD)
 
@@ -634,6 +655,7 @@ For repair patches, the chat MUST provide evidence of:
 2.  `python -m compileall` success (at least modified files)
 2.  all pytest tests
 3.  validator evidence as defined in PM patch validator (HARD)
+4.  implementation evidence as defined above
 
 If evidence is not shown, the chat MUST NOT claim patch was tested.
 
