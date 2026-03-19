@@ -48,10 +48,14 @@ Normative semantics:
 - runner_root is a runtime concept, not a Policy key.
 - artifacts_root selects where runner-owned artifacts live. These include patch inputs, logs, JSON logs, workspaces, lockfiles, successful archives, unsuccessful archives, issue diff bundles, and patch-dir IPC assets.
 - If artifacts_root is null, the default artifacts root is runner_root.
-- target_repo_roots is an optional registry of allowed git target repository roots.
+- target_repo_roots is the single authoritative target binding registry.
+- Each target_repo_roots entry MUST use `token=root` syntax, where `token` is the same ASCII bare-token surface used by `target_repo_name` and `root` is an absolute or runner-relative git repository root path.
+- Relative binding roots are resolved against `runner_root`.
+- Legacy root-only `target_repo_roots` entries MAY be accepted only when the resolved path canonically matches `/home/pi/<name>`; in that case the recovered token is `<name>`.
+- Resolved tokens MUST be unique and resolved roots MUST be unique. Duplicate token or duplicate resolved root is `CONFIG INVALID`.
 - active_target_repo_root is the explicit path selector for the git repository patched by the current run.
 - If active_target_repo_root is null, target selection follows section 3.1.1.
-- The effective target root MUST resolve either to runner_root or to one entry from target_repo_roots.
+- The effective target root MUST resolve to exactly one configured binding root from `target_repo_roots`.
 - repo_root is a legacy backward-compatibility alias for active_target_repo_root. If repo_root selects a non-runner target, it is subject to the same registry rules as active_target_repo_root.
 - A single runner invocation MUST resolve exactly one authoritative effective target root.
 - Multi-target execution in a single run is forbidden.
@@ -436,9 +440,9 @@ Target-selection inputs:
 - `--override` for those same keys
 
 Normative meanings:
-- `target_repo_roots` is the allowlist of permitted target repository root paths.
+- `target_repo_roots` semantics are defined by the root-model rules above and are authoritative for target resolution.
 - `active_target_repo_root` is the explicit path selector.
-- `target_repo_name` is the bare repo-token selector input for the `/home/pi/<name>` target family.
+- `target_repo_name` is the bare repo-token selector input and MUST resolve only through `target_repo_roots`.
 - workspace `meta.json` field `target_repo_name` is not a Policy key; it is the persisted workspace binding consumed only by this section for `-w` / `--finalize-workspace`.
 - `-s` / `--finalize-live-from-cwd [MESSAGE]` is not a target-selection input and is not part of override symmetry.
 - It is a finalize-live shortcut that resolves the current working directory to a git top-level via `git rev-parse --show-toplevel` using `runner_subprocess_timeout_s`, materializes that resolved path as CLI `active_target_repo_root`, and then enters this section through the existing CLI `active_target_repo_root` rule.
@@ -455,30 +459,30 @@ Authoritative target-resolution rule:
 - In this mode, CLI/config selector inputs `target_repo_name`,
   `active_target_repo_root`, and legacy `repo_root` MUST NOT
   participate in target selection.
-- In this mode, `target_repo_roots` remains the effective allowlist of
-  permitted target repository root paths.
+- In this mode, `target_repo_roots` remains the authoritative binding registry.
 - If workspace `target_repo_name` is absent, the runner MAY perform one
   deterministic legacy migration by reading the workspace clone origin
-  and accepting it only when that origin canonically resolves to
-  `/home/pi/<name>`.
+  and accepting it only when that origin canonically resolves to exactly
+  one configured binding root from `target_repo_roots`.
 - On successful legacy migration, the runner MUST persist the recovered
   token into workspace `meta.json` before continuing.
 - If no valid workspace target can be obtained, the run is `PREFLIGHT
   WORKSPACE`.
 - In all other modes:
-  1. If CLI `active_target_repo_root` is selected, it wins.
-  2. Else if CLI `target_repo_name` is selected, derive candidate target path as `/home/pi/<target_repo_name>`.
-  3. Else if patch-carried root-level `target.txt` is present, treat it as `target_repo_name` and derive candidate target path as `/home/pi/<target_repo_name>`.
-  4. Else if config `active_target_repo_root` is selected, it wins.
-  5. Else if config `target_repo_name` is selected, derive candidate target path as `/home/pi/<target_repo_name>`.
-  6. Else derive candidate target path from default `target_repo_name`.
+  1. If CLI `active_target_repo_root` is selected, it wins and MUST match exactly one configured binding root from `target_repo_roots`.
+  2. Else if CLI `target_repo_name` is selected, resolve an exact binding-token match in `target_repo_roots`.
+  3. Else if patch-carried root-level `target.txt` is present, treat it as `target_repo_name` and resolve an exact binding-token match in `target_repo_roots`.
+  4. Else if config `active_target_repo_root` is selected, it wins and MUST match exactly one configured binding root from `target_repo_roots`.
+  5. Else if config `target_repo_name` is selected, resolve an exact binding-token match in `target_repo_roots`.
+  6. Else resolve an exact binding-token match for default `target_repo_name`.
 
 The run MUST resolve exactly one authoritative effective target root.
-The effective target root MUST resolve either to `runner_root` or to one entry from the effective `target_repo_roots`.
+The effective target root MUST satisfy the root-model constraint above.
 
-After the effective target root is selected, the effective `target_repo_name` is derived from that selected root by canonical inversion `/home/pi/<name>` -> `<name>`.
+After the effective target root is selected, the effective `target_repo_name` is the token bound to that selected `target_repo_roots` entry.
 
-If the selected effective target root cannot be canonically represented as `/home/pi/<name>`, the run is CONFIG INVALID.
+If no exact binding-token match exists, or no exact binding-root match exists, or multiple bindings match, the run is `CONFIG INVALID`.
+The runner MUST NOT derive a candidate target path by concatenating `/home/pi/`.
 
 Patch-carried root-level `target.txt` participates in target selection before root binding, workspace creation, scope evaluation, promotion planning, promotion execution, commit, and push.
 
@@ -490,7 +494,7 @@ Patch-carried root-level `target.txt` participates in target selection before ro
 - The default value of `target_repo_name` is `audiomason2`.
 - Patch-carried root-level `target.txt` uses the same token format and MAY include an optional trailing LF.
 - Workspace `meta.json` field `target_repo_name` uses the same token format.
-- Failure-zip root-level `target.txt` MUST contain the effective `target_repo_name` derived by section 3.1.1.
+- Failure-zip root-level `target.txt` MUST contain the effective `target_repo_name` resolved by section 3.1.1.
 
 ### 3.2 CLI (normative)
 

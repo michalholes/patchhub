@@ -692,8 +692,11 @@ Default behavior is backend="asgi".
   `zip_target_repo`, `selected_target_repo`, `effective_runner_target_repo`,
   and root-level zip file `target.txt` all use that same bare-token surface.
 - PatchHub MUST derive `targeting.options` from the AM Patch runner config
-  referenced by `cfg.runner.runner_config_toml`, using canonical inversion of
-  allowed target roots matching `/home/pi/<name> -> <name>`.
+  referenced by `cfg.runner.runner_config_toml`, using the target tokens made
+  available by the AM Patch target-selection contract for configured
+  `target_repo_roots` entries.
+- PatchHub MUST NOT perform its own canonical inversion of target roots via
+  `/home/pi/<name> -> <name>`.
 - `cfg.targeting.default_target_repo` MUST equal one entry from
   `targeting.options`.
 - `cfg.targeting.zip_target_prefill_enabled` controls whether a valid zip
