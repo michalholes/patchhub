@@ -11,15 +11,17 @@ even when implementation updates land in a later issue.
 
 ### 0.1 Universal controllability
 
-Every runner behavior is controllable via: - CLI flags **or** -
-`--override KEY=VALUE` overrides, with precedence: **CLI \> config \>
-defaults**.
+Every runner behavior is controllable via dedicated CLI flags or
+`--override KEY=VALUE` overrides.
 
-Target-selection extension:
-- Target selection is defined normatively only in section 3.1.1.
-- When the selected patch input is a zip archive and it contains a
-  root-level `target.txt`, that file participates in the target-selection
-  contract defined in section 3.1.1.
+Normative precedence is scope-aware:
+- bootstrap-owned keys: CLI > bootstrap config > defaults
+- repo-owned keys: CLI > repo-local config > defaults
+- repo-config discovery path: dedicated CLI / `--override` >
+  bootstrap config > built-in default
+
+Target selection is defined normatively only in section 3.1.1.
+Repo-config discovery is defined normatively only in section 3.1.
 
 #
 
@@ -29,10 +31,11 @@ The runner must not hardcode operational paths, filenames, workspace
 layout, or scope exemptions. Every such setting must be configurable
 via:
 
-1)  config file key (am_patch.toml), and
+1)  a config file key in the appropriate config scope, and
 2)  CLI override (either a dedicated flag or --override KEY=VALUE).
 
-The config file path itself is CLI-only and must not be a config key.
+The bootstrap config file path itself is CLI-only and must not be a
+config key.
 
 The following keys are normative (defaults shown):
 
@@ -41,6 +44,7 @@ Additional normative root model keys:
 - artifacts_root = null|string
 - target_repo_roots = []|list[str]
 - active_target_repo_root = null|string
+- target_repo_config_relpath = ".am_patch/am_patch.repo.toml"
 
 Normative semantics:
 
@@ -55,6 +59,9 @@ Normative semantics:
 - Resolved tokens MUST be unique and resolved roots MUST be unique. Duplicate token or duplicate resolved root is `CONFIG INVALID`.
 - active_target_repo_root is the explicit path selector for the git repository patched by the current run.
 - If active_target_repo_root is null, target selection follows section 3.1.1.
+- target_repo_config_relpath is the bootstrap-owned relative path used to discover the repo-local config inside the selected target repo.
+- The built-in default value of target_repo_config_relpath is `.am_patch/am_patch.repo.toml`.
+- The resolved repo-local config path is always interpreted relative to the active repository tree root and MUST remain under that root.
 - The effective target root MUST resolve to exactly one configured binding root from `target_repo_roots`.
 - repo_root is a legacy backward-compatibility alias for active_target_repo_root. If repo_root selects a non-runner target, it is subject to the same registry rules as active_target_repo_root.
 - A single runner invocation MUST resolve exactly one authoritative effective target root.
@@ -114,6 +121,8 @@ partial reads.
 -   scope_ignore_contains = \["/**pycache**/"\]
 -   venv_bootstrap_mode = "auto" (allowed: auto\|always\|never)
 -   venv_bootstrap_python = ".venv/bin/python"
+-   python_gate_mode = "runner" (allowed: runner\|auto\|required)
+-   python_gate_python = ".venv/bin/python"
 -   rollback_workspace_on_fail = "none-applied" (allowed:
     none-applied\|always\|never)
 
@@ -126,8 +135,9 @@ These keys affect concrete behavior: - filesystem locations (patch dir
 layout and workspace layout), - log naming and the optional current-log
 symlink, - the name and internal structure of the failure diagnostics
 zip, - which changed paths are ignored for scope enforcement and
-promotion hygiene, - early venv interpreter bootstrap behavior, - hard timeout
-limits for runner-managed subprocess execution.
+promotion hygiene, - early venv interpreter bootstrap behavior, - repo-local
+Python gate interpreter selection, - hard timeout limits for runner-managed
+subprocess execution.
 
 
 ### 0.1.1 Runner subprocess timeout policy
@@ -407,24 +417,38 @@ mode. - `delete_workspace_on_success` does not apply in test mode.
 
 ## 3. Configuration System
 
-### 3.1 Config file
+### 3.1 Config files
 
--   Runner-owned config path depends on layout:
+-   Runner-owned bootstrap config path depends on layout:
     -   Legacy embedded layout: `scripts/am_patch/am_patch.toml`
     -   Root layout: `am_patch.toml` in `runner_root`
--   Loaded on every run.
+-   Bootstrap config is optional and is loaded on every run when present.
+-   Repo-local config is optional and is discovered only from the active repository tree using `target_repo_config_relpath`.
 -   Source of each effective value is logged.
 
 Root resolution contract:
 
-- The config file remains runner-owned.
-- Relative config paths passed via CLI are resolved against runner_root.
+- The bootstrap config remains runner-owned.
+- The bootstrap config MUST NOT carry repo-owned gate or toolchain policy.
+- Relative bootstrap config paths passed via CLI are resolved against runner_root.
 - Relative artifacts_root values are resolved against runner_root.
 - Relative target_repo_roots entries are resolved against runner_root.
 - Relative active_target_repo_root values are resolved against runner_root.
-- The config file path itself remains CLI-only and is not a Policy key.
+- The repo-config discovery path follows section 0.1 precedence for repo-config discovery.
+- The resolved repo-local config path is interpreted relative to the active repository tree root and MUST remain under that root.
+- The active repository tree root is the workspace clone root for workspace-stage execution, and the effective live target root for live-stage execution.
+- The repo-local config is authoritative only at that discovered location.
+- The repo-local config MUST NOT override runner-owned layout, artifact, lock, logging, or binding-registry keys.
+- `target.txt`, workspace `meta.json`, patch payload, top-level `patches/`, and artifact metadata MUST NOT carry or override repo-owned policy.
+- `venv_bootstrap_*` controls only startup interpreter bootstrap.
+- `python_gate_*` controls repo-local interpreter selection for Python gates executed against the active repository tree and MUST NOT be inferred from `venv_bootstrap_*`.
+- `python_gate_mode=runner` uses the runner interpreter for Python gates.
+- `python_gate_mode=auto` prefers the repo-local `python_gate_python` path when that path exists under the active repository tree root; otherwise it uses the runner interpreter.
+- `python_gate_mode=required` requires the repo-local `python_gate_python` path to exist under the active repository tree root before Python gates run; otherwise the run is `CONFIG INVALID`.
+- Relative `python_gate_python` values are resolved against the active repository tree root.
+- The bootstrap config file path itself remains CLI-only and is not a Policy key.
 - The runner MUST support both legacy embedded layout and root layout without changing Policy semantics.
-- In both layouts, relative config paths and root-model values are resolved against runner_root.
+- In both layouts, relative bootstrap config paths and root-model values are resolved against runner_root.
 
 ### 3.1.1 Target-selection contract
 
@@ -449,7 +473,7 @@ Normative meanings:
 - If this resolution fails or times out, the run is `CONFIG INVALID`.
 - This shortcut MUST NOT fall back to `Path.cwd()`.
 - For target-selection keys, dedicated CLI keys and `--override` are the same CLI precedence tier. For the same effective key, the last argv occurrence wins.
-- The effective `target_repo_roots` value follows normal precedence: CLI > config > defaults.
+- The effective `target_repo_roots` value follows section 0.1 precedence for bootstrap-owned keys.
 
 Authoritative target-resolution rule:
 
@@ -474,12 +498,15 @@ Authoritative target-resolution rule:
   3. Else if patch-carried root-level `target.txt` is present, treat it as `target_repo_name` and resolve an exact binding-token match in `target_repo_roots`.
   4. Else if config `active_target_repo_root` is selected, it wins and MUST match exactly one configured binding root from `target_repo_roots`.
   5. Else if config `target_repo_name` is selected, resolve an exact binding-token match in `target_repo_roots`.
-  6. Else resolve an exact binding-token match for default `target_repo_name`.
+  6. Else if `target_repo_roots` is non-empty and exactly one configured binding root canonically equals `runner_root`, select that binding root.
+  7. Else if `target_repo_roots` is empty, enter zero-config single-repo mode: the effective target root is `runner_root`.
+  8. Else the run is `CONFIG INVALID`.
 
 The run MUST resolve exactly one authoritative effective target root.
 The effective target root MUST satisfy the root-model constraint above.
 
-After the effective target root is selected, the effective `target_repo_name` is the token bound to that selected `target_repo_roots` entry.
+In zero-config single-repo mode, the effective `target_repo_name` is the validated basename of `runner_root`.
+Otherwise, after the effective target root is selected, the effective `target_repo_name` is the token bound to that selected `target_repo_roots` entry.
 
 If no exact binding-token match exists, or no exact binding-root match exists, or multiple bindings match, the run is `CONFIG INVALID`.
 The runner MUST NOT derive a candidate target path by concatenating `/home/pi/`.
@@ -491,7 +518,8 @@ Patch-carried root-level `target.txt` participates in target selection before ro
 - `target_repo_name` MUST be an ASCII-only bare repo token:
   exactly one non-empty token, no whitespace, no `/`, no `\`, and no
   embedded newline.
-- The default value of `target_repo_name` is `audiomason2`.
+- There is no fixed built-in literal default token for `target_repo_name`.
+- Outside zero-config single-repo mode, the effective `target_repo_name` is defined only by section 3.1.1 from the selected binding.
 - Patch-carried root-level `target.txt` uses the same token format and MAY include an optional trailing LF.
 - Workspace `meta.json` field `target_repo_name` uses the same token format.
 - Failure-zip root-level `target.txt` MUST contain the effective `target_repo_name` resolved by section 3.1.1.
@@ -538,28 +566,32 @@ the easiest re-run path while the live repo has uncommitted changes.
 This toggle affects only commit/push behavior. It does not change patch
 execution, gates, or workspace promotion semantics.
 
-### 3.2.3 Target-selection dedicated CLI keys
+### 3.2.4 Dedicated CLI keys for target selection and repo-config discovery
 
-- The runner MUST expose these dedicated CLI keys for the target surface:
+- The runner MUST expose these dedicated CLI keys:
   - `--target-repo-name NAME`
   - `--active-target-repo-root PATH`
   - `--target-repo-roots CSV`
+  - `--target-repo-config-relpath RELPATH`
 - `--target-repo-name NAME` sets the `target_repo_name` selector input.
 - `--active-target-repo-root PATH` sets the explicit path selector `active_target_repo_root`.
 - `--target-repo-roots CSV` replaces the entire `target_repo_roots` value.
+- `--target-repo-config-relpath RELPATH` replaces the entire `target_repo_config_relpath` value.
 - `CSV` means a comma-separated list of path values.
-- The semantics of these keys are defined only in section 3.1.1.
+- For `target_repo_config_relpath`, the dedicated CLI key and `--override target_repo_config_relpath=...` are the same CLI precedence tier. For the same effective key, the last argv occurrence wins.
+- Target-selection semantics are defined only in section 3.1.1.
+- Repo-config discovery semantics are defined only in section 3.1.
 
-### 3.2.4 Overrides symmetry
+### 3.2.5 Overrides symmetry
 
 Every behavior has a config key and is overridable via CLI, primarily
 via:
 
 -   `--override KEY=VALUE` (repeatable)
 
-The root-model keys artifacts_root, target_repo_roots, and active_target_repo_root
-are part of the override symmetry contract and MUST be controllable via
---override KEY=VALUE.
+The root-model keys artifacts_root, target_repo_roots, active_target_repo_root,
+and target_repo_config_relpath are part of the override symmetry contract and
+MUST be controllable via `--override KEY=VALUE`.
 
 The target-selection keys `target_repo_name`, `active_target_repo_root`, and
 `target_repo_roots` are part of the override symmetry contract and MUST be
@@ -567,7 +599,8 @@ controllable via both:
 - their dedicated CLI keys
 - `--override KEY=VALUE`
 
-Their target-selection semantics are defined only in section 3.1.1.
+Repo-config discovery semantics for `target_repo_config_relpath` are defined only in section 3.1.
+Target-selection semantics for `target_repo_name`, `active_target_repo_root`, and `target_repo_roots` are defined only in section 3.1.1.
 
 ------------------------------------------------------------------------
 
@@ -635,7 +668,7 @@ scope accordingly - Should be used deliberately and sparingly
 -   Defaults:
     -   apply_failure_partial_gates_policy = "repair_only"
     -   apply_failure_zero_gates_policy = "never"
--   These keys follow 0.1 precedence: CLI > config > defaults.
+-   These keys follow section 0.1 precedence.
 -   When gates run after patch apply failure, the run remains FAIL with
     PATCH_APPLY as the primary reason.
 -   Default gate order is:
@@ -658,7 +691,7 @@ scope accordingly - Should be used deliberately and sparingly
 -   Matching rules:
     -   "foo/" => directory prefix match
     -   "foo.txt" => exact match
--   Controls (precedence: CLI > config > defaults):
+-   Controls (precedence per section 0.1):
     -   `gates_skip_dont_touch = true|false` (default: false)
     -   `dont_touch_paths = ["...", ...]` (repo-relative)
 -   CLI:
@@ -701,7 +734,7 @@ scope accordingly - Should be used deliberately and sparingly
     -   Default command argv: `["node", "--check"]`
     -   Invocation: `<argv...> <file>`
     -   Files are processed in deterministic lexicographic order.
--   Controls (precedence: CLI > config > defaults):
+-   Controls (precedence per section 0.1):
     -   `gates_skip_js = true|false` (default: false)
     -   `gate_js_extensions = [".js", ...]` (default: `[".js"]`)
     -   `gate_js_command = list[str] | str` (default: `["node", "--check"]`)
@@ -733,7 +766,7 @@ scope accordingly - Should be used deliberately and sparingly
         -   Runner executes: `GATE: BIOME (final)` exactly once:
             `<argv...> <changed_file_1> <changed_file_2> ...`
         -   Gate result is determined only by (final).
--   Controls (precedence: CLI > config > defaults):
+-   Controls (precedence per section 0.1):
     -   `gates_skip_biome = true|false` (default: true)
     -   `gate_biome_extensions = [".js", ...]`
         (default: `[".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"]`)
@@ -792,7 +825,7 @@ scope accordingly - Should be used deliberately and sparingly
         `typescript_targets`.
     -   Runner executes the gate exactly once:
         `<argv...> --project <generated_tsconfig_path>`
--   Controls (precedence: CLI > config > defaults):
+-   Controls (precedence per section 0.1):
     -   `gates_skip_typescript = true|false` (default: true)
     -   `gate_typescript_mode = "auto"|"always"` (default: "auto")
     -   `typescript_targets = list[str]`
@@ -891,7 +924,7 @@ Notes:
 
 ### Dedicated CLI flags + precedence
 
-Precedence is fixed: CLI flags > config file (am_patch.toml) > defaults.
+Precedence and override semantics for dedicated CLI flags follow sections 0.1, 3.1, 3.1.1, and 3.2.5.
 
 Dedicated UX flags are provided so users do not need to use `--override KEY=VALUE` for the
 most common mode switches. The flags map to policy keys as follows:
@@ -899,6 +932,7 @@ most common mode switches. The flags map to policy keys as follows:
 - `--target-repo-name NAME` -> target_repo_name
 - `--active-target-repo-root PATH` -> active_target_repo_root
 - `--target-repo-roots CSV` -> target_repo_roots
+- `--target-repo-config-relpath RELPATH` -> target_repo_config_relpath
 - `--ruff-mode {auto,always}` -> gate_ruff_mode
 - `--mypy-mode {auto,always}` -> gate_mypy_mode
 - `--pytest-mode {auto,always}` -> gate_pytest_mode
@@ -909,6 +943,7 @@ Policy keys without a dedicated UX flag remain fully controllable through
 `--override KEY=VALUE`. This includes `gate_pytest_py_prefixes`.
 
 Target-selection semantics are defined only in section 3.1.1.
+Repo-config discovery semantics are defined only in section 3.1.
 
 `--pytest-js-prefixes` semantics:
 - CSV is a comma-separated list of directory prefixes (example:
@@ -924,7 +959,7 @@ Target-selection semantics are defined only in section 3.1.1.
 - `--pytest-mode` continues to control trigger timing only. It does not replace pytest_routing_mode.
 - The shipped repo policy may choose bucketed as the default routing mode; the mode remains fully configurable.
 
-These flags MUST override any config file values for the mapped keys.
+These flags override the effective value of their mapped keys according to sections 0.1, 3.1, 3.1.1, and 3.2.5.
 
 ### 6.1.5 BADGUYS gate (runner-only)
 
@@ -933,7 +968,7 @@ These flags MUST override any config file values for the mapped keys.
 -   Default command argv: `["badguys/badguys.py", "-q"]`
 -   Execution: the runner invokes: `python -u <argv...>` (no shell).
 -   Success criteria: exit code == 0
--   Controls (precedence: CLI \> config \> defaults):
+-   Controls (precedence per section 0.1):
     -   `gate_badguys_runner = "auto" | "on" | "off"` (default:
         `"auto"`)
         -   `auto`: run only when the current run touches runner files:
@@ -998,7 +1033,7 @@ finalizeworkspace
 -   A path counts as newly added only when `git status --porcelain`
     reports add or untracked status (`A*` or `??`). Modified paths do
     not satisfy the requirement.
--   Controls (precedence: CLI \> config \> defaults):
+-   Controls (precedence per section 0.1):
     -   `gates_skip_docs = true|false` (default: false)
     -   `gate_docs_include = ["src", "plugins"]` (default)
     -   `gate_docs_exclude = ["badguys", "patches"]` (default)
@@ -1031,7 +1066,7 @@ finalizeworkspace
     -   warn_only: only MONO.CORE, MONO.CATCHALL, and MONO.PARSE (when gate_monolith_on_parse_error=fail) => FAIL; others => WARN
     -   report_only: never FAIL; all violations are reported and final state is WARN
 
-Controls (precedence: CLI > config > defaults):
+Controls (precedence per section 0.1):
 
 -   gates_skip_monolith = true|false (default: false)
 -   gate_monolith_enabled = true|false (default: true)
@@ -1125,7 +1160,7 @@ If promotion detects that the live repo changed since `base_sha` for one
 or more files in the promotion set, the runner applies an explicit
 resolution policy.
 
-Controls (precedence: CLI \> config \> defaults): - CLI (full help only,
+Controls (precedence per section 0.1): - CLI (full help only,
 long form): - `--overwrite-live` : overwrite live with the workspace
 version for the conflicting files. - `--overwrite-workspace` : keep the
 live version and skip promoting the conflicting files. -
@@ -1271,7 +1306,7 @@ Deterministic retention (optional):
      `count <= success_archive_keep_count`.
 - Use of filesystem timestamps (mtime) is forbidden.
 
-CLI flags (dedicated; precedence CLI > config > defaults):
+CLI flags (dedicated; precedence per sections 0.1 and 3.2.5):
 - --success-archive-dir {patch_dir,successful_dir}
 - --success-archive-cleanup-glob TEMPLATE
 - --success-archive-keep-count N
@@ -1791,14 +1826,14 @@ Constant socket names:
 
 ## PatchHub Config Editor Contract
 
-PatchHub may edit the runner configuration file:
+PatchHub may edit the runner-owned bootstrap configuration file:
 - Legacy embedded layout: scripts/am_patch/am_patch.toml
 - Root layout: am_patch.toml in runner_root
 
 The normative meaning of Policy keys is defined by the runner-owned glossary file:
 - scripts/am_patch_policy_glossary.md
 Schema export "help" strings MUST be consistent with that glossary.
-The effective runner-owned config file path is layout-dependent:
+The effective runner-owned bootstrap config file path is layout-dependent:
 - Legacy embedded layout: `scripts/am_patch/am_patch.toml`
 - Root layout: `am_patch.toml` in `runner_root`
 
@@ -1816,7 +1851,7 @@ Editing engine:
 Schema/glossary requirements for the target surface:
 
 - The Policy surface MUST describe `artifacts_root`, `target_repo_roots`,
-  `active_target_repo_root`, and `target_repo_name`.
+  `active_target_repo_root`, `target_repo_config_relpath`, and `target_repo_name`.
 - Schema export help text for these keys MUST match the glossary.
 - A schema shape change for these keys requires a SCHEMA_VERSION bump in the
   implementation issue.
