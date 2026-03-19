@@ -532,11 +532,17 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         # The legacy helper calls self.queue.enqueue(job), which is sync.
         # We provide a small adapter object with an async enqueue.
 
+        def _error_response(exc: Exception) -> Response:
+            msg = f"enqueue_failed: {type(exc).__name__}: {exc}"
+            msg = msg.encode("ascii", errors="replace").decode("ascii")
+            return _json_response_obj(500, {"ok": False, "error": msg})
+
         class _Adapter:
             def __init__(self, core: AsyncAppCore) -> None:
                 self.core = core
                 self.cfg = core.cfg
                 self.jail = core.jail
+                self.repo_root = core.repo_root
                 self.patches_root = core.patches_root
                 self.jobs_root = core.jobs_root
                 self.queue = self
@@ -556,14 +562,15 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
                 self._pending.append(t)
 
         adapter = _Adapter(core)
-        status, data = api_jobs_enqueue(adapter, body)
+        try:
+            status, data = api_jobs_enqueue(adapter, body)
+        except Exception as exc:
+            return _error_response(exc)
         if status < 400 and adapter._pending:
             try:
                 await asyncio.gather(*adapter._pending)
-            except Exception as e:
-                msg = f"enqueue_failed: {type(e).__name__}: {e}"
-                msg = msg.encode("ascii", errors="replace").decode("ascii")
-                raise HTTPException(status_code=500, detail=msg) from e
+            except Exception as exc:
+                return _error_response(exc)
         return _json_bytes_response(status, data)
 
     @app.post("/api/parse_command")

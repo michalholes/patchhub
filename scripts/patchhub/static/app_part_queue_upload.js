@@ -225,8 +225,8 @@ function enqueue() {
 			AMP_UI.saveLiveJobId(selectedJobId);
 			suppressIdleOutput = false;
 			PH.call("openLiveStream", selectedJobId);
-		} else {
-			setUiError(String((r && r.error) || "enqueue failed"));
+		} else if (!(r && r.ok === false && r.error)) {
+			setUiError("enqueue failed");
 		}
 		phCall("refreshJobs");
 	});

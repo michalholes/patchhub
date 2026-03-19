@@ -282,7 +282,11 @@ def test_enqueue_raw_command_uses_last_parsed_mode_in_request_body() -> None:
     script = (
         _node_prelude(queue_js)
         + """
-global.pushApiStatus = () => {};
+global.pushApiStatus = (payload) => {
+  if (payload && payload.ok === false && payload.error) {
+    global.__uiError = String(payload.error || "");
+  }
+};
 global.setUiError = (msg) => { global.__uiError = String(msg || ""); };
 global.apiPost = (_path, body) => {
   global.__postedBody = body;
@@ -305,6 +309,35 @@ process.stdout.write(JSON.stringify({
     result = _run_node(script)
     assert result["mode"] == "finalize_live"
     assert result["uiError"] == "stop"
+
+
+def test_enqueue_failed_request_logs_single_error_line() -> None:
+    queue_js = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_queue_upload.js"
+    script = (
+        _node_prelude(queue_js)
+        + """
+global.__lines = [];
+global.pushApiStatus = (payload) => {
+  if (payload && payload.ok === false && payload.error) {
+    global.__lines.push("ERROR: " + String(payload.error || ""));
+  }
+};
+global.setUiError = (msg) => {
+  global.__lines.push("ERROR: " + String(msg || ""));
+};
+global.apiPost = (_path, _body) => Promise.resolve({ ok: false, error: "bad json" });
+document.getElementById("mode").value = "patch";
+document.getElementById("issueId").value = "348";
+document.getElementById("commitMsg").value = "fix enqueue";
+document.getElementById("patchPath").value = "patches/issue_348_v1.zip";
+enqueue();
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({ lines: global.__lines }));
+"""
+    )
+    result = _run_node(script)
+    assert result["lines"] == ["ERROR: bad json"]
 
 
 def test_zip_subset_retry_fetches_new_manifest_after_error() -> None:

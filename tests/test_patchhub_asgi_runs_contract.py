@@ -70,3 +70,40 @@ class TestPatchhubAsgiRunsContract(unittest.TestCase):
         self.assertEqual(resp.headers.get("etag"), '"runs:r=1:2:3:c=4:5"')
         self.assertEqual(resp.headers.get("cache-control"), "no-store")
         self.assertTrue(resp.text.startswith('{\n  "ok": true,'))
+
+    def test_api_jobs_enqueue_sync_failure_returns_json_error(self) -> None:
+        try:
+            from fastapi.testclient import TestClient
+        except Exception as exc:  # pragma: no cover
+            self.skipTest(str(exc))
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = load_config(
+                Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
+            )
+            try:
+                with (
+                    patch.object(AsyncAppCore, "startup", _noop_async),
+                    patch.object(AsyncAppCore, "shutdown", _noop_async),
+                ):
+                    app = create_app(repo_root=root, cfg=cfg)
+                    with (
+                        patch(
+                            "patchhub.app_api_jobs.api_jobs_enqueue",
+                            side_effect=RuntimeError("bad \u010d"),
+                        ),
+                        TestClient(app) as client,
+                    ):
+                        resp = client.post(
+                            "/api/jobs/enqueue",
+                            json={"mode": "finalize_live", "commit_message": "x"},
+                        )
+            except RuntimeError as exc:
+                if "python-multipart" in str(exc):
+                    self.skipTest(str(exc))
+                raise
+        payload = resp.json()
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(payload.get("ok"), False)
+        self.assertTrue(str(payload.get("error") or ""))
+        self.assertTrue(str(payload.get("error") or "").isascii())
