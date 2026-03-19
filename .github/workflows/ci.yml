@@ -38,6 +38,14 @@ jobs:
           . .venv/bin/activate
           python -m playwright install --with-deps --only-shell
 
+      - name: Prepare canonical /home/pi layout for am_patch tests
+        run: |
+          sudo mkdir -p /home/pi
+          sudo chown "$(id -u):$(id -g)" /home/pi
+          sudo rm -rf /home/pi/patchhub
+          ln -sfnT "$GITHUB_WORKSPACE" /home/pi/patchhub
+
+
       - name: Pytest
         run: |
           . .venv/bin/activate
