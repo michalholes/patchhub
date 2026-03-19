@@ -1434,7 +1434,7 @@ Precedence: NO_COLOR \> CLI \> config \> default.
 ### root-model
 
 - `artifacts_root` changes artifact placement and workspace/log/archive location semantics
-- `target_repo_roots` changes target allowlist semantics
+- `target_repo_roots` changes target binding-registry semantics
 - `active_target_repo_root` changes explicit target-root path selection semantics
 - `target_repo_name` changes target-repository token selection input semantics; see section 3.1.1
 
