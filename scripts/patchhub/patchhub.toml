@@ -4,7 +4,7 @@ port = 8099
 backend = "asgi"
 
 [meta]
-version = "1.13.2"
+version = "1.13.3"
 
 [runner]
 command = ["python3", "scripts/am_patch.py"]

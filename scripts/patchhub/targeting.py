@@ -45,7 +45,27 @@ def _load_runner_config(path: Path) -> dict[str, Any]:
     return raw
 
 
-def derive_target_options(runner_config_toml: Path) -> list[str]:
+def _resolve_runner_relative(raw: str | None, *, runner_root: Path) -> Path | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    path = Path(text)
+    base = path if path.is_absolute() else (runner_root / path)
+    return base.resolve()
+
+
+def derive_target_options(
+    runner_config_toml: Path,
+    *,
+    runner_root: Path | None = None,
+) -> list[str]:
+    runner_root = (
+        Path(runner_root).resolve()
+        if runner_root is not None
+        else Path(runner_config_toml).resolve().parents[2]
+    )
     data = _load_runner_config(Path(runner_config_toml))
     paths = data.get("paths", {})
     if not isinstance(paths, dict):
@@ -54,7 +74,20 @@ def derive_target_options(runner_config_toml: Path) -> list[str]:
     options: list[str] = []
     seen: set[str] = set()
     for raw in raw_values:
-        token = canonical_target_repo_name_from_root(Path(str(raw)))
+        text = str(raw).strip()
+        if not text:
+            continue
+        if "=" in text:
+            raw_token, raw_root = text.split("=", 1)
+            token = validate_target_repo_token(raw_token, field="target_repo_roots token")
+            resolved_root = _resolve_runner_relative(raw_root, runner_root=runner_root)
+            if resolved_root is None:
+                raise ValueError("target_repo_roots binding root must be non-empty")
+        else:
+            resolved_root = _resolve_runner_relative(text, runner_root=runner_root)
+            if resolved_root is None:
+                continue
+            token = canonical_target_repo_name_from_root(resolved_root)
         if token in seen:
             continue
         seen.add(token)
@@ -66,8 +99,12 @@ def validate_targeting_config(
     *,
     runner_config_toml: Path,
     default_target_repo: str,
+    runner_root: Path | None = None,
 ) -> list[str]:
-    options = derive_target_options(runner_config_toml)
+    options = derive_target_options(
+        runner_config_toml,
+        runner_root=runner_root,
+    )
     default_token = validate_target_repo_token(
         default_target_repo,
         field="default_target_repo",
@@ -103,6 +140,7 @@ def resolve_targeting_runtime(
     options = validate_targeting_config(
         runner_config_toml=runner_cfg_path,
         default_target_repo=default_target_repo,
+        runner_root=repo_root,
     )
     return TargetingRuntime(
         default_target_repo=default_target_repo,

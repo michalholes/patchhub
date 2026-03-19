@@ -27,7 +27,7 @@ def _write_runner_config(repo_root: Path) -> None:
     path = repo_root / "scripts" / "am_patch" / "am_patch.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        '[paths]\ntarget_repo_roots = ["/home/pi/audiomason2", "/home/pi/patchhub"]\n',
+        '[paths]\ntarget_repo_roots = ["audiomason2=../audiomason2", "/home/pi/patchhub"]\n',
         encoding="utf-8",
     )
 
