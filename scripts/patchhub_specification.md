@@ -3,7 +3,7 @@ Status: AUTHORITATIVE SPECIFICATION
 Applies to: scripts/patchhub/*
 Language: ENGLISH (ASCII ONLY)
 
-Specification Version: 1.14.0-spec
+Specification Version: 1.14.1-spec
 Code Baseline: audiomason2-main.zip (as provided in this chat)
 
 -------------------------------------------------------------------------------
@@ -1413,23 +1413,44 @@ When a patch zip is loaded through the zip-manifest flow:
 - Raw PM validator output MUST NOT be merged into `Recent status`.
 
 Authority chain for load-time PM validation:
-- Initial validation MUST derive TARGET from the basename of the workspace
-  snapshot artifact explicitly selected as the authority input for that
-  validation run, using the PM contract `<TARGET>-main_<OPAQUE>.zip`.
-- `<OPAQUE>` MUST be ignored for TARGET derivation.
-- PatchHub MUST NOT silently replace a missing or unspecified initial
-  authority input with its own alternative authority hierarchy.
-- If PatchHub does not have one explicit workspace snapshot authority
-  input for the current initial validation run, the PM status MUST be
+- Initial validation MUST resolve one explicit workspace snapshot authority
+  input for the current run from local baseline artifacts using the
+  zip-derived target token of the loaded patch.
+- The zip-derived target token MUST be read from root-level `target.txt`
+  using the same validation contract as `derived_target_repo`.
+- If zip `target.txt` is missing or invalid, the PM status MUST be
   `MISSING CONTEXT`.
+- Given a valid zip-derived target token `<TARGET>`, PatchHub MUST search
+  only this local baseline artifact location:
+  - `<patches_root>/<TARGET>-main_*.zip`
+- Only existing regular files are candidates.
+- PatchHub MUST choose the single authority artifact by deterministic key
+  `(mtime_ns, relative_path)` descending.
+- The selected artifact becomes the explicit workspace snapshot authority
+  input for that validation run.
+- If no candidate exists, the PM status MUST be `MISSING CONTEXT`.
+- Initial validation MUST derive TARGET from the basename of that selected
+  workspace snapshot artifact using the PM contract
+  `<TARGET>-main_<OPAQUE>.zip`.
+- `<OPAQUE>` MUST be ignored for TARGET derivation.
+- PatchHub MUST NOT use `success_archive_cleanup_glob_template`,
+  `<patches_root>/successful/`, `<patches_root>/unsuccessful/`,
+  repo-root live snapshots, or any other alternative authority hierarchy
+  for initial validation.
 - Repair validation MUST use the latest `patched_issue<issue>_*.zip`
   overlay as the authority input for TARGET.
 - In repair mode, overlay `target.txt` is authoritative for TARGET.
-- A workspace snapshot MAY be used in repair mode only for:
+- If repair validation requires a workspace snapshot for exact per-file
+  supplemental authority, including repair patches that patch files outside
+  the overlay artifact, PatchHub MUST resolve it from local baseline
+  artifacts using the authoritative overlay target token and the same
+  local baseline search contract defined above.
+- In repair mode, a workspace snapshot MAY be used only for:
   - basename-versus-overlay TARGET consistency check, and
   - exact per-file supplemental authority requested by the validator via
     explicit `--supplemental-file` paths.
 - Implicit bulk or full-tree fallback is forbidden.
+- Live workspace snapshot creation is forbidden in load-time PM validation.
 - The `authority sources` field in Operator info MUST list exactly the
   artifact paths actually passed to the validator for that run.
 
