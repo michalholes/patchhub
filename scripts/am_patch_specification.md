@@ -1158,7 +1158,7 @@ gates, or promotion semantics.
 Failure zip target metadata:
 
 - The failure zip MUST include a root-level `target.txt`.
-- The file MUST contain the effective `target_repo_name` derived by section 3.1.1.
+- The file MUST contain the effective `target_repo_name` resolved by section 3.1.1.
 - The file uses the token format defined in section 3.1.2 and MAY include an optional trailing LF.
 - `target.txt` does not change failure-zip naming, retention, or subset selection rules.
 
