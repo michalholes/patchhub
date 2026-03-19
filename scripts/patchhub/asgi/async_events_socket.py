@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 _PROTOCOL = "am_patch_ipc/1"
+CANCEL_REPLY_TIMEOUT_S = 3.0
 
 
 def job_socket_path(job_id: str) -> str:
@@ -37,7 +38,10 @@ async def send_cancel_async(socket_path: str) -> bool:
     payload = _cancel_payload(cmd_id)
 
     try:
-        reader, writer = await asyncio.open_unix_connection(socket_path)
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_unix_connection(socket_path),
+            timeout=CANCEL_REPLY_TIMEOUT_S,
+        )
     except Exception:
         return False
 
@@ -46,7 +50,10 @@ async def send_cancel_async(socket_path: str) -> bool:
         await writer.drain()
 
         while True:
-            raw = await reader.readline()
+            raw = await asyncio.wait_for(
+                reader.readline(),
+                timeout=CANCEL_REPLY_TIMEOUT_S,
+            )
             if not raw:
                 return False
             try:
@@ -85,7 +92,7 @@ def send_cancel_sync(socket_path: str) -> bool:
 
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(1.0)
+        s.settimeout(CANCEL_REPLY_TIMEOUT_S)
         s.connect(socket_path)
         fp = s.makefile("rwb", buffering=0)
         try:

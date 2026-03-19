@@ -15,8 +15,8 @@ from patchhub.models import JobRecord
 from patchhub.run_applied_files import collect_job_applied_files
 from patchhub.web_jobs_db import WebJobsDatabase
 
-from .async_event_pump import start_event_pump
-from .async_events_socket import job_socket_path, send_cancel_async
+from .async_event_pump import EventPumpCommandChannel, start_event_pump
+from .async_events_socket import job_socket_path
 from .async_runner_exec import AsyncRunnerExecutor, ExecResult
 from .async_task_grace import wait_with_grace
 from .job_event_broker import JobEventBroker
@@ -177,6 +177,7 @@ class AsyncJobQueue:
         self._jobs: dict[str, JobRecord] = {}
         self._task: asyncio.Task[None] | None = None
         self._brokers: dict[str, JobEventBroker] = {}
+        self._pump_commands: dict[str, EventPumpCommandChannel] = {}
 
     def _reset_loop_affine_state(self) -> None:
         self._mu = asyncio.Lock()
@@ -214,6 +215,20 @@ class AsyncJobQueue:
         broker = await self._pop_broker(job_id)
         if broker is not None:
             broker.close()
+
+    async def _pop_command_channel(
+        self,
+        job_id: str,
+    ) -> EventPumpCommandChannel | None:
+        async with self._mu:
+            if job_id not in self._pump_commands:
+                return None
+            return self._pump_commands.pop(job_id)
+
+    async def _close_command_channel(self, job_id: str) -> None:
+        command_channel = await self._pop_command_channel(job_id)
+        if command_channel is not None:
+            await command_channel.close()
 
     async def _materialize_applied_files(self, job: JobRecord) -> None:
         if self._job_db is None:
@@ -388,6 +403,7 @@ class AsyncJobQueue:
 
         if status == "running":
             now = utc_now()
+            command_channel: EventPumpCommandChannel | None = None
             async with self._mu:
                 job = self._jobs.get(job_id)
                 if job is None:
@@ -395,8 +411,15 @@ class AsyncJobQueue:
                 if job.cancel_requested_utc is None:
                     job.cancel_requested_utc = now
                     await self._persist(job)
+                command_channel = self._pump_commands.get(job_id)
 
-            sock_ok = await send_cancel_async(job_socket_path(job_id))
+            sock_ok = False
+            if command_channel is not None:
+                sock_ok = await command_channel.send(
+                    cmd="cancel",
+                    args={},
+                    cmd_id_prefix="patchhub_cancel",
+                )
             if sock_ok:
                 async with self._mu:
                     job = self._jobs.get(job_id)
@@ -540,13 +563,16 @@ class AsyncJobQueue:
                         sock_path.unlink()
 
                 broker = JobEventBroker()
+                command_channel = EventPumpCommandChannel()
                 async with self._mu:
                     self._brokers[job_id] = broker
+                    self._pump_commands[job_id] = command_channel
                 if self._job_db is not None:
                     pump_coro = start_event_pump(
                         socket_path=str(sock_path),
                         jsonl_path=None,
                         publish=broker.publish,
+                        command_channel=command_channel,
                         job_db=self._job_db,
                         job_id=job_id,
                     )
@@ -555,6 +581,7 @@ class AsyncJobQueue:
                         socket_path=str(sock_path),
                         jsonl_path=jsonl_path,
                         publish=broker.publish,
+                        command_channel=command_channel,
                     )
                 pump_task = asyncio.create_task(
                     pump_coro,
@@ -634,5 +661,6 @@ class AsyncJobQueue:
                     error=reconcile_error,
                 )
                 await self._close_broker(job_id)
+                await self._close_command_channel(job_id)
                 with contextlib.suppress(Exception):
                     Path(job_socket_path(job_id)).unlink()

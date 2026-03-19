@@ -102,10 +102,11 @@ class TestPatchhubAsyncQueueCompletion(unittest.IsolatedAsyncioTestCase):
                 socket_path: str,
                 jsonl_path: Path,
                 publish=None,
+                command_channel=None,
                 connect_timeout_s: float = 10.0,
                 retry_sleep_s: float = 0.25,
             ) -> None:
-                del socket_path, connect_timeout_s, retry_sleep_s
+                del socket_path, command_channel, connect_timeout_s, retry_sleep_s
                 await asyncio.sleep(0.02)
                 line = '{"type":"log","msg":"tail"}'
                 with jsonl_path.open("a", encoding="utf-8") as f:
@@ -190,10 +191,18 @@ class TestPatchhubAsyncQueueForcedCompletion(unittest.IsolatedAsyncioTestCase):
                 socket_path: str,
                 jsonl_path: Path,
                 publish=None,
+                command_channel=None,
                 connect_timeout_s: float = 10.0,
                 retry_sleep_s: float = 0.25,
             ) -> None:
-                del socket_path, jsonl_path, publish, connect_timeout_s, retry_sleep_s
+                del (
+                    socket_path,
+                    jsonl_path,
+                    publish,
+                    command_channel,
+                    connect_timeout_s,
+                    retry_sleep_s,
+                )
                 await asyncio.sleep(3600)
 
             async def wait_for_done(job_id: str) -> async_queue_mod.JobRecord:
@@ -268,10 +277,18 @@ class TestPatchhubAsyncQueueForcedCompletion(unittest.IsolatedAsyncioTestCase):
                 socket_path: str,
                 jsonl_path: Path,
                 publish=None,
+                command_channel=None,
                 connect_timeout_s: float = 10.0,
                 retry_sleep_s: float = 0.25,
             ) -> None:
-                del socket_path, jsonl_path, publish, connect_timeout_s, retry_sleep_s
+                del (
+                    socket_path,
+                    jsonl_path,
+                    publish,
+                    command_channel,
+                    connect_timeout_s,
+                    retry_sleep_s,
+                )
                 await asyncio.sleep(3600)
 
             async def wait_for_done(job_id: str) -> async_queue_mod.JobRecord:
@@ -345,10 +362,18 @@ class TestPatchhubAsyncQueueForcedCompletion(unittest.IsolatedAsyncioTestCase):
                 socket_path: str,
                 jsonl_path: Path,
                 publish=None,
+                command_channel=None,
                 connect_timeout_s: float = 10.0,
                 retry_sleep_s: float = 0.25,
             ) -> None:
-                del socket_path, jsonl_path, publish, connect_timeout_s, retry_sleep_s
+                del (
+                    socket_path,
+                    jsonl_path,
+                    publish,
+                    command_channel,
+                    connect_timeout_s,
+                    retry_sleep_s,
+                )
                 await asyncio.sleep(3600)
 
             def recording_close(broker: async_queue_mod.JobEventBroker) -> None:
@@ -431,6 +456,24 @@ class _ControllableExecutor:
         return async_queue_mod.ExecResult(return_code=self.return_code, stdout_tail_timed_out=False)
 
 
+class _CommandPumpWriter:
+    def __init__(self) -> None:
+        self.lines: asyncio.Queue[bytes] = asyncio.Queue()
+        self._closing = False
+
+    def write(self, data: bytes) -> None:
+        self.lines.put_nowait(data)
+
+    async def drain(self) -> None:
+        return None
+
+    def is_closing(self) -> bool:
+        return self._closing
+
+    def close(self) -> None:
+        self._closing = True
+
+
 class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
     async def test_socket_cancel_exit_code_130_finalizes_as_canceled(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -455,10 +498,31 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
                 raw_command="python3 scripts/am_patch.py 650",
                 canonical_command=["python3", "scripts/am_patch.py", "650"],
             )
+            cancel_seen = asyncio.Event()
+            writer = _CommandPumpWriter()
 
-            async def idle_pump(**kwargs):
-                del kwargs
-                return None
+            async def command_pump(**kwargs):
+                command_channel = kwargs["command_channel"]
+                await command_channel.attach_writer(writer)
+                try:
+                    while True:
+                        raw = await writer.lines.get()
+                        obj = json.loads(raw.decode("utf-8"))
+                        if str(obj.get("cmd", "")) != "cancel":
+                            continue
+                        cancel_seen.set()
+                        command_channel.deliver_reply(
+                            {
+                                "type": "reply",
+                                "cmd": "cancel",
+                                "cmd_id": str(obj["cmd_id"]),
+                                "ok": True,
+                            }
+                        )
+                        return None
+                finally:
+                    writer.close()
+                    await command_channel.close()
 
             async def wait_for_status(expected: str) -> async_queue_mod.JobRecord:
                 deadline = asyncio.get_running_loop().time() + 3.0
@@ -471,19 +535,19 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
                     await asyncio.sleep(0.01)
 
             with (
-                patch.object(async_queue_mod, "start_event_pump", side_effect=idle_pump),
+                patch.object(async_queue_mod, "start_event_pump", side_effect=command_pump),
                 patch.object(
                     async_queue_mod,
                     "job_socket_path",
                     return_value=str(root / "job-650.sock"),
                 ),
-                patch.object(async_queue_mod, "send_cancel_async", return_value=True),
             ):
                 await queue.start()
                 try:
                     await queue.enqueue(job)
                     await asyncio.wait_for(executor.started.wait(), timeout=1.0)
                     self.assertTrue(await queue.cancel(job.job_id))
+                    await asyncio.wait_for(cancel_seen.wait(), timeout=1.0)
                     executor.released.set()
                     finished = await wait_for_status("canceled")
                 finally:
@@ -518,13 +582,27 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
                 raw_command="python3 scripts/am_patch.py 651",
                 canonical_command=["python3", "scripts/am_patch.py", "651"],
             )
+            cancel_seen = asyncio.Event()
+            writer = _CommandPumpWriter()
 
-            async def idle_pump(**kwargs):
-                del kwargs
-                return None
+            async def timeout_command_pump(**kwargs):
+                command_channel = kwargs["command_channel"]
+                await command_channel.attach_writer(writer)
+                try:
+                    while True:
+                        raw = await writer.lines.get()
+                        obj = json.loads(raw.decode("utf-8"))
+                        if str(obj.get("cmd", "")) != "cancel":
+                            continue
+                        cancel_seen.set()
+                        await asyncio.sleep(3.1)
+                        return None
+                finally:
+                    writer.close()
+                    await command_channel.close()
 
             async def wait_for_status(expected: str) -> async_queue_mod.JobRecord:
-                deadline = asyncio.get_running_loop().time() + 3.0
+                deadline = asyncio.get_running_loop().time() + 6.0
                 while True:
                     current = await queue.get_job(job.job_id)
                     if current is not None and current.status == expected:
@@ -534,19 +612,23 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
                     await asyncio.sleep(0.01)
 
             with (
-                patch.object(async_queue_mod, "start_event_pump", side_effect=idle_pump),
+                patch.object(
+                    async_queue_mod,
+                    "start_event_pump",
+                    side_effect=timeout_command_pump,
+                ),
                 patch.object(
                     async_queue_mod,
                     "job_socket_path",
                     return_value=str(root / "job-651.sock"),
                 ),
-                patch.object(async_queue_mod, "send_cancel_async", return_value=False),
             ):
                 await queue.start()
                 try:
                     await queue.enqueue(job)
                     await asyncio.wait_for(executor.started.wait(), timeout=1.0)
                     self.assertTrue(await queue.cancel(job.job_id))
+                    await asyncio.wait_for(cancel_seen.wait(), timeout=1.0)
                     finished = await wait_for_status("canceled")
                 finally:
                     with contextlib.suppress(asyncio.CancelledError):
