@@ -753,30 +753,26 @@ input::placeholder {
 	line-height: 1;
 }
 
-.workspace-actions {
+.job-item .actions {
 	margin-top: 6px;
+	display: flex;
 	justify-content: flex-start;
 	flex-wrap: wrap;
-}
-
-.job-actions {
-	margin-top: 6px;
-	justify-content: flex-start;
-	flex-wrap: wrap;
+	gap: 6px;
 }
 
 .workspace-item .job-meta {
 	font-size: 12px;
 }
 
-.patch-item .job-top {
+.job-item .job-top {
 	align-items: flex-start;
 	flex-wrap: wrap;
 }
 
-.patch-item .job-top .job-commit,
-.patch-item .job-commit,
-.patch-item .job-meta {
+.job-item .job-top .job-commit,
+.job-item .job-commit,
+.job-item .job-meta {
 	overflow: visible;
 	text-overflow: clip;
 	white-space: normal;
@@ -784,7 +780,7 @@ input::placeholder {
 	word-break: break-word;
 }
 
-.patch-item .job-top .job-commit {
+.job-item .job-top .job-commit {
 	flex: 1 1 0;
 	min-width: 0;
 }
