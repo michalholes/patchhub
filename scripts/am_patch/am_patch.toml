@@ -66,6 +66,7 @@ gates_order = [
   "monolith",
   "docs",
 ]
+target_repo_config_relpath = "am_patch.repo.toml" 
 
 [paths]
 # Canonical (optional; runner may infer)
