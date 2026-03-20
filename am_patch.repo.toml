@@ -18,7 +18,7 @@ ruff_autofix_legalize_outside = false
 ruff_format = true
 
 # Repo-local Python gate interpreter policy.
-python_gate_mode = "auto"
+python_gate_mode = "runner"
 python_gate_python = ".venv/bin/python"
 
 # Gate ordering stays bootstrap-owned. Only repo-local gate policy lives here.
