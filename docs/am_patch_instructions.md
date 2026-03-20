@@ -2,18 +2,17 @@
 
 # Patch Authoring Manual (PM)
 
-AUTHORITATIVE -- AudioMason2 Status: active Version: v2.47
+AUTHORITATIVE -- AudioMason2 Status: active Version: v2.48
 
 HARD: The authoritative version of this document is always the one with the highest version number. Any document without a stated version number, or with a lower version number, is invalid and MUST NOT be used. If two documents carry the same version number but differ in content, this is a HARD STOP / invalid corpus.
 
 HARD: Every PM-governed output that proposes, delivers, reviews, repairs, or evaluates implementation work MUST contain exactly this block and in exactly this order:
 
 SPEC CONTEXT
-RC version used: <RC_VERSION>
 PM version used: <PM_VERSION>
 
 HARD: Field names, row order, and capitalization in the SPEC CONTEXT block MUST NOT be changed.
-HARD: Missing SPEC CONTEXT block, altered block shape, or false RC/PM version values = NON-COMPLIANT.
+HARD: Missing SPEC CONTEXT block, altered block shape, or false PM version values = NON-COMPLIANT.
 
 This manual defines what a chat must produce so that the user can run
 the patch successfully and close the issue.
