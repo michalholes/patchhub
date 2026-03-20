@@ -25,7 +25,7 @@ python_gate_python = ".venv/bin/python"
 gates_allow_fail = false
 gates_skip_dont_touch = false
 dont_touch_paths = [
-  ".am_patch/am_patch.repo.toml",
+  "am_patch.repo.toml",
   "scripts/am_patch/am_patch.toml",
   "scripts/patchhub/static/patchhub_bootstrap.js",
   "tsconfig.json",
