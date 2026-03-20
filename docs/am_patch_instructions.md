@@ -2,7 +2,7 @@
 
 # Patch Authoring Manual (PM)
 
-AUTHORITATIVE -- AudioMason2 Status: active Version: v2.49
+AUTHORITATIVE -- AudioMason2 Status: active Version: v2.50
 
 HARD: The authoritative version of this document is always the one with the highest version number. Any document without a stated version number, or with a lower version number, is invalid and MUST NOT be used. If two documents carry the same version number but differ in content, this is a HARD STOP / invalid corpus.
 
@@ -26,8 +26,8 @@ the patch successfully and close the issue.
 2.  The patch MUST be served in a `.zip` file.
 3.  The patch MUST be a unified diff in `git apply` format. Python patch
     scripts are non-compliant.
-
-6. Always inspect the authoritative workspace snapshot before proposing or generating any patch.
+4.  The patch MUST NOT modify setting of DONT_TOUCH_GATE
+5. Always inspect the authoritative workspace snapshot before proposing or generating any patch.
 
 ------------------------------------------------------------------------
 
