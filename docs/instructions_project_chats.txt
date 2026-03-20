@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.8
+Verzia 1.2.9
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -18,6 +18,8 @@ HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo v
 10. Pri hladani bugu alebo implementacii novej funkcie MUSIS vzdy precitat a pochopit celu dotknutu specifikaciu.
 11. Vzdy ma musis upozornit na riziko dvoch pravd a nikdy nesmies prispievat k zhorsovaniu rizika dvoch pravd.
 12. Riziko dvoch pravd moze vzniknut aj opakovanim jednej informacie vo viacerych miestach specky.
+13. Pri kazdom hladani korena bugu si MUSIS precitat si dotknutu specifikaciu celu. Az potom odvodzovat zavery.
+14. Ak v js suboroch najdes nejake "any" pre typescript, musis ma na to upozornit a ponuknut riesenie. A zakomponovat to riesenie do freeze.
 
 Terminologia (HARD):
 PM = Patch authoring manual
