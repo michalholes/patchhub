@@ -26,8 +26,8 @@ def test_policy_schema_exposes_bucketed_pytest_routing_keys() -> None:
     schema = get_policy_schema()
     policy = schema["policy"]
 
-    assert SCHEMA_VERSION == "6"
-    assert schema["schema_version"] == "6"
+    assert SCHEMA_VERSION == "7"
+    assert schema["schema_version"] == "7"
     assert policy["gate_pytest_py_prefixes"]["type"] == "list[str]"
     assert policy["pytest_routing_mode"]["enum"] == ["legacy", "bucketed"]
     assert policy["pytest_roots"]["type"] == "dict[str,str]"
@@ -46,6 +46,7 @@ def test_policy_schema_exposes_root_model_keys() -> None:
     assert policy["artifacts_root"]["section"] == "paths"
     assert policy["target_repo_roots"]["section"] == "paths"
     assert policy["active_target_repo_root"]["section"] == "paths"
+    assert policy["target_repo_config_relpath"]["section"] == "paths"
     assert policy["artifacts_root"]["type"] == "optional[str]"
     assert policy["target_repo_roots"]["type"] == "list[str]"
     assert policy["active_target_repo_root"]["type"] == "optional[str]"
@@ -59,5 +60,18 @@ def test_policy_schema_exposes_target_repo_name() -> None:
 
     assert target["type"] == "str"
     assert target["section"] == ""
-    assert target["default"] == "audiomason2"
+    assert target["default"] == ""
     assert "resolved through target_repo_roots" in target["help"]
+
+
+def test_bootstrap_policy_schema_is_bootstrap_only() -> None:
+    from am_patch.config import BOOTSTRAP_OWNED_KEYS
+    from am_patch.config_schema import get_bootstrap_policy_schema
+
+    schema = get_bootstrap_policy_schema()
+    policy = schema["policy"]
+
+    assert set(policy.keys()) == BOOTSTRAP_OWNED_KEYS
+    assert "target_repo_config_relpath" in policy
+    assert "python_gate_mode" not in policy
+    assert "default_branch" not in policy

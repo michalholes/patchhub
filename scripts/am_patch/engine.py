@@ -12,7 +12,18 @@ from am_patch.apply_failure_gates_policy import (
 from am_patch.archive import archive_patch
 from am_patch.audit_rubric_check import check_audit_rubric_coverage
 from am_patch.cli import parse_args
-from am_patch.config import Policy, apply_cli_overrides, build_policy, policy_for_log
+from am_patch.cli_override_normalization import (
+    apply_cli_symmetry_helpers,
+    build_cli_override_mapping,
+)
+from am_patch.config import (
+    BOOTSTRAP_OWNED_KEYS,
+    Policy,
+    apply_cli_overrides,
+    build_policy,
+    filter_policy_layer_cfg,
+    policy_for_log,
+)
 from am_patch.config_file import load_config, resolve_config_path
 from am_patch.engine_run_gates import run_finalize_gates
 from am_patch.errors import (
@@ -97,105 +108,11 @@ def build_effective_policy(argv: list[str]) -> int | tuple[Any, Policy, Path, st
     runner_root, import_root = _detect_engine_roots()
     config_path = resolve_config_path(cli.config_path, runner_root, import_root)
     cfg, used_cfg = load_config(config_path)
-    policy = build_policy(defaults, cfg)
+    bootstrap_cfg = filter_policy_layer_cfg(cfg, BOOTSTRAP_OWNED_KEYS)
+    policy = build_policy(defaults, bootstrap_cfg, source_name="bootstrap_config")
 
-    apply_cli_overrides(
-        policy,
-        {
-            "run_all_tests": cli.run_all_tests,
-            "verbosity": getattr(cli, "verbosity", None),
-            "log_level": getattr(cli, "log_level", None),
-            "json_out": getattr(cli, "json_out", None),
-            "console_color": getattr(cli, "console_color", None),
-            "allow_no_op": cli.allow_no_op,
-            "skip_up_to_date": cli.skip_up_to_date,
-            "allow_non_main": cli.allow_non_main,
-            "no_rollback": cli.no_rollback,
-            "success_archive_name": getattr(cli, "success_archive_name", None),
-            "update_workspace": cli.update_workspace,
-            "gates_allow_fail": cli.allow_gates_fail,
-            "gates_skip_ruff": cli.skip_ruff,
-            "gates_skip_pytest": cli.skip_pytest,
-            "gates_skip_mypy": cli.skip_mypy,
-            "gates_skip_js": getattr(cli, "skip_js", None),
-            "gates_skip_docs": getattr(cli, "skip_docs", None),
-            "gates_skip_monolith": getattr(cli, "skip_monolith", None),
-            "apply_failure_partial_gates_policy": getattr(
-                cli, "apply_failure_partial_gates_policy", None
-            ),
-            "apply_failure_zero_gates_policy": getattr(
-                cli, "apply_failure_zero_gates_policy", None
-            ),
-            "gates_order": (
-                []
-                if (
-                    getattr(cli, "gates_order", None) is not None
-                    and str(cli.gates_order).strip() == ""
-                )
-                else ([s.strip().lower() for s in str(cli.gates_order).split(",") if s.strip()])
-                if getattr(cli, "gates_order", None) is not None
-                else None
-            ),
-            "gate_docs_include": (
-                []
-                if (
-                    getattr(cli, "docs_include", None) is not None
-                    and str(cli.docs_include).strip() == ""
-                )
-                else ([s.strip() for s in str(cli.docs_include).split(",") if s.strip()])
-                if getattr(cli, "docs_include", None) is not None
-                else None
-            ),
-            "gate_docs_exclude": (
-                []
-                if (
-                    getattr(cli, "docs_exclude", None) is not None
-                    and str(cli.docs_exclude).strip() == ""
-                )
-                else ([s.strip() for s in str(cli.docs_exclude).split(",") if s.strip()])
-                if getattr(cli, "docs_exclude", None) is not None
-                else None
-            ),
-            "ruff_autofix_legalize_outside": getattr(cli, "ruff_autofix_legalize_outside", None),
-            "soft_reset_workspace": cli.soft_reset_workspace,
-            "enforce_allowed_files": cli.enforce_allowed_files,
-            # New safety + gate controls
-            "rollback_workspace_on_fail": getattr(cli, "rollback_workspace_on_fail", None),
-            "live_repo_guard": getattr(cli, "live_repo_guard", None),
-            "patch_jail": getattr(cli, "patch_jail", None),
-            "patch_jail_unshare_net": getattr(cli, "patch_jail_unshare_net", None),
-            "ruff_format": getattr(cli, "ruff_format", None),
-            "pytest_use_venv": getattr(cli, "pytest_use_venv", None),
-            "compile_check": getattr(cli, "compile_check", None),
-            "post_success_audit": getattr(cli, "post_success_audit", None),
-            "test_mode": getattr(cli, "test_mode", None),
-            "unified_patch": getattr(cli, "unified_patch", None),
-            "unified_patch_strip": getattr(cli, "patch_strip", None),
-            "overrides": getattr(cli, "overrides", None),
-        },
-    )
-
-    # Group B: map extra CLI flags onto policy keys (symmetry helpers)
-    if getattr(cli, "require_push_success", None):
-        policy.allow_push_fail = False
-        policy._src["allow_push_fail"] = "cli"
-    if getattr(cli, "disable_promotion", None):
-        policy.commit_and_push = False
-        policy._src["commit_and_push"] = "cli"
-    if getattr(cli, "allow_live_changed", None):
-        policy.fail_if_live_files_changed = False
-        policy._src["fail_if_live_files_changed"] = "cli"
-        policy.live_changed_resolution = "overwrite_live"
-        policy._src["live_changed_resolution"] = "cli"
-    if getattr(cli, "keep_workspace", None):
-        policy.delete_workspace_on_success = False
-        policy._src["delete_workspace_on_success"] = "cli"
-    if getattr(cli, "allow_outside_files", None):
-        policy.allow_outside_files = True
-        policy._src["allow_outside_files"] = "cli"
-    if getattr(cli, "allow_declared_untouched", None):
-        policy.allow_declared_untouched = True
-        policy._src["allow_declared_untouched"] = "cli"
+    apply_cli_overrides(policy, build_cli_override_mapping(cli))
+    apply_cli_symmetry_helpers(policy, cli)
 
     if cli.mode == "show_config":
         # Print the same effective config/policy that is normally logged at the start of a run.
@@ -286,6 +203,8 @@ def run_mode(ctx: RunContext) -> RunResult:
         logger.line(f"RUNNER_VERSION={RUNNER_VERSION}")
         logger.line(f"runner_root={runner_root}")
         logger.line(f"artifacts_root={artifacts_root}")
+        logger.line(f"live_target_root={ctx.live_target_root}")
+        logger.line(f"active_repository_tree_root={ctx.active_repository_tree_root}")
         logger.line(f"active_target_repo_root={repo_root}")
         logger.line(f"repo_root={repo_root}")
         if ctx.effective_target_repo_name is not None:
@@ -428,6 +347,7 @@ def run_mode(ctx: RunContext) -> RunResult:
             patch_script=patch_script,
             unified_mode=unified_mode,
             files_declared=files_current,
+            preopened_workspace=ctx.preopened_workspace,
         )
         ws = exec_ctx.ws
         ws_for_posthook = ws

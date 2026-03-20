@@ -204,6 +204,17 @@ def _compute_edits(
         rhs = _render_value(value, type_name)
         found_idx = _find_assignment(lines, span, key)
         if found_idx is not None:
+            if type_name == "list[str]":
+                delete_to = _find_multiline_array_delete_to(lines, span, found_idx)
+                if delete_to is not None:
+                    edits.append(
+                        _Edit(
+                            index=found_idx,
+                            insert_lines=[f"{key} = {rhs}\n"],
+                            delete_to=delete_to,
+                        )
+                    )
+                    continue
             edits.append(_Edit(index=found_idx, new_line=_replace_rhs(lines[found_idx], rhs)))
         else:
             insert_at = _find_insertion_index(lines, span)
@@ -212,6 +223,21 @@ def _compute_edits(
 
     edits.sort(key=lambda e: e.index, reverse=True)
     return edits
+
+
+def _find_multiline_array_delete_to(lines: list[str], span: _Span, start: int) -> int | None:
+    line = lines[start]
+    if "=" not in line:
+        return None
+    rhs = line.split("=", 1)[1]
+    depth = rhs.count("[") - rhs.count("]")
+    if depth <= 0:
+        return None
+    for idx in range(start + 1, span.end):
+        depth += lines[idx].count("[") - lines[idx].count("]")
+        if depth <= 0:
+            return idx + 1
+    raise RunnerError("CONFIG", "CONFIG", "unterminated multiline array assignment")
 
 
 def _apply_edits(lines: list[str], edits: list[_Edit]) -> list[str]:
@@ -287,24 +313,11 @@ def _replace_rhs(line: str, rhs: str) -> str:
 
 
 def _find_insertion_index(lines: list[str], span: _Span) -> int:
-    # Insert before the next section header or at EOF. Prefer after last assignment in span.
-    start = span.start
-    if start < span.end and lines[start].lstrip().startswith("["):
-        start += 1
-    last_assign = None
-    for i in range(start, span.end):
-        stripped = lines[i].lstrip()
-        if stripped.startswith("["):
-            break
-        if "=" in stripped and not stripped.startswith("#"):
-            last_assign = i
-    if last_assign is not None:
-        return last_assign + 1
-
-    # Empty section: insert just after header line (or at start for root).
+    # Insert before the next section header or at EOF.
+    # This avoids splitting multiline arrays such as gates_order = [ ... ].
     if span.start == 0:
         for i in range(span.start, span.end):
             if lines[i].strip().startswith("["):
                 return i
         return span.end
-    return span.start + 1
+    return span.end

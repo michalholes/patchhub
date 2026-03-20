@@ -162,11 +162,7 @@ def test_phase2_cli_flags_set_overrides() -> None:
     assert p.workspace_history_oldlogs_dir == "B"
     assert p.workspace_history_patches_dir == "C"
     assert p.workspace_history_oldpatches_dir == "D"
-    assert p.blessed_gate_outputs == [
-        "audit/results/pytest_junit.xml",
-        "one.xml",
-        "two.xml",
-    ]
+    assert p.blessed_gate_outputs == ["two.xml"]
     assert ".am/" in p.scope_ignore_prefixes
     assert ".tmp" in p.scope_ignore_suffixes
     assert "/__X__/" in p.scope_ignore_contains
@@ -189,6 +185,27 @@ def test_target_repo_name_cli_flag_sets_override() -> None:
     assert cli.overrides is not None
     assert "target_repo_name=patchhub" in cli.overrides
     assert p.target_repo_name == "patchhub"
+
+
+def test_target_repo_config_relpath_last_argv_wins() -> None:
+    policy_cls, apply_cli_overrides, _build_policy, parse_args = _import_am_patch()
+    cli = parse_args(
+        [
+            "--target-repo-config-relpath",
+            ".am_patch/one.toml",
+            "--override",
+            "target_repo_config_relpath=.am_patch/two.toml",
+            "--target-repo-config-relpath",
+            ".am_patch/final.toml",
+            "123",
+            "patch.py",
+        ]
+    )
+
+    p = policy_cls()
+    apply_cli_overrides(p, {"overrides": cli.overrides})
+
+    assert p.target_repo_config_relpath == ".am_patch/final.toml"
 
 
 def test_parse_args_workspace_carries_json_out_to_cli_args() -> None:
@@ -367,6 +384,10 @@ def test_finalize_workspace_ignores_selector_inputs_when_workspace_binding_exist
         "am_patch.startup_context.load_or_migrate_workspace_target_repo_name",
         lambda *args, **kwargs: "phase2_binding",
     )
+    monkeypatch.setattr(
+        "am_patch.startup_context.open_existing_workspace",
+        lambda *args, **kwargs: SimpleNamespace(repo=Path("/srv/workspaces/issue_999/repo")),
+    )
     policy = Policy()
     policy.patch_dir = str(tmp_path / "patches")
     policy.target_repo_name = "rogue"
@@ -404,6 +425,10 @@ def test_finalize_workspace_allowlist_still_applies_with_workspace_binding(
     monkeypatch.setattr(
         "am_patch.startup_context.load_or_migrate_workspace_target_repo_name",
         lambda *args, **kwargs: "phase2_binding",
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.open_existing_workspace",
+        lambda *args, **kwargs: SimpleNamespace(repo=Path("/srv/workspaces/issue_999/repo")),
     )
     policy = Policy()
     policy.patch_dir = str(tmp_path / "patches")

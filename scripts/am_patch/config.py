@@ -20,7 +20,15 @@ from .pytest_namespace_config import (
 )
 from .success_archive_retention import validate_success_archive_retention
 
-__all__ = ["Policy", "build_policy", "load_config", "_flatten_sections"]
+__all__ = [
+    "Policy",
+    "BOOTSTRAP_OWNED_KEYS",
+    "REPO_OWNED_KEYS",
+    "build_policy",
+    "filter_policy_layer_cfg",
+    "load_config",
+    "_flatten_sections",
+]
 
 
 @dataclass
@@ -40,7 +48,8 @@ class Policy(PolicyMonolithMixin):
     target_repo_roots: list[str] = field(default_factory=list)
     active_target_repo_root: str | None = None
     patch_dir: str | None = None
-    target_repo_name: str = "audiomason2"
+    target_repo_name: str = ""
+    target_repo_config_relpath: str = ".am_patch/am_patch.repo.toml"
     patch_dir_name: str = "patches"
 
     patch_layout_logs_dir: str = "logs"
@@ -91,6 +100,9 @@ class Policy(PolicyMonolithMixin):
 
     venv_bootstrap_mode: str = "auto"  # auto|always|never
     venv_bootstrap_python: str = ".venv/bin/python"
+
+    python_gate_mode: str = "auto"
+    python_gate_python: str = ".venv/bin/python"
 
     default_branch: str = "main"
 
@@ -285,6 +297,25 @@ class Policy(PolicyMonolithMixin):
     allow_outside_files: bool = False
 
 
+REPO_OWNED_KEYS: set[str] = set(
+    ["allow_declared_untouched", "allow_outside_files", "allow_push_fail", "apply_failure_partial_gates_policy", "apply_failure_zero_gates_policy", "ascii_only_patch", "audit_rubric_guard", "biome_autofix", "biome_autofix_legalize_outside", "biome_format", "biome_format_legalize_outside", "blessed_gate_outputs", "commit_and_push", "compile_check", "compile_exclude", "compile_targets", "declared_untouched_fail", "default_branch", "dont_touch_paths", "enforce_allowed_files", "enforce_main_branch", "fail_if_live_files_changed", "gate_badguys_command", "gate_badguys_cwd", "gate_badguys_runner", "gate_biome_command", "gate_biome_extensions", "gate_biome_fix_command", "gate_biome_format_command", "gate_docs_exclude", "gate_docs_include", "gate_docs_required_files", "gate_js_command", "gate_js_extensions", "gate_monolith_areas_dynamic", "gate_monolith_areas_names", "gate_monolith_areas_prefixes", "gate_monolith_catchall_allowlist", "gate_monolith_catchall_basenames", "gate_monolith_catchall_dirs", "gate_monolith_compute_fanin", "gate_monolith_crossarea_min_distinct_areas", "gate_monolith_enabled", "gate_monolith_extensions", "gate_monolith_hub_exports_delta_min", "gate_monolith_hub_fanin_delta", "gate_monolith_hub_fanout_delta", "gate_monolith_hub_loc_delta_min", "gate_monolith_huge_allow_exports_delta", "gate_monolith_huge_allow_imports_delta", "gate_monolith_huge_allow_loc_increase", "gate_monolith_huge_loc", "gate_monolith_large_allow_exports_delta", "gate_monolith_large_allow_imports_delta", "gate_monolith_large_allow_loc_increase", "gate_monolith_large_loc", "gate_monolith_mode", "gate_monolith_new_file_max_exports", "gate_monolith_new_file_max_imports", "gate_monolith_new_file_max_loc", "gate_monolith_on_parse_error", "gate_monolith_scan_scope", "gate_mypy_mode", "gate_pytest_js_prefixes", "gate_pytest_py_prefixes", "gate_pytest_mode", "gate_ruff_mode", "gate_typescript_base_tsconfig", "gate_typescript_command", "gate_typescript_extensions", "gate_typescript_mode", "gates_allow_fail", "gates_skip_biome", "gates_skip_docs", "gates_skip_dont_touch", "gates_skip_js", "gates_skip_monolith", "gates_skip_mypy", "gates_skip_pytest", "gates_skip_ruff", "gates_skip_typescript", "live_changed_resolution", "mypy_targets", "no_op_fail", "no_rollback", "post_success_audit", "pytest_dependencies", "pytest_external_dependencies", "pytest_full_suite_prefixes", "pytest_namespace_modules", "pytest_roots", "pytest_routing_mode", "pytest_targets", "pytest_tree", "pytest_use_venv", "python_gate_mode", "python_gate_python", "require_up_to_date", "ruff_autofix", "ruff_autofix_legalize_outside", "ruff_format", "ruff_targets", "scope_ignore_contains", "scope_ignore_prefixes", "scope_ignore_suffixes", "typescript_targets"]
+)
+
+
+def _policy_field_names() -> set[str]:
+    return {name for name in Policy.__dataclass_fields__ if name != "_src"}
+
+
+BOOTSTRAP_OWNED_KEYS: set[str] = _policy_field_names() - REPO_OWNED_KEYS
+
+
+def filter_policy_layer_cfg(
+    cfg: dict[str, Any],
+    allowed_keys: set[str],
+) -> dict[str, Any]:
+    return {key: value for key, value in cfg.items() if key in allowed_keys}
+
+
 def _as_bool(d: dict[str, Any], k: str, default: bool) -> bool:
     return bool(d.get(k, default))
 
@@ -445,12 +476,22 @@ def _coerce_override_value(cur: object, raw: object) -> object:
     return raw
 
 
-def _mark_cfg(p: Policy, cfg: dict[str, Any], key: str) -> None:
+def _mark_cfg(
+    p: Policy,
+    cfg: dict[str, Any],
+    key: str,
+    source_name: str = "config",
+) -> None:
     if key in cfg:
-        p._src[key] = "config"
+        p._src[key] = source_name
 
 
-def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
+def build_policy(
+    defaults: Policy,
+    cfg: dict[str, Any],
+    *,
+    source_name: str = "config",
+) -> Policy:
     _fields = getattr(Policy, "__dataclass_fields__", {})
     _kwargs = {
         k: v
@@ -458,6 +499,9 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
         if k in _fields and getattr(_fields[k], "init", True)
     }
     p = Policy(**_kwargs)
+    p._src = dict(getattr(defaults, "_src", {}))
+    for field_name in _policy_field_names():
+        p._src.setdefault(field_name, "default")
 
     p.repo_root = _as_str(cfg, "repo_root", p.repo_root)
     _mark_cfg(p, cfg, "repo_root")
@@ -469,8 +513,14 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     _mark_cfg(p, cfg, "active_target_repo_root")
     p.patch_dir = _as_str(cfg, "patch_dir", p.patch_dir)
     _mark_cfg(p, cfg, "patch_dir")
-    p.target_repo_name = str(cfg.get("target_repo_name", p.target_repo_name))
+    p.target_repo_name = _as_str_required(cfg, "target_repo_name", p.target_repo_name)
     _mark_cfg(p, cfg, "target_repo_name")
+    p.target_repo_config_relpath = _as_str_required(
+        cfg,
+        "target_repo_config_relpath",
+        p.target_repo_config_relpath,
+    )
+    _mark_cfg(p, cfg, "target_repo_config_relpath")
     p.patch_dir_name = str(cfg.get("patch_dir_name", p.patch_dir_name))
     _mark_cfg(p, cfg, "patch_dir_name")
 
@@ -569,6 +619,17 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
     p.venv_bootstrap_python = str(cfg.get("venv_bootstrap_python", p.venv_bootstrap_python))
     _mark_cfg(p, cfg, "venv_bootstrap_python")
 
+    p.python_gate_mode = str(cfg.get("python_gate_mode", p.python_gate_mode))
+    _mark_cfg(p, cfg, "python_gate_mode")
+    if p.python_gate_mode not in ("runner", "auto", "required"):
+        raise RunnerError(
+            "CONFIG",
+            "INVALID",
+            "python_gate_mode must be runner|auto|required",
+        )
+    p.python_gate_python = str(cfg.get("python_gate_python", p.python_gate_python))
+    _mark_cfg(p, cfg, "python_gate_python")
+
     p.default_branch = str(cfg.get("default_branch", p.default_branch))
     _mark_cfg(p, cfg, "default_branch")
     p.success_archive_name = str(cfg.get("success_archive_name", p.success_archive_name))
@@ -651,7 +712,16 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
         mark_cfg=_mark_cfg,
     )
 
-    p.target_repo_name = _validate_repo_token(p.target_repo_name, field="target_repo_name")
+    p.target_repo_name = str(p.target_repo_name or "").strip()
+    if p.target_repo_name:
+        p.target_repo_name = _validate_repo_token(p.target_repo_name, field="target_repo_name")
+    p.target_repo_config_relpath = str(p.target_repo_config_relpath or "").strip()
+    if not p.target_repo_config_relpath:
+        raise RunnerError(
+            "CONFIG",
+            "INVALID",
+            "target_repo_config_relpath must be non-empty",
+        )
     p.patch_dir_name = _validate_basename(p.patch_dir_name, field="patch_dir_name")
     p.patch_layout_logs_dir = _validate_basename(
         p.patch_layout_logs_dir, field="patch_layout_logs_dir"
@@ -825,6 +895,11 @@ def build_policy(defaults: Policy, cfg: dict[str, Any]) -> Policy:
             f"invalid live_repo_guard_scope={p.live_repo_guard_scope!r}",
         )
 
+    if source_name != "config":
+        for key in cfg:
+            if key in p._src and p._src.get(key) == "config":
+                p._src[key] = source_name
+
     return p
 
 
@@ -857,7 +932,8 @@ def apply_cli_overrides(p: Policy, mapping: dict[str, object | None]) -> None:
         if isinstance(cur, list):
             if not isinstance(coerced, list):
                 raise RunnerError("CONFIG", "INVALID", f"invalid list override: {coerced!r}")
-            if k in {"gate_pytest_py_prefixes", "target_repo_roots"}:
+            should_replace = k in REPO_OWNED_KEYS or k in {"target_repo_roots"}
+            if should_replace:
                 setattr(p, k, list(coerced))
             else:
                 cur.extend(coerced)

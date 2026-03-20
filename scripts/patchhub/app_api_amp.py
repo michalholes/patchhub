@@ -57,7 +57,7 @@ def _norm_type(tp: object) -> str | None:
     return None
 
 
-def _read_policy_values(cfg_path: Path) -> dict[str, Any]:
+def _read_policy_values(cfg_path: Path, *, allowed_keys: set[str] | None = None) -> dict[str, Any]:
     from am_patch.config import Policy, build_policy, load_config
 
     tmap = get_type_hints(Policy)
@@ -70,6 +70,8 @@ def _read_policy_values(cfg_path: Path) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for f in fields(Policy):
         if f.name == "_src":
+            continue
+        if allowed_keys is not None and f.name not in allowed_keys:
             continue
         tp = tmap.get(f.name, f.type)
         norm = _norm_type(tp)
@@ -89,7 +91,11 @@ def _read_policy_values(cfg_path: Path) -> dict[str, Any]:
     return out
 
 
-def _read_policy_values_from_text(text: str) -> dict[str, Any]:
+def _read_policy_values_from_text(
+    text: str,
+    *,
+    allowed_keys: set[str] | None = None,
+) -> dict[str, Any]:
     from am_patch.config import Policy, _flatten_sections, build_policy
 
     tmap = get_type_hints(Policy)
@@ -101,6 +107,8 @@ def _read_policy_values_from_text(text: str) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for f in fields(Policy):
         if f.name == "_src":
+            continue
+        if allowed_keys is not None and f.name not in allowed_keys:
             continue
         tp = tmap.get(f.name, f.type)
         norm = _norm_type(tp)
@@ -121,9 +129,9 @@ def _read_policy_values_from_text(text: str) -> dict[str, Any]:
 
 
 def api_amp_schema(self) -> tuple[int, bytes]:
-    from am_patch.config_schema import get_policy_schema
+    from am_patch.config_schema import get_bootstrap_policy_schema
 
-    schema = get_policy_schema()
+    schema = get_bootstrap_policy_schema()
     policy = schema.get("policy")
     if not isinstance(policy, dict):
         return _err("amp_schema_invalid: policy missing")
@@ -148,7 +156,9 @@ def api_amp_schema(self) -> tuple[int, bytes]:
 def api_amp_config_get(self) -> tuple[int, bytes]:
     try:
         cfg_path = _runner_config_path(self.repo_root, self.cfg)
-        values = _read_policy_values(cfg_path)
+        from am_patch.config import BOOTSTRAP_OWNED_KEYS
+
+        values = _read_policy_values(cfg_path, allowed_keys=BOOTSTRAP_OWNED_KEYS)
         values.pop("json_out", None)
     except Exception as e:
         return _err(f"amp_config_read_failed: {type(e).__name__}: {e}")
@@ -166,15 +176,16 @@ def api_amp_config_post(self, body: dict[str, Any]) -> tuple[int, bytes]:
     if "json_out" in values:
         return _err("json_out is PatchHub-managed and cannot be changed")
 
+    from am_patch.config import BOOTSTRAP_OWNED_KEYS
     from am_patch.config_edit import (
         apply_update_to_config_text,
         validate_config_text_roundtrip,
         validate_patchhub_update,
     )
-    from am_patch.config_schema import get_policy_schema
+    from am_patch.config_schema import get_bootstrap_policy_schema
     from am_patch.errors import RunnerError
 
-    schema = get_policy_schema()
+    schema = get_bootstrap_policy_schema()
     try:
         updates_typed = validate_patchhub_update(values, schema)
 
@@ -186,7 +197,7 @@ def api_amp_config_post(self, body: dict[str, Any]) -> tuple[int, bytes]:
 
         if dry_run:
             # Dry-run must validate without applying (and without writing).
-            typed = _read_policy_values_from_text(new_text)
+            typed = _read_policy_values_from_text(new_text, allowed_keys=BOOTSTRAP_OWNED_KEYS)
         else:
             cfg_path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp_name = tempfile.mkstemp(
@@ -204,7 +215,7 @@ def api_amp_config_post(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 except Exception:
                     pass
 
-            typed = _read_policy_values(cfg_path)
+            typed = _read_policy_values(cfg_path, allowed_keys=BOOTSTRAP_OWNED_KEYS)
     except RunnerError as e:
         return _err(f"amp_config_invalid: {e}")
     except Exception as e:

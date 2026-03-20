@@ -32,6 +32,7 @@ def open_execution_context(
     patch_script: Path,
     unified_mode: bool,
     files_declared: list[str],
+    preopened_workspace: Any | None = None,
 ) -> ExecutionContext:
     # Git preflight (live repo)
     git_ops.fetch(logger, repo_root)
@@ -46,27 +47,29 @@ def open_execution_context(
     for p in [] if unified_mode else files_declared:
         logger.line(p)
 
-    ws = ensure_workspace(
-        logger=logger,
-        workspaces_dir=paths.workspaces_dir,
-        issue_id=cli.issue_id,
-        live_repo=repo_root,
-        base_sha=base_sha,
-        update=policy.update_workspace,
-        soft_reset=policy.soft_reset_workspace,
-        message=cli.message,
-        effective_target_repo_name=effective_target_repo_name,
-        runner_root=runner_root,
-        target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
-        timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
-        issue_dir_template=policy.workspace_issue_dir_template,
-        repo_dir_name=policy.workspace_repo_dir_name,
-        meta_filename=policy.workspace_meta_filename,
-        history_logs_dir=policy.workspace_history_logs_dir,
-        history_oldlogs_dir=policy.workspace_history_oldlogs_dir,
-        history_patches_dir=policy.workspace_history_patches_dir,
-        history_oldpatches_dir=policy.workspace_history_oldpatches_dir,
-    )
+    ws = preopened_workspace
+    if ws is None:
+        ws = ensure_workspace(
+            logger=logger,
+            workspaces_dir=paths.workspaces_dir,
+            issue_id=cli.issue_id,
+            live_repo=repo_root,
+            base_sha=base_sha,
+            update=policy.update_workspace,
+            soft_reset=policy.soft_reset_workspace,
+            message=cli.message,
+            effective_target_repo_name=effective_target_repo_name,
+            runner_root=runner_root,
+            target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
+            timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
+            issue_dir_template=policy.workspace_issue_dir_template,
+            repo_dir_name=policy.workspace_repo_dir_name,
+            meta_filename=policy.workspace_meta_filename,
+            history_logs_dir=policy.workspace_history_logs_dir,
+            history_oldlogs_dir=policy.workspace_history_oldlogs_dir,
+            history_patches_dir=policy.workspace_history_patches_dir,
+            history_oldpatches_dir=policy.workspace_history_oldpatches_dir,
+        )
 
     logger.section("WORKSPACE META")
     logger.line(f"workspace_root={ws.root}")

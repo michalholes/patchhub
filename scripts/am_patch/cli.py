@@ -9,6 +9,7 @@ from am_patch.version import RUNNER_VERSION
 
 from .cli_help_text import fmt_full_help, fmt_short_help
 from .cli_ipc_surface import add_ipc_override_args
+from .cli_override_normalization import apply_explicit_gate_flag_overrides
 
 
 class AppendOverride(argparse.Action):
@@ -245,6 +246,13 @@ def parse_args(argv: list[str]) -> CliArgs:
         key="target_repo_roots",
         dest="overrides",
         metavar="CSV",
+    )
+    p.add_argument(
+        "--target-repo-config-relpath",
+        action=AppendOverride,
+        key="target_repo_config_relpath",
+        dest="overrides",
+        metavar="RELPATH",
     )
     p.add_argument(
         "--override",
@@ -831,49 +839,7 @@ def parse_args(argv: list[str]) -> CliArgs:
 
     # Map explicit gate flags into overrides so engine.py does not need changes.
     # Precedence: CLI flags > config > defaults (apply_cli_overrides marks these as src=cli).
-    if getattr(ns, "skip_dont_touch", None):
-        ns.overrides = (ns.overrides or []) + ["gates_skip_dont_touch=true"]
-    if getattr(ns, "skip_biome", None):
-        ns.overrides = (ns.overrides or []) + ["gates_skip_biome=true"]
-    if getattr(ns, "skip_typescript", None):
-        ns.overrides = (ns.overrides or []) + ["gates_skip_typescript=true"]
-
-    if getattr(ns, "gate_biome_extensions", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_biome_extensions={str(ns.gate_biome_extensions).strip()}"
-        ]
-    if getattr(ns, "biome_autofix", None) is not None:
-        v = "true" if bool(ns.biome_autofix) else "false"
-        ns.overrides = (ns.overrides or []) + [f"biome_autofix={v}"]
-    if getattr(ns, "biome_format", None) is not None:
-        v = "true" if bool(ns.biome_format) else "false"
-        ns.overrides = (ns.overrides or []) + [f"biome_format={v}"]
-    if getattr(ns, "biome_autofix_legalize_outside", None) is not None:
-        v = "true" if bool(ns.biome_autofix_legalize_outside) else "false"
-        ns.overrides = (ns.overrides or []) + [f"biome_autofix_legalize_outside={v}"]
-    if getattr(ns, "biome_format_legalize_outside", None) is not None:
-        v = "true" if bool(ns.biome_format_legalize_outside) else "false"
-        ns.overrides = (ns.overrides or []) + [f"biome_format_legalize_outside={v}"]
-    if getattr(ns, "gate_biome_command", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_biome_command={str(ns.gate_biome_command).strip()}"
-        ]
-    if getattr(ns, "gate_biome_fix_command", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_biome_fix_command={str(ns.gate_biome_fix_command).strip()}"
-        ]
-    if getattr(ns, "gate_biome_format_command", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_biome_format_command={str(ns.gate_biome_format_command).strip()}"
-        ]
-    if getattr(ns, "gate_typescript_extensions", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_typescript_extensions={str(ns.gate_typescript_extensions).strip()}"
-        ]
-    if getattr(ns, "gate_typescript_command", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_typescript_command={str(ns.gate_typescript_command).strip()}"
-        ]
+    apply_explicit_gate_flag_overrides(ns)
 
     if ns.show_config:
         return CliArgs(

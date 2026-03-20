@@ -110,6 +110,9 @@ def run_policy_gates(
         },
         gates_order=policy.gates_order,
         pytest_use_venv=policy.pytest_use_venv,
+        active_repository_tree_root=cwd,
+        python_gate_mode=policy.python_gate_mode,
+        python_gate_python=policy.python_gate_python,
         decision_paths=decision_paths,
         progress=progress,
     )

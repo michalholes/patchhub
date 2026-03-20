@@ -73,22 +73,25 @@ class TestAmpConfigRoundtrip(unittest.TestCase):
             policy = schema.get("policy", {})
             self.assertIsInstance(policy, dict)
             self.assertNotIn("json_out", policy)
+            self.assertIn("target_repo_config_relpath", policy)
             self.assertNotIn("pytest_roots", policy)
-            self.assertNotIn("pytest_dependencies", policy)
-            self.assertIn("gate_monolith_areas_prefixes", policy)
-            self.assertIn("gate_monolith_areas_names", policy)
-            self.assertIn("gate_monolith_areas_dynamic", policy)
+            self.assertNotIn("gate_monolith_areas_prefixes", policy)
 
             st1, data1 = api_amp_config_get(dummy)
             self.assertEqual(st1, 200)
             obj1 = json.loads(data1.decode("utf-8"))
             self.assertTrue(obj1.get("ok"))
             self.assertEqual(obj1.get("values", {}).get("verbosity"), "normal")
+            self.assertEqual(
+                obj1.get("values", {}).get("target_repo_config_relpath"),
+                ".am_patch/am_patch.repo.toml",
+            )
+            self.assertNotIn("pytest_routing_mode", obj1.get("values", {}))
 
             payload = self._ui_payload(schema, obj1.get("values", {}))
             self.assertEqual(
-                payload.get("gate_monolith_areas_dynamic"),
-                ["", "", "plugins.<name>", "", ""],
+                payload.get("target_repo_config_relpath"),
+                ".am_patch/am_patch.repo.toml",
             )
 
             st2, data2 = api_amp_config_post(dummy, {"values": payload, "dry_run": True})
@@ -97,14 +100,13 @@ class TestAmpConfigRoundtrip(unittest.TestCase):
             self.assertTrue(obj2.get("ok"))
             self.assertTrue(obj2.get("dry_run"))
             self.assertEqual(
-                obj2.get("values", {}).get("gate_monolith_areas_dynamic"),
-                ["", "", "plugins.<name>", "", ""],
+                obj2.get("values", {}).get("target_repo_config_relpath"),
+                ".am_patch/am_patch.repo.toml",
             )
             self.assertIn('verbosity = "normal"', cfg_path.read_text(encoding="utf-8"))
 
             payload["verbosity"] = "quiet"
-            payload["pytest_routing_mode"] = "legacy"
-            payload["pytest_full_suite_prefixes"] = ["pyproject.toml"]
+            payload["target_repo_config_relpath"] = ".am_patch/custom.repo.toml"
             st3, data3 = api_amp_config_post(dummy, {"values": payload, "dry_run": False})
             self.assertEqual(st3, 200)
             obj3 = json.loads(data3.decode("utf-8"))
@@ -116,12 +118,8 @@ class TestAmpConfigRoundtrip(unittest.TestCase):
             obj4 = json.loads(data4.decode("utf-8"))
             self.assertTrue(obj4.get("ok"))
             self.assertEqual(obj4.get("values", {}).get("verbosity"), "quiet")
-            self.assertEqual(obj4.get("values", {}).get("pytest_routing_mode"), "legacy")
             self.assertEqual(
-                obj4.get("values", {}).get("pytest_full_suite_prefixes"),
-                ["pyproject.toml"],
+                obj4.get("values", {}).get("target_repo_config_relpath"),
+                ".am_patch/custom.repo.toml",
             )
-            self.assertEqual(
-                obj4.get("values", {}).get("gate_monolith_areas_dynamic"),
-                ["", "", "plugins.<name>", "", ""],
-            )
+            self.assertNotIn("pytest_routing_mode", obj4.get("values", {}))

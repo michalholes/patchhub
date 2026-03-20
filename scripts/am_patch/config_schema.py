@@ -17,9 +17,9 @@ from __future__ import annotations
 from dataclasses import Field, fields
 from typing import Any, get_args, get_origin, get_type_hints
 
-from am_patch.config import Policy
+from am_patch.config import BOOTSTRAP_OWNED_KEYS, Policy
 
-SCHEMA_VERSION = "6"
+SCHEMA_VERSION = "7"
 
 
 # Explicit mapping of policy keys to TOML sections.
@@ -30,6 +30,7 @@ _SECTION_BY_KEY: dict[str, str] = {
     "artifacts_root": "paths",
     "target_repo_roots": "paths",
     "active_target_repo_root": "paths",
+    "target_repo_config_relpath": "paths",
     "patch_dir": "",
     "target_repo_name": "",
     "verbosity": "",
@@ -115,6 +116,8 @@ _SECTION_BY_KEY: dict[str, str] = {
     "gate_pytest_py_prefixes": "",
     "gate_pytest_js_prefixes": "",
     "pytest_use_venv": "",
+    "python_gate_mode": "",
+    "python_gate_python": "",
     "fail_if_live_files_changed": "",
     "live_changed_resolution": "",
     "commit_and_push": "",
@@ -225,6 +228,8 @@ _LABEL_BY_KEY: dict[str, str] = {
     "pytest_external_dependencies": "Pytest: external dependencies",
     "pytest_full_suite_prefixes": "Pytest: full-suite prefixes",
     "pytest_use_venv": "Pytest: use venv",
+    "python_gate_mode": "Python gate: mode",
+    "python_gate_python": "Python gate: interpreter relpath",
     "run_all_tests": "Workflow: run all gates",
     "allow_non_main": "Git safety: allow non-main",
     "enforce_main_branch": "Git safety: enforce main branch",
@@ -239,6 +244,7 @@ _LABEL_BY_KEY: dict[str, str] = {
     "target_repo_name": "Target selection: target repo name",
     "target_repo_roots": "Paths: target repo roots",
     "active_target_repo_root": "Paths: active target repo root",
+    "target_repo_config_relpath": "Paths: target repo config relpath",
     "runner_subprocess_timeout_s": "Runner: subprocess timeout (s)",
     "ruff_autofix": "Ruff: autofix",
     "ruff_autofix_legalize_outside": "Ruff: autofix legalize outside",
@@ -349,8 +355,16 @@ _HELP_BY_KEY: dict[str, str] = {
         "See: scripts/am_patch_policy_glossary.md## Key: pytest_full_suite_prefixes"
     ),
     "pytest_use_venv": (
-        "Run pytest under the configured venv python. "
-        "See: scripts/am_patch_policy_glossary.md## Key: pytest_use_venv"
+        "Legacy compatibility toggle for pytest gate routing. "
+        "Interpreter selection is controlled by python_gate_mode/python_gate_python."
+    ),
+    "python_gate_mode": (
+        "Select runner, auto, or required repo-local Python gate interpreter resolution. "
+        "See: scripts/am_patch_specification.md## 3.1 Config files"
+    ),
+    "python_gate_python": (
+        "Repo-local Python interpreter relpath resolved under active_repository_tree_root. "
+        "See: scripts/am_patch_specification.md## 3.1 Config files"
     ),
     "run_all_tests": (
         "Run the configured gate sequence after applying the patch. "
@@ -397,7 +411,12 @@ _HELP_BY_KEY: dict[str, str] = {
     ),
     "target_repo_name": (
         "ASCII-only bare repo token selector resolved through target_repo_roots. "
-        "Default: audiomason2. Failure zip target.txt is written from the selected token."
+        "In zero-config single-repo mode the runtime derives the effective token from runner_root. "
+        "Failure zip target.txt is written from the selected token."
+    ),
+    "target_repo_config_relpath": (
+        "Repo-local config path resolved relative to the active repository tree root. "
+        "See: scripts/am_patch_specification.md## 3.1 Config files"
     ),
     "target_repo_roots": (
         "Optional target binding registry using token=root entries. "
@@ -532,6 +551,7 @@ _ENUM_BY_KEY: dict[str, list[str]] = {
     "gate_pytest_mode": ["auto", "always"],
     "pytest_routing_mode": ["legacy", "bucketed"],
     "gate_typescript_mode": ["auto", "always"],
+    "python_gate_mode": ["runner", "auto", "required"],
 }
 
 
@@ -615,3 +635,10 @@ def get_policy_schema() -> dict[str, Any]:
         out["policy"][f.name] = item
 
     return out
+
+
+def get_bootstrap_policy_schema() -> dict[str, Any]:
+    schema = get_policy_schema()
+    policy = schema["policy"]
+    schema["policy"] = {key: value for key, value in policy.items() if key in BOOTSTRAP_OWNED_KEYS}
+    return schema

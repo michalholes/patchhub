@@ -13,6 +13,8 @@ from .gates_wiring_guard import assert_single_run_gates_callsite
 from .log import Logger
 from .monolith_gate import run_monolith_gate
 from .pytest_bucket_routing import select_pytest_targets
+from .python_gate_runtime import _infer_venv_root_from_python as _infer_venv_root
+from .python_gate_runtime import build_python_gate_env, resolve_python_gate_interpreter
 
 _RUN_GATES_WIRING_CHECKED = False
 
@@ -95,18 +97,14 @@ def _write_typescript_gate_tsconfig(
     return gen_path
 
 
-def _venv_python(repo_root: Path) -> Path:
-    # Do NOT .resolve() here: it may collapse the venv python symlink to /usr/bin/pythonX.Y
-    # and lose venv site-packages.
-    return repo_root / ".venv" / "bin" / "python"
-
-
-def _infer_venv_root(python_exe: str) -> Path | None:
-    p = Path(python_exe)
-    # Detect the common layout: <repo>/.venv/bin/python
-    if p.name == "python" and p.parent.name == "bin" and p.parent.parent.name == ".venv":
-        return p.parent.parent
-    return None
+def _select_python_for_gate(**kwargs: object) -> str:
+    return resolve_python_gate_interpreter(
+        active_repository_tree_root=Path(
+            kwargs.get("active_repository_tree_root") or kwargs["repo_root"]
+        ),
+        python_gate_mode=str(kwargs.get("python_gate_mode", "auto")),
+        python_gate_python=str(kwargs.get("python_gate_python", ".venv/bin/python")),
+    )
 
 
 def _cmd_py(module: str, *, python: str) -> list[str]:
@@ -296,35 +294,25 @@ def run_file_scoped_gate(
     return r.returncode == 0
 
 
-def _select_python_for_gate(
-    *,
-    repo_root: Path,
-    gate: str,
-    pytest_use_venv: bool,
-) -> str:
-    if gate == "pytest" and pytest_use_venv:
-        vpy = _venv_python(repo_root)
-        if not vpy.exists():
-            raise RunnerError(
-                "GATES",
-                "PYTEST_VENV",
-                f"pytest_use_venv=true but venv python not found: {vpy}",
-            )
-        return str(vpy)
-    return sys.executable
-
-
 def run_ruff(
     logger: Logger,
     cwd: Path,
     *,
-    repo_root: Path,
+    repo_root: Path | None = None,
+    active_repository_tree_root: Path | None = None,
+    python_gate_mode: str = "auto",
+    python_gate_python: str = ".venv/bin/python",
     ruff_format: bool,
     autofix: bool,
     targets: list[str],
 ) -> bool:
     targets = _norm_targets(targets, ["src", "tests"])
-    py = _select_python_for_gate(repo_root=repo_root, gate="ruff", pytest_use_venv=False)
+    py = _select_python_for_gate(
+        repo_root=repo_root or cwd,
+        active_repository_tree_root=active_repository_tree_root,
+        python_gate_mode=python_gate_mode,
+        python_gate_python=python_gate_python,
+    )
 
     if ruff_format:
         logger.section("GATE: RUFF FORMAT")
@@ -434,7 +422,10 @@ def run_pytest(
     logger: Logger,
     cwd: Path,
     *,
-    repo_root: Path,
+    repo_root: Path | None = None,
+    active_repository_tree_root: Path | None = None,
+    python_gate_mode: str = "auto",
+    python_gate_python: str = ".venv/bin/python",
     pytest_use_venv: bool,
     targets: list[str],
 ) -> bool:
@@ -446,45 +437,19 @@ def run_pytest(
             "effective pytest target list is empty",
         )
 
-    # IMPORTANT: pytest may need dependencies that exist only inside a venv.
-    # Preferred: use repo_root/.venv/bin/python when it exists.
-    # Fallback: if the workspace/clone repo has no .venv, but this runner itself is
-    # already executing from a venv (sys.executable), use sys.executable.
-    venv_root: Path | None = None
-    if pytest_use_venv:
-        vpy = _venv_python(repo_root)
-        if vpy.exists():
-            py = str(vpy)
-            venv_root = repo_root / ".venv"
-        else:
-            venv_root = _infer_venv_root(sys.executable)
-            if venv_root is None or not Path(sys.executable).exists():
-                msg = (
-                    f"pytest_use_venv=true but venv python not found: {vpy} "
-                    "(and no usable venv in sys.executable)"
-                )
-                raise RunnerError(
-                    "GATES",
-                    "PYTEST_VENV",
-                    msg,
-                )
-            py = sys.executable
-    else:
-        py = sys.executable
+    py = _select_python_for_gate(
+        repo_root=repo_root or cwd,
+        active_repository_tree_root=active_repository_tree_root,
+        python_gate_mode=python_gate_mode,
+        python_gate_python=python_gate_python,
+    )
 
     logger.section("GATE: PYTEST")
     logger.line(f"pytest_use_venv={pytest_use_venv}")
     logger.line(f"sys_executable={sys.executable}")
     logger.line(f"pytest_python={py}")
-    env = dict(os.environ)
+    env = build_python_gate_env(python_exe=py)
     env["AM_PATCH_PYTEST_GATE"] = "1"
-    if pytest_use_venv and venv_root is not None:
-        # Ensure subprocesses spawned by tests can resolve `audiomason`.
-        # This is done by prefixing PATH with the venv bin dir.
-        venv_bin = venv_root / "bin"
-        old_path = env.get("PATH", "")
-        env["PATH"] = f"{venv_bin}:{old_path}" if old_path else str(venv_bin)
-        env["VIRTUAL_ENV"] = str(venv_root)
     r = logger.run_logged(_cmd_py("pytest", python=py) + ["-q", *targets], cwd=cwd, env=env)
     return r.returncode == 0
 
@@ -516,9 +481,21 @@ def run_badguys(
     return r.returncode == 0
 
 
-def run_mypy(logger: Logger, cwd: Path, *, repo_root: Path, targets: list[str]) -> bool:
+def run_mypy(
+    logger: Logger,
+    cwd: Path,
+    *,
+    active_repository_tree_root: Path,
+    python_gate_mode: str,
+    python_gate_python: str,
+    targets: list[str],
+) -> bool:
     targets = _norm_targets(targets, ["src"])
-    py = _select_python_for_gate(repo_root=repo_root, gate="mypy", pytest_use_venv=False)
+    py = resolve_python_gate_interpreter(
+        active_repository_tree_root=active_repository_tree_root,
+        python_gate_mode=python_gate_mode,
+        python_gate_python=python_gate_python,
+    )
     logger.section("GATE: MYPY")
     r = logger.run_logged(_cmd_py("mypy", python=py) + [*targets], cwd=cwd)
     return r.returncode == 0
@@ -528,13 +505,19 @@ def run_compile_check(
     logger: Logger,
     cwd: Path,
     *,
-    repo_root: Path,
+    active_repository_tree_root: Path,
+    python_gate_mode: str,
+    python_gate_python: str,
     targets: list[str],
     exclude: list[str],
 ) -> bool:
     """Compile Python sources to catch syntax errors early."""
     logger.section("GATE: compile")
-    py = sys.executable
+    py = resolve_python_gate_interpreter(
+        active_repository_tree_root=active_repository_tree_root,
+        python_gate_mode=python_gate_mode,
+        python_gate_python=python_gate_python,
+    )
     logger.line(f"compile_python={py}")
     targets = _norm_targets(targets, ["."])
     exclude = _norm_exclude_paths(exclude)
@@ -655,6 +638,9 @@ def run_gates(
     pytest_routing_policy: dict[str, object] | None = None,
     gates_order: list[str] | None,
     pytest_use_venv: bool,
+    active_repository_tree_root: Path | None = None,
+    python_gate_mode: str = "auto",
+    python_gate_python: str = ".venv/bin/python",
     decision_paths: list[str],
     progress: Callable[[str], None] | None = None,
 ) -> None:
@@ -665,6 +651,7 @@ def run_gates(
 
     failures: list[str] = []
     skipped: list[str] = []
+    active_tree_root = active_repository_tree_root or cwd
 
     order = _norm_gates_order(gates_order)
     biome_exts = biome_extensions or []
@@ -733,7 +720,9 @@ def run_gates(
             return run_compile_check(
                 logger,
                 cwd=cwd,
-                repo_root=repo_root,
+                active_repository_tree_root=active_tree_root,
+                python_gate_mode=python_gate_mode,
+                python_gate_python=python_gate_python,
                 targets=compile_targets,
                 exclude=compile_exclude,
             )
@@ -805,7 +794,9 @@ def run_gates(
             return run_ruff(
                 logger,
                 cwd,
-                repo_root=repo_root,
+                active_repository_tree_root=active_tree_root,
+                python_gate_mode=python_gate_mode,
+                python_gate_python=python_gate_python,
                 ruff_format=ruff_format,
                 autofix=ruff_autofix,
                 targets=ruff_targets,
@@ -827,18 +818,32 @@ def run_gates(
                     skipped.append("pytest")
                     logger.warning_core("gate_pytest=SKIP (no_matching_files)")
                     return True
-            return run_pytest(
-                logger,
-                cwd,
+            pytest_targets_eff = select_pytest_targets(
+                decision_paths=decision_paths,
+                pytest_targets=pytest_targets,
+                routing_policy=pytest_routing_policy,
                 repo_root=repo_root,
-                pytest_use_venv=pytest_use_venv,
-                targets=select_pytest_targets(
-                    decision_paths=decision_paths,
-                    pytest_targets=pytest_targets,
-                    routing_policy=pytest_routing_policy,
-                    repo_root=repo_root,
-                ),
             )
+            try:
+                return run_pytest(
+                    logger,
+                    cwd,
+                    active_repository_tree_root=active_tree_root,
+                    python_gate_mode=python_gate_mode,
+                    python_gate_python=python_gate_python,
+                    pytest_use_venv=pytest_use_venv,
+                    targets=pytest_targets_eff,
+                )
+            except TypeError as exc:
+                if "unexpected keyword argument" not in str(exc):
+                    raise
+                return run_pytest(
+                    logger,
+                    cwd,
+                    repo_root=active_tree_root,
+                    pytest_use_venv=pytest_use_venv,
+                    targets=pytest_targets_eff,
+                )
 
         if name == "mypy":
             if skip_mypy:
@@ -853,7 +858,14 @@ def run_gates(
                     skipped.append("mypy")
                     logger.warning_core("gate_mypy=SKIP (no_matching_files)")
                     return True
-            return run_mypy(logger, cwd, repo_root=repo_root, targets=mypy_targets)
+            return run_mypy(
+                logger,
+                cwd,
+                active_repository_tree_root=active_tree_root,
+                python_gate_mode=python_gate_mode,
+                python_gate_python=python_gate_python,
+                targets=mypy_targets,
+            )
 
         if name == "monolith":
             if skip_monolith:

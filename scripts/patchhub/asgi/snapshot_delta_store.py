@@ -170,7 +170,7 @@ class SnapshotDeltaStore:
             if key not in after_map:
                 removed.append(removed_fn(item))
 
-        payload = {"added": added, "updated": updated, "removed": removed}
+        payload: dict[str, Any] = {"added": added, "updated": updated, "removed": removed}
         if include_order:
             payload["ordered_keys"] = [str(key_fn(item)) for item in after]
         return payload

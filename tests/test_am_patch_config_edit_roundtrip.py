@@ -8,15 +8,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 import tomllib
 
 
-def test_config_edit_roundtrip_preserves_comments_and_builds_policy():
-    from pathlib import Path
-
+def test_config_edit_roundtrip_preserves_comments_and_builds_policy() -> None:
     from am_patch.config_edit import apply_update_to_config_text
-    from am_patch.config_schema import get_policy_schema
+    from am_patch.config_schema import get_bootstrap_policy_schema
 
     cfg_path = Path(__file__).parent.parent / "scripts" / "am_patch" / "am_patch.toml"
     original = cfg_path.read_text(encoding="utf-8")
-    schema = get_policy_schema()
+    schema = get_bootstrap_policy_schema()
 
     updated = apply_update_to_config_text(
         original,
@@ -36,48 +34,12 @@ def test_config_edit_roundtrip_preserves_comments_and_builds_policy():
     assert 'target_repo_name = "patchhub"' in updated
 
 
-def test_config_edit_roundtrip_handles_bucketed_pytest_routing_keys() -> None:
-    from pathlib import Path
-
+def test_config_edit_roundtrip_handles_bootstrap_root_model_keys() -> None:
     from am_patch.config_edit import apply_update_to_config_text
-    from am_patch.config_schema import get_policy_schema
+    from am_patch.config_schema import get_bootstrap_policy_schema
 
     cfg_path = Path(__file__).parent.parent / "scripts" / "am_patch" / "am_patch.toml"
-    schema = get_policy_schema()
-
-    updated = apply_update_to_config_text(
-        cfg_path.read_text(encoding="utf-8"),
-        {
-            "gate_pytest_py_prefixes": ["badguys", "scripts/am_patch"],
-            "pytest_routing_mode": "legacy",
-            "pytest_roots": {"amp.*": "scripts/am_patch/"},
-            "pytest_namespace_modules": {"amp": ["am_patch", "scripts.am_patch"]},
-            "pytest_dependencies": {"amp.phb": ["amp"]},
-            "pytest_external_dependencies": {"amp.phb": ["amp.badguys"]},
-        },
-        schema,
-    )
-
-    assert 'gate_pytest_py_prefixes = ["badguys", "scripts/am_patch"]' in updated
-    assert 'pytest_routing_mode = "legacy"' in updated
-    assert "[pytest_roots]" in updated
-    assert '"amp.*" = "scripts/am_patch/"' in updated
-    assert "[pytest_namespace_modules]" in updated
-    assert '"amp" = ["am_patch", "scripts.am_patch"]' in updated
-    assert "[pytest_dependencies]" in updated
-    assert '"amp.phb" = ["amp"]' in updated
-    assert "[pytest_external_dependencies]" in updated
-    assert '"amp.phb" = ["amp.badguys"]' in updated
-
-
-def test_config_edit_roundtrip_handles_root_model_keys() -> None:
-    from pathlib import Path
-
-    from am_patch.config_edit import apply_update_to_config_text
-    from am_patch.config_schema import get_policy_schema
-
-    cfg_path = Path(__file__).parent.parent / "scripts" / "am_patch" / "am_patch.toml"
-    schema = get_policy_schema()
+    schema = get_bootstrap_policy_schema()
 
     updated = apply_update_to_config_text(
         cfg_path.read_text(encoding="utf-8"),
@@ -85,6 +47,7 @@ def test_config_edit_roundtrip_handles_root_model_keys() -> None:
             "artifacts_root": "/tmp/am_patch_artifacts",
             "target_repo_roots": ["/tmp/target_a", "/tmp/target_b"],
             "active_target_repo_root": "/tmp/target_b",
+            "target_repo_config_relpath": ".am_patch/custom.repo.toml",
         },
         schema,
     )
@@ -92,6 +55,7 @@ def test_config_edit_roundtrip_handles_root_model_keys() -> None:
     assert 'artifacts_root = "/tmp/am_patch_artifacts"' in updated
     assert 'target_repo_roots = ["/tmp/target_a", "/tmp/target_b"]' in updated
     assert 'active_target_repo_root = "/tmp/target_b"' in updated
+    assert 'target_repo_config_relpath = ".am_patch/custom.repo.toml"' in updated
 
     data = tomllib.loads(updated)
     paths = data["paths"]
@@ -100,16 +64,19 @@ def test_config_edit_roundtrip_handles_root_model_keys() -> None:
     assert paths["artifacts_root"] == "/tmp/am_patch_artifacts"
     assert paths["target_repo_roots"] == ["/tmp/target_a", "/tmp/target_b"]
     assert paths["active_target_repo_root"] == "/tmp/target_b"
+    assert paths["target_repo_config_relpath"] == ".am_patch/custom.repo.toml"
     assert "artifacts_root" not in top_level_keys
     assert "target_repo_roots" not in top_level_keys
     assert "active_target_repo_root" not in top_level_keys
+    assert "target_repo_config_relpath" not in top_level_keys
 
 
-def test_shipped_config_uses_runner_relative_target_binding_examples() -> None:
+def test_shipped_config_uses_bootstrap_only_target_selection_examples() -> None:
     cfg_path = Path(__file__).parent.parent / "scripts" / "am_patch" / "am_patch.toml"
     original = cfg_path.read_text(encoding="utf-8")
 
-    assert 'target_repo_roots = ["patchhub=.", "audiomason2=../audiomason2"]' in original
+    assert 'target_repo_roots = ["patchhub=."]' in original
+    assert 'target_repo_config_relpath = ".am_patch/am_patch.repo.toml"' in original
     assert '# active_target_repo_root = "."' in original
     assert '# patch_dir = "patches"' in original
     assert "/home/pi/audiomason2" not in original
@@ -117,13 +84,11 @@ def test_shipped_config_uses_runner_relative_target_binding_examples() -> None:
 
 
 def test_config_edit_roundtrip_keeps_target_selection_comments() -> None:
-    from pathlib import Path
-
     from am_patch.config_edit import apply_update_to_config_text
-    from am_patch.config_schema import get_policy_schema
+    from am_patch.config_schema import get_bootstrap_policy_schema
 
     cfg_path = Path(__file__).parent.parent / "scripts" / "am_patch" / "am_patch.toml"
-    schema = get_policy_schema()
+    schema = get_bootstrap_policy_schema()
 
     updated = apply_update_to_config_text(
         cfg_path.read_text(encoding="utf-8"),

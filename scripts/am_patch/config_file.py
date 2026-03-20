@@ -4,6 +4,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from .errors import RunnerError
+
 
 def default_config_path(scripts_dir: Path) -> Path:
     """Return the default config path (runner-owned, deterministic)."""
@@ -17,8 +19,8 @@ def resolve_config_path(cli_config: str | None, runner_root: Path, scripts_dir: 
     - Otherwise use the default config path under scripts/.
     """
     if cli_config:
-        p = Path(cli_config)
-        return p if p.is_absolute() else (runner_root / p)
+        path = Path(cli_config)
+        return path if path.is_absolute() else (runner_root / path)
     return default_config_path(scripts_dir)
 
 
@@ -40,9 +42,9 @@ def _flatten_sections(cfg: dict[str, object]) -> dict[str, object]:
     ):
         sec = cfg.get(section)
         if isinstance(sec, dict):
-            for k, v in sec.items():
-                if isinstance(k, str):
-                    out.setdefault(k, v)
+            for key, value in sec.items():
+                if isinstance(key, str):
+                    out.setdefault(key, value)
 
     if "order" in out and "gates_order" not in out:
         out["gates_order"] = out["order"]
@@ -60,3 +62,46 @@ def load_config(path: Path) -> tuple[dict[str, Any], bool]:
         return {}, False
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     return _flatten_sections(data), True
+
+
+def resolve_repo_local_config_path(
+    *,
+    active_repository_tree_root: Path,
+    target_repo_config_relpath: str,
+) -> Path:
+    relpath = str(target_repo_config_relpath or "").strip()
+    if not relpath:
+        raise RunnerError("CONFIG", "INVALID", "target_repo_config_relpath must be non-empty")
+
+    rel = Path(relpath)
+    if rel.is_absolute():
+        raise RunnerError(
+            "CONFIG",
+            "INVALID",
+            "target_repo_config_relpath must be relative to the active repository tree root",
+        )
+
+    active_root = active_repository_tree_root.resolve()
+    resolved = (active_root / rel).resolve()
+    try:
+        resolved.relative_to(active_root)
+    except ValueError as exc:
+        raise RunnerError(
+            "CONFIG",
+            "INVALID",
+            "target_repo_config_relpath escapes the active repository tree root",
+        ) from exc
+    return resolved
+
+
+def load_repo_local_config(
+    *,
+    active_repository_tree_root: Path,
+    target_repo_config_relpath: str,
+) -> tuple[dict[str, Any], bool, Path]:
+    path = resolve_repo_local_config_path(
+        active_repository_tree_root=active_repository_tree_root,
+        target_repo_config_relpath=target_repo_config_relpath,
+    )
+    cfg, used = load_config(path)
+    return cfg, used, path

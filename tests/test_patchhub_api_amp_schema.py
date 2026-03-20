@@ -30,7 +30,7 @@ class _Dummy:
 
 
 class TestAmpSchema(unittest.TestCase):
-    def test_schema_contains_expected_keys(self) -> None:
+    def test_schema_contains_bootstrap_only_keys(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "patches").mkdir(parents=True)
@@ -55,27 +55,21 @@ class TestAmpSchema(unittest.TestCase):
 
             self.assertIn("verbosity", policy)
             self.assertIn("console_color", policy)
-            self.assertIn("pytest_routing_mode", policy)
-            self.assertIn("pytest_full_suite_prefixes", policy)
+            self.assertIn("target_repo_name", policy)
+            self.assertIn("target_repo_roots", policy)
+            self.assertIn("target_repo_config_relpath", policy)
+            self.assertIn("gates_order", policy)
 
             self.assertNotIn("json_out", policy)
+            self.assertNotIn("pytest_routing_mode", policy)
             self.assertNotIn("pytest_roots", policy)
             self.assertNotIn("pytest_tree", policy)
             self.assertNotIn("pytest_namespace_modules", policy)
             self.assertNotIn("pytest_dependencies", policy)
             self.assertNotIn("pytest_external_dependencies", policy)
-
-            self.assertIn("gate_monolith_areas_prefixes", policy)
-            self.assertIn("gate_monolith_areas_names", policy)
-            self.assertIn("gate_monolith_areas_dynamic", policy)
-
-            # Variant B file-scoped gates
-            self.assertIn("gates_skip_biome", policy)
-            self.assertIn("gate_biome_extensions", policy)
-            self.assertIn("gate_biome_command", policy)
-            self.assertIn("gates_skip_typescript", policy)
-            self.assertIn("gate_typescript_extensions", policy)
-            self.assertIn("gate_typescript_command", policy)
+            self.assertNotIn("gate_monolith_areas_prefixes", policy)
+            self.assertNotIn("gates_skip_biome", policy)
+            self.assertNotIn("python_gate_mode", policy)
 
             verbosity = policy.get("verbosity")
             self.assertIsInstance(verbosity, dict)
