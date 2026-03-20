@@ -46,7 +46,7 @@ gate_js_extensions = [".js"]
 gate_js_command = ["node", "--check"]
 
 gates_skip_biome = false
-gate_biome_format = true
+biome_format = true
 biome_autofix = true
 biome_autofix_legalize_outside = true
 gate_biome_fix_command = ["npm", "run", "lint:files:fix", "--"]
