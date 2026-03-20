@@ -1305,16 +1305,23 @@ Quick action rules:
   - mode is patch or rerun_latest
   - issue id is non-empty
   - commit summary is non-empty
-- On click, the UI MUST fetch GET /api/jobs/<job_id> and MUST validate the detail
-  record before mutating the Start form.
-- If the clicked job is start-form-usable for rerun_latest, the UI MUST:
+- On click, the UI MUST fetch GET /api/jobs/<job_id> and MUST use the returned
+  JobRecord detail only as the authoritative value source for Start-form filling.
+- The UI MUST NOT apply any second rerun_latest eligibility gate beyond the
+  visible-summary candidate rule above.
+- If the detail fetch succeeds and returns a JobRecord, the UI MUST:
   - set mode = rerun_latest
-  - set issueId, commitMsg, and patchPath from that JobRecord
+  - set issueId from JobRecord.issue_id
+  - set commitMsg from JobRecord.commit_message
+  - set patchPath from the JobRecord patch path resolution algorithm defined in
+    Section 7.1.6B
+  - set targetRepo from JobRecord.selected_target_repo when non-empty, else from
+    JobRecord.effective_runner_target_repo when non-empty, else clear targetRepo
   - clear rawCommand
   - refresh preview/validation
   - MUST NOT enqueue a job and MUST NOT start processing before explicit Start
-- If the clicked job is not start-form-usable for rerun_latest, the UI MUST leave
-  the Start form unchanged and MUST show an explicit operator-visible status.
+- If the detail fetch fails or returns no JobRecord, the UI MUST leave the Start
+  form unchanged and MUST show an explicit operator-visible status.
 
 Forbidden in visible item text:
 - job_id (may exist only as an internal data attribute for selection)
@@ -1383,49 +1390,57 @@ Refresh behavior:
 7.1.6B rerun_latest Autofill Authority (UI)
 
 Definitions:
-- detail-eligible rerun job = a JobRecord that satisfies all of the following:
+- rerun_latest summary-eligible job = a JobListItem or JobRecord that satisfies
+  all of the following:
   - mode is patch or rerun_latest
   - issue_id is non-empty
-  - commit_message is non-empty
-  - patch path resolves by this algorithm:
-    1) effective_patch_path when non-empty
-    2) else original_patch_path when non-empty
-    3) else the patch operand derived from canonical_command for patch/rerun_latest
-- start-form-usable rerun job = a detail-eligible rerun job whose resolved patch
-  path also exists under patches_root after PatchHub jail resolution.
-- latest start-form-usable job = the first start-form-usable rerun job in jobs
-  history sorted by created_utc descending.
+  - commit_summary is non-empty
+- latest rerun_latest summary-eligible job = the first rerun_latest
+  summary-eligible job in jobs history sorted by created_utc descending.
+
+Patch path resolution algorithm:
+- For rerun_latest Start-form filling, patchPath resolves by this algorithm:
+  1) effective_patch_path when non-empty
+  2) else original_patch_path when non-empty
+  3) else the patch operand derived from canonical_command for patch/rerun_latest
 
 Single source of truth:
 - Global rerun_latest (-l) preparation and per-job quick action preparation MUST
-  use the same authority model: JobRecord detail selected by job_id.
+  use the same single eligibility rule: rerun_latest summary-eligible job.
+- The client MUST use one shared eligibility predicate for:
+  - Jobs list quick action rendering
+  - Jobs list quick action acceptance after click
+  - global mode-switch candidate selection
 - The client MUST NOT derive rerun_latest autofill from:
   - /api/runs
   - tracked live fallback state
   - /api/patches/latest
   - workspace metadata
-- /api/jobs list is a candidate discovery surface only.
-- GET /api/jobs/<job_id> is the authoritative detail source for rerun_latest
-  Start-form filling.
-- Patch path existence for rerun_latest Start-form usability MUST be checked
-  against PatchHub filesystem authority under patches_root with jail
-  constraints; discovery/list summary alone is insufficient.
+- /api/jobs list is the candidate discovery surface and the sole eligibility
+  authority for rerun_latest candidate selection.
+- GET /api/jobs/<job_id> is the authoritative detail value source for
+  rerun_latest Start-form filling after a candidate has already been selected by
+  the shared summary predicate.
+- The client MUST NOT apply any second eligibility pass based on commit_message
+  presence, patch path resolution, patch path existence, filesystem stat, or any
+  other detail-only field before mutating the Start form.
 
 Global mode-switch behavior:
 - When the operator changes the mode dropdown to rerun_latest, the UI MUST:
   - clear rawCommand
-  - resolve the latest start-form-usable job from jobs history
+  - resolve the latest rerun_latest summary-eligible job from jobs history
   - fetch the authoritative JobRecord detail for the selected job_id
-  - verify the resolved patch path exists under patches_root with jail
-    constraints before mutating the Start form
   - fill issueId, commitMsg, and patchPath from that one JobRecord
+  - set targetRepo from selected_target_repo when non-empty, else from
+    effective_runner_target_repo when non-empty, else clear targetRepo
   - refresh preview/validation
   - MUST NOT enqueue a job and MUST NOT start processing before explicit Start
-- If no start-form-usable rerun job exists, the UI MUST:
+- If no rerun_latest summary-eligible job exists, the UI MUST:
   - clear issueId, commitMsg, and patchPath
+  - clear targetRepo
   - refresh preview/validation
-  - show an explicit operator-visible status indicating that no start-form-usable
-    previous job exists for rerun_latest
+  - show an explicit operator-visible status indicating that no previous
+    rerun_latest summary-eligible job exists
 
 7.1.6C Autofill Token Change Output Clearing (UI)
 
@@ -2276,6 +2291,10 @@ JobRecord JSON schema (models.JobRecord):
   "original_patch_path": "<string|null>",
   "effective_patch_path": "<string|null>",
   "effective_patch_kind": "original|derived_subset|null",
+  "zip_target_repo": "<string|null>",
+  "selected_target_repo": "<string|null>",
+  "effective_runner_target_repo": "<string|null>",
+  "target_mismatch": <bool>,
   "selected_patch_entries": ["<string>", ...],
   "selected_repo_paths": ["<string>", ...]
 }
@@ -2284,6 +2303,25 @@ Notes:
 - created_utc/started_utc/ended_utc use format "%Y-%m-%dT%H:%M:%SZ".
 - commit_message stores the full message for detail consumers.
 - commit_summary is the single-line deterministic truncation used by JobListItem.
+- For patch, repair, and rerun_latest jobs, every field known at enqueue time
+  MUST be persisted as first-class JobRecord data and MUST survive DB
+  round-trip.
+- Enqueue-time fields that MUST be persisted when known include at minimum:
+  - issue_id
+  - commit_message
+  - original_patch_path
+  - effective_patch_path
+  - effective_patch_kind
+  - zip_target_repo
+  - selected_target_repo
+  - effective_runner_target_repo
+  - target_mismatch
+  - selected_patch_entries
+  - selected_repo_paths
+- Detail consumers MUST prefer persisted first-class fields.
+- Derivation from canonical_command, patch archive metadata, or other fallback
+  sources MAY be used only for backward compatibility with older rows that
+  predate persisted fields or for damaged rows.
 
 JobListItem JSON schema (used by Section 7.2.8 GET /api/jobs):
 {
