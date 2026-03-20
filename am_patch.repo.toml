@@ -142,7 +142,7 @@ gate_mypy_mode = "auto"
 gate_pytest_mode = "auto"
 gate_pytest_py_prefixes = ["badguys", "scripts", "tests"]
 gate_pytest_js_prefixes = ["scripts/patchhub/static"]
-pytest_routing_mode = "legacy"
+pytest_routing_mode = "bucketed"
 pytest_full_suite_prefixes = [
   "pyproject.toml",
   "pytest.ini",
