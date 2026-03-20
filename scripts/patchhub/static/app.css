@@ -250,7 +250,7 @@ body.dragging .drop-overlay {
 .item .name:hover {
 	text-decoration: underline;
 }
-.item .actions {
+.item > .actions {
 	margin-left: auto;
 	display: flex;
 	gap: 6px;
@@ -768,6 +768,31 @@ input::placeholder {
 .workspace-item .job-meta {
 	font-size: 12px;
 }
+
+.patch-item .job-top {
+	align-items: flex-start;
+	flex-wrap: wrap;
+}
+
+.patch-item .job-top .job-commit,
+.patch-item .job-commit,
+.patch-item .job-meta {
+	overflow: visible;
+	text-overflow: clip;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+
+.patch-item .job-top .job-commit {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.patch-item .job-top .job-status {
+	flex: 0 0 auto;
+}
+
 
 .zip-subset-strip {
 	margin: 0;
