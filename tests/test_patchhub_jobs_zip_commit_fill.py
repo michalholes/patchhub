@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
 
-from scripts.patchhub.app_api_jobs import api_jobs_enqueue
+from scripts.patchhub.app_api_jobs import _job_detail_json, api_jobs_enqueue
 from scripts.patchhub.config import (
     AppConfig,
     AutofillConfig,
@@ -41,12 +41,19 @@ def _write_runner_config(
     )
 
 
-def _make_zip(path: Path, commit: str, issue: str | None = None) -> None:
+def _make_zip(
+    path: Path,
+    commit: str,
+    issue: str | None = None,
+    target: str | None = None,
+) -> None:
     bio = BytesIO()
     with ZipFile(bio, "w") as zf:
         zf.writestr("COMMIT_MESSAGE.txt", (commit + "\n").encode("ascii"))
         if issue is not None:
             zf.writestr("ISSUE_NUMBER.txt", (issue + "\n").encode("ascii"))
+        if target is not None:
+            zf.writestr("target.txt", (target + "\n").encode("ascii"))
     path.write_bytes(bio.getvalue())
 
 
@@ -330,3 +337,66 @@ def test_enqueue_raw_command_rejects_workspace_to_patch_mode_mismatch(
     assert status == 400
     payload = json.loads(raw.decode("utf-8"))
     assert payload["error"] == "raw_command mode does not match mode"
+
+
+def test_enqueue_patch_persists_commit_and_target_metadata(tmp_path: Path) -> None:
+    s = _mk_self(
+        tmp_path,
+        target_repo_roots=["patchhub=../patchhub", "audiomason2=../audiomason2"],
+    )
+    zpath = s.patches_root / "issue_361_v1.zip"
+    _make_zip(zpath, "Persisted commit", issue="361", target="patchhub")
+
+    body = {
+        "mode": "patch",
+        "issue_id": "361",
+        "commit_message": "Persisted commit",
+        "patch_path": "issue_361_v1.zip",
+        "target_repo": "audiomason2",
+    }
+    status, raw = api_jobs_enqueue(s, body)
+    assert status == 200
+    payload = json.loads(raw.decode("utf-8"))["job"]
+    assert payload["commit_message"] == "Persisted commit"
+    assert payload["zip_target_repo"] == "patchhub"
+    assert payload["selected_target_repo"] == "audiomason2"
+    assert payload["effective_runner_target_repo"] == "audiomason2"
+    assert payload["target_mismatch"] is True
+
+
+def test_job_detail_prefers_persisted_first_class_values(tmp_path: Path) -> None:
+    s = _mk_self(tmp_path)
+    zpath = s.patches_root / "issue_361_v1.zip"
+    _make_zip(zpath, "Zip commit", issue="361", target="zip-target")
+
+    job = s.queue.last_job = None
+    job = __import__("scripts.patchhub.models", fromlist=["JobRecord"]).JobRecord(
+        job_id="job-361",
+        created_utc="2026-03-20T10:00:00Z",
+        mode="patch",
+        issue_id="361",
+        commit_summary="Persisted summary",
+        patch_basename="issue_361_v1.zip",
+        raw_command="",
+        canonical_command=[
+            "python3",
+            "scripts/am_patch.py",
+            "361",
+            "Fallback commit",
+            "issue_361_v1.zip",
+            "--target-repo-name",
+            "fallback-target",
+        ],
+        commit_message="Persisted commit",
+        effective_patch_path="issue_361_v1.zip",
+        zip_target_repo="persisted-zip",
+        selected_target_repo="persisted-selected",
+        effective_runner_target_repo="persisted-effective",
+        target_mismatch=False,
+    )
+    payload = _job_detail_json(s, job)
+    assert payload["commit_message"] == "Persisted commit"
+    assert payload["zip_target_repo"] == "persisted-zip"
+    assert payload["selected_target_repo"] == "persisted-selected"
+    assert payload["effective_runner_target_repo"] == "persisted-effective"
+    assert payload["target_mismatch"] is False

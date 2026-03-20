@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -164,3 +165,150 @@ async def test_db_live_stream_default_tail_replays_20000_rows(
     assert len(data_lines) == 20_000
     assert data_lines[0] == 'data: {"type":"log","msg":"6"}'
     assert data_lines[-1] == 'data: {"type":"log","msg":"20005"}'
+
+
+def test_web_jobs_db_round_trip_preserves_commit_and_target_metadata(
+    seeded_db: WebJobsDatabase,
+) -> None:
+    seeded_db.upsert_job(
+        JobRecord(
+            job_id="job-361-roundtrip",
+            created_utc="2026-03-20T10:00:00Z",
+            mode="patch",
+            issue_id="361",
+            commit_summary="Persisted round-trip",
+            patch_basename="issue_361_v1.zip",
+            raw_command="python3 scripts/am_patch.py 361",
+            canonical_command=["python3", "scripts/am_patch.py", "361"],
+            commit_message="Persisted commit",
+            zip_target_repo="patchhub",
+            selected_target_repo="audiomason2",
+            effective_runner_target_repo="audiomason2",
+            target_mismatch=True,
+        )
+    )
+
+    payload = seeded_db.load_job_json("job-361-roundtrip")
+    assert payload is not None
+    assert payload["commit_message"] == "Persisted commit"
+    assert payload["zip_target_repo"] == "patchhub"
+    assert payload["selected_target_repo"] == "audiomason2"
+    assert payload["effective_runner_target_repo"] == "audiomason2"
+    assert payload["target_mismatch"] is True
+
+    record = seeded_db.load_job_record("job-361-roundtrip")
+    assert record is not None
+    assert record.commit_message == "Persisted commit"
+    assert record.zip_target_repo == "patchhub"
+    assert record.selected_target_repo == "audiomason2"
+    assert record.effective_runner_target_repo == "audiomason2"
+    assert record.target_mismatch is True
+
+
+def test_web_jobs_db_additive_migration_keeps_existing_rows(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    patches_root = repo_root / "patches"
+    patches_root.mkdir(parents=True, exist_ok=True)
+    cfg = load_web_jobs_db_config(repo_root, patches_root)
+    cfg.db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(cfg.db_path)
+    conn.executescript(
+        """
+        CREATE TABLE web_jobs (
+            job_id TEXT PRIMARY KEY,
+            created_utc TEXT NOT NULL,
+            created_unix_ms INTEGER NOT NULL,
+            mode TEXT NOT NULL,
+            issue_id_raw TEXT NOT NULL,
+            issue_id_int INTEGER,
+            commit_summary TEXT NOT NULL,
+            patch_basename TEXT,
+            raw_command TEXT NOT NULL,
+            canonical_command_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            started_utc TEXT,
+            ended_utc TEXT,
+            return_code INTEGER,
+            error TEXT,
+            cancel_requested_utc TEXT,
+            cancel_ack_utc TEXT,
+            cancel_source TEXT,
+            original_patch_path TEXT,
+            effective_patch_path TEXT,
+            effective_patch_kind TEXT,
+            selected_patch_entries_json TEXT NOT NULL,
+            selected_repo_paths_json TEXT NOT NULL,
+            applied_files_json TEXT NOT NULL,
+            applied_files_source TEXT NOT NULL,
+            last_log_seq INTEGER NOT NULL DEFAULT 0,
+            last_event_seq INTEGER NOT NULL DEFAULT 0,
+            row_rev INTEGER NOT NULL DEFAULT 0
+        );
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO web_jobs(
+            job_id, created_utc, created_unix_ms, mode, issue_id_raw, issue_id_int,
+            commit_summary, patch_basename, raw_command, canonical_command_json, status,
+            started_utc, ended_utc, return_code, error, cancel_requested_utc,
+            cancel_ack_utc, cancel_source, original_patch_path, effective_patch_path,
+            effective_patch_kind, selected_patch_entries_json, selected_repo_paths_json,
+            applied_files_json, applied_files_source, last_log_seq, last_event_seq, row_rev
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )
+        """,
+        (
+            "job-legacy",
+            "2026-03-20T10:00:00Z",
+            0,
+            "patch",
+            "361",
+            361,
+            "Legacy summary",
+            "issue_361_v1.zip",
+            "python3 scripts/am_patch.py 361",
+            '["python3","scripts/am_patch.py","361"]',
+            "success",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "[]",
+            "[]",
+            "[]",
+            "unavailable",
+            0,
+            0,
+            1,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    db = WebJobsDatabase(cfg)
+    payload = db.load_job_json("job-legacy")
+    assert payload is not None
+    assert payload["job_id"] == "job-legacy"
+    assert payload["commit_message"] is None
+    assert payload["zip_target_repo"] is None
+    assert payload["selected_target_repo"] is None
+    assert payload["effective_runner_target_repo"] is None
+    assert payload["target_mismatch"] is False
+
+    with sqlite3.connect(cfg.db_path) as verify_conn:
+        columns = {row[1] for row in verify_conn.execute("PRAGMA table_info(web_jobs)").fetchall()}
+    assert {
+        "commit_message",
+        "zip_target_repo",
+        "selected_target_repo",
+        "effective_runner_target_repo",
+        "target_mismatch",
+    }.issubset(columns)

@@ -297,9 +297,49 @@ class Policy(PolicyMonolithMixin):
     allow_outside_files: bool = False
 
 
-REPO_OWNED_KEYS: set[str] = set(
-    ["allow_declared_untouched", "allow_outside_files", "allow_push_fail", "apply_failure_partial_gates_policy", "apply_failure_zero_gates_policy", "ascii_only_patch", "audit_rubric_guard", "biome_autofix", "biome_autofix_legalize_outside", "biome_format", "biome_format_legalize_outside", "blessed_gate_outputs", "commit_and_push", "compile_check", "compile_exclude", "compile_targets", "declared_untouched_fail", "default_branch", "dont_touch_paths", "enforce_allowed_files", "enforce_main_branch", "fail_if_live_files_changed", "gate_badguys_command", "gate_badguys_cwd", "gate_badguys_runner", "gate_biome_command", "gate_biome_extensions", "gate_biome_fix_command", "gate_biome_format_command", "gate_docs_exclude", "gate_docs_include", "gate_docs_required_files", "gate_js_command", "gate_js_extensions", "gate_monolith_areas_dynamic", "gate_monolith_areas_names", "gate_monolith_areas_prefixes", "gate_monolith_catchall_allowlist", "gate_monolith_catchall_basenames", "gate_monolith_catchall_dirs", "gate_monolith_compute_fanin", "gate_monolith_crossarea_min_distinct_areas", "gate_monolith_enabled", "gate_monolith_extensions", "gate_monolith_hub_exports_delta_min", "gate_monolith_hub_fanin_delta", "gate_monolith_hub_fanout_delta", "gate_monolith_hub_loc_delta_min", "gate_monolith_huge_allow_exports_delta", "gate_monolith_huge_allow_imports_delta", "gate_monolith_huge_allow_loc_increase", "gate_monolith_huge_loc", "gate_monolith_large_allow_exports_delta", "gate_monolith_large_allow_imports_delta", "gate_monolith_large_allow_loc_increase", "gate_monolith_large_loc", "gate_monolith_mode", "gate_monolith_new_file_max_exports", "gate_monolith_new_file_max_imports", "gate_monolith_new_file_max_loc", "gate_monolith_on_parse_error", "gate_monolith_scan_scope", "gate_mypy_mode", "gate_pytest_js_prefixes", "gate_pytest_py_prefixes", "gate_pytest_mode", "gate_ruff_mode", "gate_typescript_base_tsconfig", "gate_typescript_command", "gate_typescript_extensions", "gate_typescript_mode", "gates_allow_fail", "gates_skip_biome", "gates_skip_docs", "gates_skip_dont_touch", "gates_skip_js", "gates_skip_monolith", "gates_skip_mypy", "gates_skip_pytest", "gates_skip_ruff", "gates_skip_typescript", "live_changed_resolution", "mypy_targets", "no_op_fail", "no_rollback", "post_success_audit", "pytest_dependencies", "pytest_external_dependencies", "pytest_full_suite_prefixes", "pytest_namespace_modules", "pytest_roots", "pytest_routing_mode", "pytest_targets", "pytest_tree", "pytest_use_venv", "python_gate_mode", "python_gate_python", "require_up_to_date", "ruff_autofix", "ruff_autofix_legalize_outside", "ruff_format", "ruff_targets", "scope_ignore_contains", "scope_ignore_prefixes", "scope_ignore_suffixes", "typescript_targets"]
+REPO_OWNED_KEY_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("allow_declared_untouched", "allow_outside_files", "allow_push_fail"),
+    ("apply_failure_partial_gates_policy", "apply_failure_zero_gates_policy"),
+    ("ascii_only_patch", "audit_rubric_guard", "biome_autofix"),
+    ("biome_autofix_legalize_outside", "biome_format", "biome_format_legalize_outside"),
+    ("blessed_gate_outputs", "commit_and_push", "compile_check", "compile_exclude"),
+    ("compile_targets", "declared_untouched_fail", "default_branch", "dont_touch_paths"),
+    ("enforce_allowed_files", "enforce_main_branch", "fail_if_live_files_changed"),
+    ("gate_badguys_command", "gate_badguys_cwd", "gate_badguys_runner"),
+    ("gate_biome_command", "gate_biome_extensions", "gate_biome_fix_command"),
+    ("gate_biome_format_command", "gate_docs_exclude", "gate_docs_include"),
+    ("gate_docs_required_files", "gate_js_command", "gate_js_extensions"),
+    ("gate_monolith_areas_dynamic", "gate_monolith_areas_names"),
+    ("gate_monolith_areas_prefixes", "gate_monolith_catchall_allowlist"),
+    ("gate_monolith_catchall_basenames", "gate_monolith_catchall_dirs"),
+    ("gate_monolith_compute_fanin", "gate_monolith_crossarea_min_distinct_areas"),
+    ("gate_monolith_enabled", "gate_monolith_extensions"),
+    ("gate_monolith_hub_exports_delta_min", "gate_monolith_hub_fanin_delta"),
+    ("gate_monolith_hub_fanout_delta", "gate_monolith_hub_loc_delta_min"),
+    ("gate_monolith_huge_allow_exports_delta", "gate_monolith_huge_allow_imports_delta"),
+    ("gate_monolith_huge_allow_loc_increase", "gate_monolith_huge_loc"),
+    ("gate_monolith_large_allow_exports_delta", "gate_monolith_large_allow_imports_delta"),
+    ("gate_monolith_large_allow_loc_increase", "gate_monolith_large_loc"),
+    ("gate_monolith_mode", "gate_monolith_new_file_max_exports"),
+    ("gate_monolith_new_file_max_imports", "gate_monolith_new_file_max_loc"),
+    ("gate_monolith_on_parse_error", "gate_monolith_scan_scope", "gate_mypy_mode"),
+    ("gate_pytest_js_prefixes", "gate_pytest_py_prefixes", "gate_pytest_mode"),
+    ("gate_ruff_mode", "gate_typescript_base_tsconfig", "gate_typescript_command"),
+    ("gate_typescript_extensions", "gate_typescript_mode", "gates_allow_fail"),
+    ("gates_skip_biome", "gates_skip_docs", "gates_skip_dont_touch", "gates_skip_js"),
+    ("gates_skip_monolith", "gates_skip_mypy", "gates_skip_pytest", "gates_skip_ruff"),
+    ("gates_skip_typescript", "live_changed_resolution", "mypy_targets", "no_op_fail"),
+    ("no_rollback", "post_success_audit", "pytest_dependencies"),
+    ("pytest_external_dependencies", "pytest_full_suite_prefixes"),
+    ("pytest_namespace_modules", "pytest_roots", "pytest_routing_mode", "pytest_targets"),
+    ("pytest_tree", "pytest_use_venv", "python_gate_mode", "python_gate_python"),
+    ("require_up_to_date", "ruff_autofix", "ruff_autofix_legalize_outside", "ruff_format"),
+    ("ruff_targets", "scope_ignore_contains", "scope_ignore_prefixes"),
+    ("scope_ignore_suffixes", "typescript_targets"),
 )
+
+
+REPO_OWNED_KEYS: set[str] = {key for group in REPO_OWNED_KEY_GROUPS for key in group}
 
 
 def _policy_field_names() -> set[str]:

@@ -213,7 +213,7 @@ def _job_commit_message_from_canonical(job: JobRecord) -> str:
 
 
 def _job_commit_message(job: JobRecord) -> str:
-    commit_message = getattr(job, "commit_message", "")
+    commit_message = getattr(job, "commit_message", None)
     if commit_message:
         return str(commit_message or "")
     return _job_commit_message_from_canonical(job)
@@ -284,7 +284,7 @@ def _pick_tail_job(self) -> JobRecord | None:
 
 def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
     payload = job.to_json()
-    if not payload.get("commit_message"):
+    if "commit_message" not in payload:
         commit_message = _job_commit_message(job)
         if commit_message:
             payload["commit_message"] = commit_message
@@ -298,9 +298,10 @@ def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
             payload["effective_patch_path"] = patch_path
     if not payload.get("effective_patch_kind") and payload.get("effective_patch_path"):
         payload["effective_patch_kind"] = "original"
-    effective_target = payload.get("effective_runner_target_repo") or _target_flag_from_job(job)
-    if effective_target:
-        payload["effective_runner_target_repo"] = effective_target
+    if "effective_runner_target_repo" not in payload:
+        effective_target = _target_flag_from_job(job)
+        if effective_target:
+            payload["effective_runner_target_repo"] = effective_target
     if not payload.get("zip_target_repo"):
         patch_path = str(
             payload.get("effective_patch_path") or payload.get("original_patch_path") or ""
@@ -308,11 +309,12 @@ def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
         zip_target_repo = _read_zip_target_from_patch_path(self, patch_path)
         if zip_target_repo:
             payload["zip_target_repo"] = zip_target_repo
-    payload["target_mismatch"] = bool(
-        payload.get("zip_target_repo")
-        and payload.get("selected_target_repo")
-        and payload.get("zip_target_repo") != payload.get("selected_target_repo")
-    )
+    if "target_mismatch" not in payload:
+        payload["target_mismatch"] = bool(
+            payload.get("zip_target_repo")
+            and payload.get("selected_target_repo")
+            and payload.get("zip_target_repo") != payload.get("selected_target_repo")
+        )
 
     jobs_root = getattr(self, "jobs_root", self.patches_root / "artifacts" / "web_jobs")
     files, source = collect_job_applied_files(
@@ -567,6 +569,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
             target_mismatch = bool(
                 zip_target_repo and selected_target_repo and zip_target_repo != selected_target_repo
             )
+            stored_commit_message = commit_message or None
             commit_summary = compute_commit_summary(commit_message)
             if not commit_summary:
                 commit_summary = f"({mode})"
@@ -577,6 +580,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 mode=mode,
                 issue_id=issue_id,
                 commit_summary=commit_summary,
+                commit_message=stored_commit_message,
                 patch_basename=patch_basename,
                 raw_command=raw_command,
                 canonical_command=canonical,
@@ -596,6 +600,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
     target_mismatch = bool(
         zip_target_repo and selected_target_repo and zip_target_repo != selected_target_repo
     )
+    stored_commit_message = commit_message or None
     commit_summary = compute_commit_summary(commit_message)
     if not commit_summary:
         commit_summary = f"({mode})"
@@ -608,6 +613,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
         mode=mode,
         issue_id=issue_id,
         commit_summary=commit_summary,
+        commit_message=stored_commit_message,
         patch_basename=patch_basename,
         raw_command=raw_command,
         canonical_command=canonical,

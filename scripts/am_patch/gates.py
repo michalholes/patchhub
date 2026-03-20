@@ -98,10 +98,12 @@ def _write_typescript_gate_tsconfig(
 
 
 def _select_python_for_gate(**kwargs: object) -> str:
+    repo_root_obj = kwargs.get("active_repository_tree_root")
+    if repo_root_obj is None:
+        repo_root_obj = kwargs["repo_root"]
+    active_root = repo_root_obj if isinstance(repo_root_obj, Path) else Path(str(repo_root_obj))
     return resolve_python_gate_interpreter(
-        active_repository_tree_root=Path(
-            kwargs.get("active_repository_tree_root") or kwargs["repo_root"]
-        ),
+        active_repository_tree_root=active_root,
         python_gate_mode=str(kwargs.get("python_gate_mode", "auto")),
         python_gate_python=str(kwargs.get("python_gate_python", ".venv/bin/python")),
     )

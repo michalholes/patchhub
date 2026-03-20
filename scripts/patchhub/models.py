@@ -107,6 +107,7 @@ class JobRecord:
     patch_basename: str | None
     raw_command: str
     canonical_command: list[str]
+    commit_message: str | None = None
     status: JobStatus = "queued"
     created_unix_ms: int = 0
     started_utc: str | None = None
@@ -148,6 +149,11 @@ class JobRecord:
             mode=coerce_job_mode(payload.get("mode", "patch")),
             issue_id=str(payload.get("issue_id", "")),
             commit_summary=str(payload.get("commit_summary", "")),
+            commit_message=(
+                str(payload.get("commit_message"))
+                if payload.get("commit_message") is not None
+                else None
+            ),
             patch_basename=(
                 str(payload.get("patch_basename"))
                 if payload.get("patch_basename") is not None
@@ -225,14 +231,15 @@ class JobRecord:
 
     def to_json(self) -> dict[str, Any]:
         payload = asdict(self)
+        if self.commit_message is None:
+            payload.pop("commit_message", None)
         if self.zip_target_repo is None:
             payload.pop("zip_target_repo", None)
         if self.selected_target_repo is None:
             payload.pop("selected_target_repo", None)
         if self.effective_runner_target_repo is None:
             payload.pop("effective_runner_target_repo", None)
-        if not self.target_mismatch:
-            payload.pop("target_mismatch", None)
+        payload["target_mismatch"] = bool(self.target_mismatch)
         return payload
 
 

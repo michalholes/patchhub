@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS web_jobs (
     issue_id_raw TEXT NOT NULL,
     issue_id_int INTEGER,
     commit_summary TEXT NOT NULL,
+    commit_message TEXT,
     patch_basename TEXT,
     raw_command TEXT NOT NULL,
     canonical_command_json TEXT NOT NULL,
@@ -32,6 +33,10 @@ CREATE TABLE IF NOT EXISTS web_jobs (
     effective_patch_kind TEXT,
     selected_patch_entries_json TEXT NOT NULL,
     selected_repo_paths_json TEXT NOT NULL,
+    zip_target_repo TEXT,
+    selected_target_repo TEXT,
+    effective_runner_target_repo TEXT,
+    target_mismatch INTEGER NOT NULL DEFAULT 0,
     applied_files_json TEXT NOT NULL,
     applied_files_source TEXT NOT NULL,
     last_log_seq INTEGER NOT NULL DEFAULT 0,
@@ -143,6 +148,25 @@ def _read_event_frame(text: str) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+_WEB_JOBS_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("commit_message", "TEXT"),
+    ("zip_target_repo", "TEXT"),
+    ("selected_target_repo", "TEXT"),
+    ("effective_runner_target_repo", "TEXT"),
+    ("target_mismatch", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+
+def _ensure_web_jobs_additive_columns(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(web_jobs)").fetchall()
+    existing = {str(row[1]) for row in rows}
+    for name, ddl in _WEB_JOBS_ADDITIVE_COLUMNS:
+        if name in existing:
+            continue
+        conn.execute(f"ALTER TABLE web_jobs ADD COLUMN {name} {ddl}")
+        existing.add(name)
+
+
 def _event_row_from_sql(row: sqlite3.Row) -> EventRow:
     return EventRow(
         seq=int(row["seq"]),
@@ -175,6 +199,7 @@ class SqliteWebJobsStore:
         with self._connect() as conn:
             conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
             conn.executescript(_SCHEMA)
+            _ensure_web_jobs_additive_columns(conn)
             auto_vacuum = int(conn.execute("PRAGMA auto_vacuum").fetchone()[0])
             if auto_vacuum != 2:
                 conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
@@ -228,6 +253,7 @@ class SqliteWebJobsStore:
             "mode": str(row["mode"]),
             "issue_id": str(row["issue_id_raw"]),
             "commit_summary": str(row["commit_summary"]),
+            "commit_message": row["commit_message"],
             "patch_basename": row["patch_basename"],
             "raw_command": str(row["raw_command"]),
             "canonical_command": json.loads(str(row["canonical_command_json"])),
@@ -244,6 +270,10 @@ class SqliteWebJobsStore:
             "effective_patch_kind": row["effective_patch_kind"],
             "selected_patch_entries": json.loads(str(row["selected_patch_entries_json"])),
             "selected_repo_paths": json.loads(str(row["selected_repo_paths_json"])),
+            "zip_target_repo": row["zip_target_repo"],
+            "selected_target_repo": row["selected_target_repo"],
+            "effective_runner_target_repo": row["effective_runner_target_repo"],
+            "target_mismatch": bool(row["target_mismatch"]),
             "applied_files": json.loads(str(row["applied_files_json"])),
             "applied_files_source": str(row["applied_files_source"]),
             "last_log_seq": int(row["last_log_seq"]),
@@ -275,6 +305,7 @@ class SqliteWebJobsStore:
             str(job.issue_id),
             _safe_issue_id_int(job.issue_id),
             str(job.commit_summary),
+            job.commit_message,
             job.patch_basename,
             str(job.raw_command),
             _json_dumps(list(job.canonical_command)),
@@ -291,6 +322,10 @@ class SqliteWebJobsStore:
             job.effective_patch_kind,
             _json_dumps(list(job.selected_patch_entries)),
             _json_dumps(list(job.selected_repo_paths)),
+            job.zip_target_repo,
+            job.selected_target_repo,
+            job.effective_runner_target_repo,
+            1 if job.target_mismatch else 0,
             _json_dumps(list(job.applied_files)),
             str(job.applied_files_source),
             int(log_count if log_count is not None else job.last_log_seq),
@@ -311,17 +346,19 @@ class SqliteWebJobsStore:
             """
             INSERT INTO web_jobs(
                 job_id, created_utc, created_unix_ms, mode,
-                issue_id_raw, issue_id_int, commit_summary, patch_basename,
-                raw_command, canonical_command_json, status,
+                issue_id_raw, issue_id_int, commit_summary, commit_message,
+                patch_basename, raw_command, canonical_command_json, status,
                 started_utc, ended_utc, return_code, error,
                 cancel_requested_utc, cancel_ack_utc, cancel_source,
                 original_patch_path, effective_patch_path, effective_patch_kind,
                 selected_patch_entries_json, selected_repo_paths_json,
+                zip_target_repo, selected_target_repo,
+                effective_runner_target_repo, target_mismatch,
                 applied_files_json, applied_files_source,
                 last_log_seq, last_event_seq, row_rev
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?
             )
             ON CONFLICT(job_id) DO UPDATE SET
                 created_utc = excluded.created_utc,
@@ -330,6 +367,7 @@ class SqliteWebJobsStore:
                 issue_id_raw = excluded.issue_id_raw,
                 issue_id_int = excluded.issue_id_int,
                 commit_summary = excluded.commit_summary,
+                commit_message = excluded.commit_message,
                 patch_basename = excluded.patch_basename,
                 raw_command = excluded.raw_command,
                 canonical_command_json = excluded.canonical_command_json,
@@ -346,6 +384,10 @@ class SqliteWebJobsStore:
                 effective_patch_kind = excluded.effective_patch_kind,
                 selected_patch_entries_json = excluded.selected_patch_entries_json,
                 selected_repo_paths_json = excluded.selected_repo_paths_json,
+                zip_target_repo = excluded.zip_target_repo,
+                selected_target_repo = excluded.selected_target_repo,
+                effective_runner_target_repo = excluded.effective_runner_target_repo,
+                target_mismatch = excluded.target_mismatch,
                 applied_files_json = excluded.applied_files_json,
                 applied_files_source = excluded.applied_files_source,
                 last_log_seq = excluded.last_log_seq,
