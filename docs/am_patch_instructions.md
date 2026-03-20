@@ -287,14 +287,20 @@ The matrix MUST reuse the exact authoritative handoff item identifiers from the 
 
 Required format:
 
-<item-id> -> status=<implemented|no-op (already satisfied)> ; files=<paths> ; anchors=<anchors>
+<item-id> -> implementation_status=<implemented|no-op (already satisfied)> ; completeness=<full|partial> ; correctness=<pass|fail> ; conformance=<pass|fail> ; criteria=<SCx.y:pass,SCx.z:fail|none> ; files=<paths> ; anchors=<anchors>
 
 Rules:
 - every authoritative handoff item identifier MUST appear exactly once
 - implicit coverage is forbidden
 - every `no-op (already satisfied)` claim MUST be backed by inspected evidence
-- any partial, unevidenced, or deferred item MUST be listed in RESIDUALS using the same identifier, or `none`
-- if RESIDUALS is non-empty, the chat MUST NOT claim full fix, complete implementation, or issue fully resolved
+- `criteria` MUST enumerate every success criterion identifier attached to the authoritative handoff item using exact identifiers and explicit verdicts in the form `SCx.y:<pass|fail>`
+- `criteria=none` is forbidden when the authoritative handoff item defines success criterion identifiers
+- `completeness=full` is forbidden unless the full authoritative scope of the item is implemented with no missing required behavior
+- `correctness=pass` is forbidden unless the implemented behavior for the full item is judged technically correct
+- `conformance=pass` is forbidden unless the implemented behavior for the full item is judged coherent with the handoff, specification, and contract constraints
+- any item with `completeness=partial`, `correctness=fail`, `conformance=fail`, missing evidence, failed criterion, or deferred work MUST be listed in RESIDUALS using the same identifier, or `none`
+- if any listed criterion has verdict `fail`, the chat MUST NOT claim that item is fully implemented, complete, correct, conformant, or fully resolved
+- if RESIDUALS is non-empty, the chat MUST NOT claim full fix, complete implementation, correct implementation, conformant implementation, or issue fully resolved
 
 Missing IMPLEMENTATION EVIDENCE MATRIX or missing RESIDUALS = NON-COMPLIANT.
 

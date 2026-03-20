@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.6
+Verzia 1.2.7
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -139,12 +139,13 @@ Každý handoff musí obsahovať:
 - Zakázané zásahy
 - Presnú definíciu výstupu
 - Gating pravidlá
-- Definíciu success criteria
+- Definiciu success criteria pre kazde Pi; kazde kriterium musi mat identifikator SCi.j a musi byt uvedene priamo pri prislusnom Pi
 
 Handoff musí byť formulovaný tak, aby implementačný chat mohol vykonať iba implementáciu bez ďalšieho rozhodovania.
 
 Handoff MUSI obsahovat sekciu PLAN FREEZE, ktora prepise odsuhlaseny plan do ocislovanych bodov P1..Pn bez zmeny poctu bodov, ich hranic, rozsahu alebo vyznamu. Kazdy Pi MUSI predstavovat jednu samostatnu povinnost. Pri bugfixe musia byt koren problemu, kazdy samostatny symptom, kazdy znamy downstream dosledok a kazde pozadovane preventivne alebo ochranne spravanie uvedene ako samostatny Pi, ak predstavuju odlisne povinnosti. Handoff MUSI obsahovat aj PLAN COVERAGE MATRIX mapujuci kazdy Pi na konkretnu sekciu handoffu a SELF-CHECK potvrdzujuci, ze ziaden znamy symptom ani dosledok nezostal mimo PLAN FREEZE. Absencia PLAN FREEZE, PLAN COVERAGE MATRIX alebo SELF-CHECK = handoff je neplatny.
 
+Pre kazde Pi MUSI handoff uviest vlastny blok SUCCESS CRITERIA s identifikatormi SCi.1..SCi.n. Kazde SCi.j MUSI byt samostatne, overitelne a formulovane tak, aby sa pre neho dalo jednoznacne rozhodnut PASS alebo FAIL. SUCCESS CRITERIA sa nesmu duplicitne prepisovat mimo prislusneho Pi; inde sa na ne smie uz iba odkazovat ich identifikatorom. Ak ktorykolvek Pi nema aspon jedno SCi.j, handoff je neplatny.
 ---
 
 ## 6. KONTROLA IMPLEMENTÁCIE (HARD)
@@ -157,7 +158,7 @@ Ak používateľ po implementácii poskytne zip s repo tree:
    - súlad so špecifikáciou
    - dodržanie rozsahu zmien
 2. O výsledkoch musí byť používateľ informovaný.
-
+3. Report vysledku kontroly MUSI explicitne vyhodnotit kazde Pi a kazde jeho SCi.j osobitne. Pri kazdom Pi MUSI uviest aj samostatny verdikt pre uplnost, spravnost a korektnost. Agregovane tvrdenie typu "implementovane" bez tohto rozpisu je zakazane.
 ---
 
 ## 7. PATCH PRAVIDLÁ (HARD)
