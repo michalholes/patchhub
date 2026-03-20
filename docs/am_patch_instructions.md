@@ -283,23 +283,30 @@ NON-COMPLIANT.
 
 ## Implementation evidence matrix (HARD)
 
-For every initial patch and every repair patch, the chat MUST provide an IMPLEMENTATION EVIDENCE MATRIX mapping every authoritative handoff item identifier to implementation evidence.
+For every initial patch and every repair patch, the chat MUST provide an IMPLEMENTATION EVIDENCE MATRIX mapping every authoritative PLAN FREEZE item identifier (P1..Pn) to implementation evidence.
 
-The matrix MUST reuse the exact authoritative handoff item identifiers from the handoff without renumbering, aliasing, merging, or omission.
+The matrix MUST reuse the exact authoritative PLAN FREEZE item identifiers (P1..Pn) from the handoff without renumbering, aliasing, merging, or omission.
 
 Required format:
 
-<item-id> -> implementation_status=<implemented|no-op (already satisfied)> ; completeness=<full|partial> ; correctness=<pass|fail> ; conformance=<pass|fail> ; criteria=<SCx.y:pass,SCx.z:fail|none> ; files=<paths> ; anchors=<anchors>
+<item-id> -> implementation_status=<implemented|partial|no-op (already satisfied)> ; completeness=<full|partial> ; correctness=<pass|fail> ; conformance=<pass|fail> ; criteria=<SCx.y:pass,SCx.z:fail|none> ; criteria_evidence=<SCx.y:file@anchor,SCx.z:file@anchor|none> ; files=<paths> ; anchors=<anchors>
+
 
 Rules:
-- every authoritative handoff item identifier MUST appear exactly once
+- every authoritative PLAN FREEZE item identifier (P1..Pn) MUST appear exactly once
 - implicit coverage is forbidden
 - every `no-op (already satisfied)` claim MUST be backed by inspected evidence
-- `criteria` MUST enumerate every success criterion identifier attached to the authoritative handoff item using exact identifiers and explicit verdicts in the form `SCx.y:<pass|fail>`
-- `criteria=none` is forbidden when the authoritative handoff item defines success criterion identifiers
+- `criteria` MUST enumerate every success criterion identifier attached to the authoritative PLAN FREEZE item identifier (P1..Pn) using exact identifiers and explicit verdicts in the form `SCx.y:<pass|fail>`
+- `criteria_evidence` MUST enumerate every success criterion identifier listed in `criteria` using exact identifiers and at least one concrete `file@anchor` pair per criterion
+- item-level `files` and `anchors` evidence is additive only and MUST NOT substitute for `criteria_evidence`
+- `criteria=none` is forbidden when the authoritative PLAN FREEZE item identifier (P1..Pn) defines success criterion identifiers
+- `criteria_evidence=none` is forbidden when `criteria` lists any success criterion identifier
 - `completeness=full` is forbidden unless the full authoritative scope of the item is implemented with no missing required behavior
 - `correctness=pass` is forbidden unless the implemented behavior for the full item is judged technically correct
 - `conformance=pass` is forbidden unless the implemented behavior for the full item is judged coherent with the handoff, specification, and contract constraints
+- `implementation_status=implemented` is forbidden unless `completeness=full`, `correctness=pass`, `conformance=pass`, and every listed success criterion has verdict `pass`
+- `implementation_status=partial` is mandatory whenever any required behavior is missing, any listed success criterion has verdict `fail`, or any of `completeness`, `correctness`, or `conformance` is not in the fully passing state required for `implemented`
+- `implementation_status=no-op (already satisfied)` is forbidden unless `completeness=full`, `correctness=pass`, `conformance=pass`, every listed success criterion has verdict `pass`, and inspected evidence shows the item was already satisfied before patch authoring
 - any item with `completeness=partial`, `correctness=fail`, `conformance=fail`, missing evidence, failed criterion, or deferred work MUST be listed in RESIDUALS using the same identifier, or `none`
 - if any listed criterion has verdict `fail`, the chat MUST NOT claim that item is fully implemented, complete, correct, conformant, or fully resolved
 - if RESIDUALS is non-empty, the chat MUST NOT claim full fix, complete implementation, correct implementation, conformant implementation, or issue fully resolved
