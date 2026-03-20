@@ -66,14 +66,14 @@ gates_order = [
   "monolith",
   "docs",
 ]
-target_repo_config_relpath = "am_patch.repo.toml" 
 
-[paths]
+#[paths]
 # Canonical (optional; runner may infer)
 # active_target_repo_root = "."
 # target_repo_roots accepts token=root bindings.
 # Example bindings are resolved against runner_root.
 # Root-only canonical /home/pi/<name> entries stay as legacy compatibility input.
-target_repo_roots = ["patchhub=."]
-target_repo_config_relpath = ".am_patch/am_patch.repo.toml"
+[paths]
+target_repo_roots = ["patchhub=.", "audiomason2=../audiomason2"]
+target_repo_config_relpath = "am_patch.repo.toml"
 # patch_dir = "patches"
