@@ -2,7 +2,9 @@
 
 # Patch Authoring Manual (PM)
 
-AUTHORITATIVE -- AudioMason2 Status: active Version: v2.45
+AUTHORITATIVE -- AudioMason2 Status: active Version: v2.46
+
+HARD: The authoritative version of this document is always the one with the highest version number. Any document without a stated version number, or with a lower version number, is invalid and MUST NOT be used. If two documents carry the same version number but differ in content, this is a HARD STOP / invalid corpus.
 
 This manual defines what a chat must produce so that the user can run
 the patch successfully and close the issue.
