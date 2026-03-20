@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.7
+Verzia 1.2.8
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -99,6 +99,8 @@ PM version used: <PM_VERSION>
 1b. Downloadable .md artifact je autoritativny handoff payload.
 1c. Text v sprave mimo artifactu smie obsahovat iba nenormativne zhrnutie a odkaz na artifact; nesmie pridavat, uberat ani menit poziadavky handoffu.
 1d. Ak downloadable .md artifact chyba alebo sa inline text rozchadza s artifactom, handoff je neplatny.
+1e. Samotny downloadable .md handoff artifact MUSI obsahovat blok SPEC CONTEXT v presnom tvare definovanom v sekcii 1.
+1f. Ak SPEC CONTEXT blok chyba v samotnom artifacte, handoff je neplatny aj vtedy, ak je uvedeny iba v sprievodnej sprave.
 
 2. Ak sa handoff týka zmien v:
    - src/
