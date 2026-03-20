@@ -6,6 +6,10 @@ AUTHORITATIVE -- AudioMason2 Status: active Version: v2.46
 
 HARD: The authoritative version of this document is always the one with the highest version number. Any document without a stated version number, or with a lower version number, is invalid and MUST NOT be used. If two documents carry the same version number but differ in content, this is a HARD STOP / invalid corpus.
 
+HARD: Every PM-governed output that proposes, delivers, reviews, repairs, or evaluates implementation work MUST include the exact SPEC CONTEXT block format defined by RC and MUST populate it with the actual RC and PM versions inspected and used for that output.
+HARD: The SPEC CONTEXT block format, field names, order, and capitalization are authoritative in RC and MUST NOT be restated, aliased, or redefined in PM.
+HARD: Missing SPEC CONTEXT block, altered SPEC CONTEXT block shape, or false RC/PM version values = NON-COMPLIANT.
+
 This manual defines what a chat must produce so that the user can run
 the patch successfully and close the issue.
 

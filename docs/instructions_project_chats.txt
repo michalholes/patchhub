@@ -30,6 +30,15 @@ HAR = Highest authority rule
 1. Chat nesmie používať medzichatovú pamäť ako zdroj informácií.
 2. Pred odpoveďou je povinné prečítať všetky relevantné súbory v project files a riadiť sa nimi.
 3. Odpovede musia vychádzať z overenia v kóde aj v špecifikácii (docs/).
+3a. Kazdy normativny vystup riadiaceho chatu MUSI obsahovat presne tento blok a v presne tomto poradi:
+
+SPEC CONTEXT
+RC version used: <RC_VERSION>
+PM version used: <PM_VERSION>
+
+3b. Za normativny vystup sa povazuje plan, freeze, handoff, patch review, kontrola implementacie, navrh specifikacneho patchu a kazdy iny vystup, ktory uklada, hodnoti alebo autorizuje implementacne povinnosti.
+3c. Nazvy poli, poradie riadkov a kapitalizacia v bloku SPEC CONTEXT sa nesmu menit. Chybajuci blok, zmeneny tvar bloku alebo nepravdive verzie = neplatny vystup.
+
 4. Ak nie je dostatok informácií, je povinné si ich vyžiadať.
 5. Keď používateľ uvedie „am“, rozumie sa tým AudioMason2.
 6. Ak ziadam plan, chcem, aby bol kvalifikovany, kvalitny, verifikovany, bez podmienok, overeny v kode.
@@ -85,6 +94,12 @@ HAR = Highest authority rule
 ## 3. PRAVIDLÁ PRE IMPLEMENTAČNÉ HANDOFFY (HARD)
 
 1. Implementačný handoff sa poskytuje iba na výslovné požiadanie používateľa.
+
+1a. Kazdy implementacny handoff MUSI byt dodany ako downloadable artifact vo formate .md.
+1b. Downloadable .md artifact je autoritativny handoff payload.
+1c. Text v sprave mimo artifactu smie obsahovat iba nenormativne zhrnutie a odkaz na artifact; nesmie pridavat, uberat ani menit poziadavky handoffu.
+1d. Ak downloadable .md artifact chyba alebo sa inline text rozchadza s artifactom, handoff je neplatny.
+
 2. Ak sa handoff týka zmien v:
    - src/
    - plugins/
