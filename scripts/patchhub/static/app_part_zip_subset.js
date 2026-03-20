@@ -339,6 +339,12 @@
 			var targetNode = el("targetRepo");
 			var payload = {
 				stored_rel_path: patchPath,
+				derived_issue:
+					r && Object.hasOwn(r, "derived_issue") ? r.derived_issue : null,
+				derived_commit_message:
+					r && Object.hasOwn(r, "derived_commit_message")
+						? r.derived_commit_message
+						: null,
 				derived_target_repo:
 					r && Object.hasOwn(r, "derived_target_repo")
 						? r.derived_target_repo

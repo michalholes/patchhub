@@ -23,6 +23,7 @@ from .models import (
     compute_patch_basename,
     job_to_list_item_json,
 )
+from .patch_inventory import derive_patch_metadata
 from .pm_validation_runtime import build_patch_zip_pm_validation
 from .run_applied_files import collect_job_applied_files
 from .targeting import resolve_targeting_runtime, validate_selected_target_repo
@@ -337,7 +338,7 @@ def api_patch_zip_manifest(self, qs: dict[str, str]) -> tuple[int, bytes]:
         )
         manifest = build_zip_patch_manifest(patch_path=patch_path, zpath=zpath)
         pm_validation = build_patch_zip_pm_validation(self, patch_path)
-        derived_target_repo = _read_zip_target_from_patch_path(self, patch_path)
+        metadata = derive_patch_metadata(self, filename=zpath.name, path=zpath)
     except ValueError as e:
         return _err(str(e), status=400)
     except Exception:
@@ -346,7 +347,9 @@ def api_patch_zip_manifest(self, qs: dict[str, str]) -> tuple[int, bytes]:
         {
             "manifest": manifest,
             "pm_validation": pm_validation,
-            "derived_target_repo": derived_target_repo,
+            "derived_issue": metadata.derived_issue,
+            "derived_commit_message": metadata.derived_commit_message,
+            "derived_target_repo": metadata.derived_target_repo,
         }
     )
 

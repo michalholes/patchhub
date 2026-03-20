@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from patchhub.app_support import canceled_runs_signature
 from patchhub.indexing import iter_runs, runs_signature
 from patchhub.models import job_to_list_item_json, workspace_to_list_item_json
+from patchhub.patch_inventory import build_patch_inventory
 from patchhub.web_jobs_db import WebJobsDatabase
 from patchhub.web_jobs_legacy_fs import (
     legacy_jobs_signature,
@@ -125,6 +126,11 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
         except Exception:
             runs_items = []
 
+    try:
+        patches_sig, patches_items = await to_thread(build_patch_inventory, core)
+    except Exception:
+        patches_sig = "patches:" + sha1(b"").hexdigest()
+        patches_items = []
     workspaces_sig, workspaces_raw = await to_thread(list_workspaces, core, mem)
     workspaces_items = [workspace_to_list_item_json(item) for item in workspaces_raw]
 
@@ -150,7 +156,7 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
         base_runs=base_runs,
     )
     header_sig = build_header_sig(header_body)
-    snapshot_sig = "|".join([jobs_sig, runs_sig, workspaces_sig, header_sig])
+    snapshot_sig = "|".join([jobs_sig, runs_sig, patches_sig, workspaces_sig, header_sig])
     current_seq = 0
     try:
         current_seq = int(core.indexer.snapshot_seq())
@@ -162,12 +168,14 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
         "snapshot": {
             "jobs": jobs_items,
             "runs": runs_items,
+            "patches": patches_items,
             "workspaces": workspaces_items,
             "header": header_body,
         },
         "sigs": {
             "jobs": jobs_sig,
             "runs": runs_sig,
+            "patches": patches_sig,
             "workspaces": workspaces_sig,
             "header": header_sig,
             "snapshot": snapshot_sig,
@@ -207,12 +215,14 @@ async def handle_api_ui_snapshot(
                 "snapshot": {
                     "jobs": list(snap.jobs_items),
                     "runs": list(snap.runs_items[:80]),
+                    "patches": list(snap.patches_items),
                     "workspaces": list(snap.workspaces_items),
                     "header": dict(snap.header_body),
                 },
                 "sigs": {
                     "jobs": str(snap.jobs_sig),
                     "runs": str(snap.runs_sig),
+                    "patches": str(snap.patches_sig),
                     "workspaces": str(snap.workspaces_sig),
                     "header": str(snap.header_sig),
                     "snapshot": snapshot_sig,

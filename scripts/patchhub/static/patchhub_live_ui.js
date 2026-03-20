@@ -163,6 +163,15 @@
 	function loadUiVisibility() {
 		var v = null;
 		try {
+			v = localStorage.getItem("amp.ui.patchesVisible");
+		} catch (e) {
+			v = null;
+		}
+		if (v === "1") patchesVisible = true;
+		else if (v === "0") patchesVisible = false;
+
+		v = null;
+		try {
 			v = localStorage.getItem("amp.ui.workspacesVisible");
 		} catch (e) {
 			v = null;
@@ -188,14 +197,22 @@
 		if (v === "1") jobsVisible = true;
 		else if (v === "0") jobsVisible = false;
 
+		setPatchesVisible(patchesVisible);
 		setWorkspacesVisible(workspacesVisible);
 		setRunsVisible(runsVisible);
 		setJobsVisible(jobsVisible);
 		return {
+			patchesVisible: patchesVisible,
 			workspacesVisible: workspacesVisible,
 			runsVisible: runsVisible,
 			jobsVisible: jobsVisible,
 		};
+	}
+
+	function savePatchesVisible(v) {
+		try {
+			localStorage.setItem("amp.ui.patchesVisible", v ? "1" : "0");
+		} catch (e) {}
 	}
 
 	function saveWorkspacesVisible(v) {
@@ -214,6 +231,14 @@
 		try {
 			localStorage.setItem("amp.ui.jobsVisible", v ? "1" : "0");
 		} catch (e) {}
+	}
+
+	function setPatchesVisible(v) {
+		patchesVisible = !!v;
+		var wrap = el("patchesWrap");
+		var btn = el("patchesCollapse");
+		if (wrap) wrap.classList.toggle("hidden", !patchesVisible);
+		if (btn) btn.textContent = patchesVisible ? "Hide" : "Show";
 	}
 
 	function setWorkspacesVisible(v) {
@@ -868,9 +893,11 @@
 			getLiveLevel,
 			setLiveLevel,
 			loadUiVisibility,
+			savePatchesVisible,
 			saveWorkspacesVisible,
 			saveRunsVisible,
 			saveJobsVisible,
+			setPatchesVisible,
 			setWorkspacesVisible,
 			setRunsVisible,
 			setJobsVisible,
@@ -906,9 +933,11 @@
 	safeExport("setLiveLevel", setLiveLevel);
 	safeExport("setLiveAutoscrollEnabled", setLiveAutoscrollEnabled);
 	safeExport("loadUiVisibility", loadUiVisibility);
+	safeExport("savePatchesVisible", savePatchesVisible);
 	safeExport("saveWorkspacesVisible", saveWorkspacesVisible);
 	safeExport("saveRunsVisible", saveRunsVisible);
 	safeExport("saveJobsVisible", saveJobsVisible);
+	safeExport("setPatchesVisible", setPatchesVisible);
 	safeExport("setWorkspacesVisible", setWorkspacesVisible);
 	safeExport("setRunsVisible", setRunsVisible);
 	safeExport("setJobsVisible", setJobsVisible);

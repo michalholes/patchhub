@@ -18,10 +18,12 @@ function updateSnapshotEventSigs(payload) {
 	if (snapSig) idleSigs.snapshot = snapSig;
 	var js = String(sigs.jobs || "");
 	var rs = String(sigs.runs || "");
+	var ps = String(sigs.patches || "");
 	var ws = String(sigs.workspaces || "");
 	var hs = String(sigs.header || "");
 	if (js) idleSigs.jobs = js;
 	if (rs) idleSigs.runs = rs;
+	if (ps) idleSigs.patches = ps;
 	if (ws) idleSigs.workspaces = ws;
 	if (hs) idleSigs.hdr = hs;
 }
@@ -50,6 +52,9 @@ function cloneOverviewSnapshot(snapshot) {
 		runs: Array.isArray(snapshot.runs)
 			? snapshot.runs.map((x) => ({ ...x }))
 			: [],
+		patches: Array.isArray(snapshot.patches)
+			? snapshot.patches.map((x) => ({ ...x }))
+			: [],
 		workspaces: Array.isArray(snapshot.workspaces)
 			? snapshot.workspaces.map((x) => ({ ...x }))
 			: [],
@@ -63,6 +68,10 @@ function applyOverviewSnapshotData(snapshot, sigs, seq) {
 	updateSnapshotEventSigs({ sigs: sigs || {} });
 	phCall("renderJobsFromResponse", { ok: true, jobs: snapshot.jobs || [] });
 	phCall("renderRunsFromResponse", { ok: true, runs: snapshot.runs || [] });
+	phCall("renderPatchesFromResponse", {
+		ok: true,
+		items: snapshot.patches || [],
+	});
 	phCall("renderWorkspacesFromResponse", {
 		ok: true,
 		items: snapshot.workspaces || [],
@@ -91,6 +100,10 @@ function overviewRunKey(item) {
 	);
 }
 
+function overviewPatchKey(item) {
+	return String((item && item.stored_rel_path) || "");
+}
+
 function overviewWorkspaceKey(item) {
 	return (
 		String((item && item.issue_id) || "") +
@@ -99,7 +112,27 @@ function overviewWorkspaceKey(item) {
 	);
 }
 
+function applyDeltaOrder(items, keyFn, orderedKeys) {
+	if (!Array.isArray(orderedKeys) || !orderedKeys.length) return items;
+	var pending = new Map();
+	items.forEach((item) => {
+		pending.set(keyFn(item), { ...item });
+	});
+	var ordered = [];
+	orderedKeys.forEach((key) => {
+		var item = pending.get(String(key || ""));
+		if (!item) return;
+		ordered.push(item);
+		pending.delete(String(key || ""));
+	});
+	pending.forEach((item) => {
+		ordered.push(item);
+	});
+	return ordered;
+}
+
 function mergeDeltaItems(before, delta, keyFn) {
+	delta = delta || {};
 	var items = Array.isArray(before) ? before.map((x) => ({ ...x })) : [];
 	var index = new Map();
 	items.forEach((item, idx) => {
@@ -131,7 +164,7 @@ function mergeDeltaItems(before, delta, keyFn) {
 		}
 		items.push({ ...item });
 	});
-	return items;
+	return applyDeltaOrder(items, keyFn, delta.ordered_keys);
 }
 
 function applyOverviewDelta(delta) {
@@ -141,11 +174,17 @@ function applyOverviewDelta(delta) {
 	var next = cloneOverviewSnapshot(overviewSnapshotCache) || {
 		jobs: [],
 		runs: [],
+		patches: [],
 		workspaces: [],
 		header: {},
 	};
 	next.jobs = mergeDeltaItems(next.jobs, delta.jobs || {}, overviewJobKey);
 	next.runs = mergeDeltaItems(next.runs, delta.runs || {}, overviewRunKey);
+	next.patches = mergeDeltaItems(
+		next.patches,
+		delta.patches || {},
+		overviewPatchKey,
+	);
 	next.workspaces = mergeDeltaItems(
 		next.workspaces,
 		delta.workspaces || {},

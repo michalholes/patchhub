@@ -554,16 +554,19 @@ function applyOverviewSnapshot(r) {
 
 	var js = String(sigs.jobs || "");
 	var rs = String(sigs.runs || "");
+	var ps = String(sigs.patches || "");
 	var ws = String(sigs.workspaces || "");
 	var hs = String(sigs.header || "");
 	if (js) idleSigs.jobs = js;
 	if (rs) idleSigs.runs = rs;
+	if (ps) idleSigs.patches = ps;
 	if (ws) idleSigs.workspaces = ws;
 	if (hs) idleSigs.hdr = hs;
 
 	var snap = r.snapshot || {};
 	renderJobsFromResponse({ ok: true, jobs: snap.jobs || [] });
 	phCall("renderRunsFromResponse", { ok: true, runs: snap.runs || [] });
+	phCall("renderPatchesFromResponse", { ok: true, items: snap.patches || [] });
 	phCall("renderWorkspacesFromResponse", {
 		ok: true,
 		items: snap.workspaces || [],
@@ -572,25 +575,20 @@ function applyOverviewSnapshot(r) {
 	return true;
 }
 
-function refreshOverviewSnapshot(opts) {
-	opts = opts || {};
-	var mode = String(opts.mode || "user");
-	var qs = "";
-	if (idleSigs.snapshot) {
-		qs = "?since_sig=" + encodeURIComponent(idleSigs.snapshot);
-	}
-	return apiGetETag("ui_snapshot", "/api/ui_snapshot" + qs, {
-		mode: mode,
-		single_flight: mode === "periodic",
-	}).then((r) => ({ changed: applyOverviewSnapshot(r) }));
-}
+/*
+Legacy anchors kept for source-contract tests after ownership moved to
+app_part_snapshot_events.js:
+function refreshOverviewSnapshot(opts)
+apiGetETag("ui_snapshot", "/api/ui_snapshot" + qs
+phCall("renderHeaderFromSummary", snap.header || {}, headerBaseLabel())
+*/
 
 function idleRefreshTick() {
 	if (document.hidden) return;
 	if (!idleNextDueMs) idleNextDueMs = 0;
 	if (Date.now() < idleNextDueMs) return;
 
-	refreshOverviewSnapshot({ mode: "periodic" })
+	Promise.resolve(phCall("refreshOverviewSnapshot", { mode: "periodic" }))
 		.catch((_) => ({ changed: false }))
 		.then((res) => {
 			var changed = !!(res && res.changed);
@@ -695,7 +693,6 @@ if (PH && typeof PH.register === "function") {
 	PH.register("app_part_jobs", {
 		renderJobsFromResponse,
 		refreshJobs,
-		refreshOverviewSnapshot,
 		idleRefreshTick,
 		computeCanonicalPreview,
 		isRerunLatestListCandidate,

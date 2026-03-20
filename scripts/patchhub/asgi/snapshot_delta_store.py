@@ -12,6 +12,7 @@ class SnapshotRecord:
     seq: int
     jobs: list[dict[str, Any]]
     runs: list[dict[str, Any]]
+    patches: list[dict[str, Any]]
     workspaces: list[dict[str, Any]]
     header: dict[str, Any]
     sigs: dict[str, str]
@@ -51,6 +52,14 @@ def _removed_workspace(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _patch_key(item: dict[str, Any]) -> str:
+    return str(item.get("stored_rel_path", ""))
+
+
+def _removed_patch(item: dict[str, Any]) -> dict[str, Any]:
+    return {"stored_rel_path": item.get("stored_rel_path")}
+
+
 class SnapshotDeltaStore:
     def __init__(self, *, max_records: int = 64) -> None:
         self._records: deque[SnapshotRecord] = deque(maxlen=max(2, int(max_records)))
@@ -61,11 +70,13 @@ class SnapshotDeltaStore:
                 seq=int(getattr(snap, "seq", 0) or 0),
                 jobs=_copy_items(list(snap.jobs_items)),
                 runs=_copy_items(list(snap.runs_items[:80])),
+                patches=_copy_items(list(snap.patches_items)),
                 workspaces=_copy_items(list(snap.workspaces_items)),
                 header=dict(snap.header_body),
                 sigs={
                     "jobs": str(snap.jobs_sig),
                     "runs": str(snap.runs_sig),
+                    "patches": str(snap.patches_sig),
                     "workspaces": str(snap.workspaces_sig),
                     "header": str(snap.header_sig),
                     "snapshot": str(snap.snapshot_sig),
@@ -90,6 +101,12 @@ class SnapshotDeltaStore:
                 "sigs": dict(current.sigs),
                 "jobs": {"added": [], "updated": [], "removed": []},
                 "runs": {"added": [], "updated": [], "removed": []},
+                "patches": {
+                    "added": [],
+                    "updated": [],
+                    "removed": [],
+                    "ordered_keys": [_patch_key(item) for item in current.patches],
+                },
                 "workspaces": {"added": [], "updated": [], "removed": []},
                 "header_changed": False,
             }
@@ -108,6 +125,13 @@ class SnapshotDeltaStore:
             "sigs": dict(current.sigs),
             "jobs": self._diff(previous.jobs, current.jobs, _job_key, _removed_job),
             "runs": self._diff(previous.runs, current.runs, _run_key, _removed_run),
+            "patches": self._diff(
+                previous.patches,
+                current.patches,
+                _patch_key,
+                _removed_patch,
+                include_order=True,
+            ),
             "workspaces": self._diff(
                 previous.workspaces,
                 current.workspaces,
@@ -126,6 +150,8 @@ class SnapshotDeltaStore:
         after: list[dict[str, Any]],
         key_fn: Any,
         removed_fn: Any,
+        *,
+        include_order: bool = False,
     ) -> dict[str, Any]:
         before_map = {str(key_fn(item)): item for item in before}
         after_map = {str(key_fn(item)): item for item in after}
@@ -144,4 +170,7 @@ class SnapshotDeltaStore:
             if key not in after_map:
                 removed.append(removed_fn(item))
 
-        return {"added": added, "updated": updated, "removed": removed}
+        payload = {"added": added, "updated": updated, "removed": removed}
+        if include_order:
+            payload["ordered_keys"] = [str(key_fn(item)) for item in after]
+        return payload

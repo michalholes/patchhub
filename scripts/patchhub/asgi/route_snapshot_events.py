@@ -23,6 +23,7 @@ def _snapshot_state_from_indexer(core: AsyncAppCore) -> dict[str, Any] | None:
         "sigs": {
             "jobs": str(snap.jobs_sig),
             "runs": str(snap.runs_sig),
+            "patches": str(snap.patches_sig),
             "workspaces": str(snap.workspaces_sig),
             "header": str(snap.header_sig),
             "snapshot": str(snap.snapshot_sig),

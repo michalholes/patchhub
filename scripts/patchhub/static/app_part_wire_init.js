@@ -145,6 +145,20 @@ function wireButtons() {
 			});
 		});
 	}
+	if (el("patchesRefresh")) {
+		el("patchesRefresh").addEventListener("click", () => {
+			phCall("refreshPatches", { mode: "user" });
+		});
+	}
+	if (el("patchesCollapse")) {
+		el("patchesCollapse").addEventListener("click", () => {
+			patchesVisible = !patchesVisible;
+			PH.call("setPatchesVisible", patchesVisible);
+			AMP_UI.savePatchesVisible(patchesVisible);
+			if (patchesVisible) phCall("refreshPatches", { mode: "user" });
+		});
+	}
+
 	el("workspacesRefresh").addEventListener("click", () => {
 		phCall("refreshWorkspaces", { mode: "user" });
 	});
@@ -308,6 +322,9 @@ function wireButtons() {
 			refreshFs();
 			PH.call("refreshStats");
 			if (hasTrackedActiveJob()) {
+				if (patchesVisible) {
+					phCall("refreshPatches", { mode: "user" });
+				}
 				phCall("refreshWorkspaces", { mode: "user" });
 				phCall("refreshRuns", { mode: "user" });
 				phCall("refreshJobs", { mode: "user" });
@@ -332,9 +349,11 @@ function init() {
 		wireButtons();
 		setPreviewVisible(false);
 		var vis = PH.call("loadUiVisibility") || {};
+		patchesVisible = !!vis.patchesVisible;
 		workspacesVisible = !!vis.workspacesVisible;
 		runsVisible = !!vis.runsVisible;
 		jobsVisible = !!vis.jobsVisible;
+		PH.call("setPatchesVisible", patchesVisible);
 		PH.call("setWorkspacesVisible", workspacesVisible);
 		PH.call("setRunsVisible", runsVisible);
 		PH.call("setJobsVisible", jobsVisible);
@@ -397,6 +416,9 @@ function init() {
 							tickMissingPatchClear({ mode: "active" });
 							phCall("stopSnapshotEvents");
 							phCall("refreshJobs", { mode: "periodic" });
+							if (patchesVisible) {
+								phCall("refreshPatches", { mode: "periodic" });
+							}
 							if (workspacesVisible) {
 								phCall("refreshWorkspaces", { mode: "periodic" });
 							}
@@ -434,6 +456,9 @@ function init() {
 				refreshFs();
 				PH.call("refreshStats");
 				if (hasTrackedActiveJob()) {
+					if (patchesVisible) {
+						phCall("refreshPatches", { mode: "user" });
+					}
 					if (workspacesVisible) {
 						phCall("refreshWorkspaces", { mode: "user" });
 					}

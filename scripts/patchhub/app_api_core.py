@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import tomllib
 from pathlib import Path
@@ -9,7 +8,6 @@ from typing import Any
 
 from . import proc_resources
 from .app_support import (
-    _ascii_sanitize,
     _decorate_run,
     _err,
     _iter_canceled_runs,
@@ -23,19 +21,12 @@ from .app_support import (
 from .command_parse import CommandParseError, parse_runner_command
 from .indexing import compute_stats, iter_runs, runs_signature
 from .models import run_to_list_item_json
+from .patch_inventory import derive_filename_metadata, derive_patch_metadata
 from .targeting import (
     resolve_targeting_runtime,
     validate_selected_target_repo,
 )
-from .zip_commit_message import (
-    ZipCommitConfig,
-    ZipIssueConfig,
-    ZipTargetConfig,
-    read_commit_message_from_zip_path,
-    read_issue_number_from_zip_path,
-    read_target_repo_from_zip_path,
-    zip_contains_patch_file,
-)
+from .zip_commit_message import zip_contains_patch_file
 
 
 def _autofill_scan_dir_rel(self) -> str | None:
@@ -53,58 +44,7 @@ def _autofill_scan_dir_rel(self) -> str | None:
 
 
 def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]:
-    if not self.cfg.autofill.derive_enabled:
-        return None, None
-
-    try:
-        issue_re = re.compile(self.cfg.autofill.issue_regex)
-    except re.error:
-        issue_re = None
-    try:
-        msg_re = re.compile(self.cfg.autofill.commit_regex)
-    except re.error:
-        msg_re = None
-
-    issue_id: str | None = None
-    if issue_re is not None:
-        m = issue_re.search(filename)
-        if m and m.groups():
-            issue_id = str(m.group(1))
-
-    commit_msg: str | None = None
-    if msg_re is not None:
-        m2 = msg_re.match(filename)
-        if m2 and m2.groups():
-            commit_msg = str(m2.group(1))
-
-    if commit_msg is None:
-        dflt = str(self.cfg.autofill.commit_default_if_no_match or "")
-        if dflt == "basename_no_ext":
-            commit_msg = os.path.splitext(filename)[0]
-
-    if commit_msg is not None:
-        if self.cfg.autofill.commit_replace_underscores:
-            commit_msg = commit_msg.replace("_", " ")
-        if self.cfg.autofill.commit_replace_dashes:
-            commit_msg = commit_msg.replace("-", " ")
-        if self.cfg.autofill.commit_collapse_spaces:
-            commit_msg = " ".join(commit_msg.split())
-        if self.cfg.autofill.commit_trim:
-            commit_msg = commit_msg.strip()
-        if self.cfg.autofill.commit_ascii_only:
-            commit_msg = _ascii_sanitize(commit_msg)
-            if self.cfg.autofill.commit_collapse_spaces:
-                commit_msg = " ".join(commit_msg.split())
-            if self.cfg.autofill.commit_trim:
-                commit_msg = commit_msg.strip()
-        if commit_msg == "":
-            commit_msg = None
-
-    if issue_id is None:
-        dflt_issue = str(self.cfg.autofill.issue_default_if_no_match or "")
-        issue_id = dflt_issue if dflt_issue else None
-
-    return issue_id, commit_msg
+    return derive_filename_metadata(self.cfg, filename)
 
 
 # ---------------- API ----------------
@@ -281,50 +221,7 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
 
     rel_dir = self.cfg.autofill.scan_dir.rstrip("/")
     stored_rel = str(Path(rel_dir) / best_name)
-    issue_id, commit_msg = self._derive_from_filename(best_name)
-    zip_commit_used = False
-    zip_commit_err: str | None = None
-    zip_issue_used = False
-    zip_issue_err: str | None = None
-    zip_target_repo: str | None = None
-    zip_target_err: str | None = None
-    if os.path.splitext(best_name)[1].lower() == ".zip" and self.cfg.autofill.zip_commit_enabled:
-        zcfg = ZipCommitConfig(
-            enabled=True,
-            filename=self.cfg.autofill.zip_commit_filename,
-            max_bytes=self.cfg.autofill.zip_commit_max_bytes,
-            max_ratio=self.cfg.autofill.zip_commit_max_ratio,
-        )
-        zmsg, zerr = read_commit_message_from_zip_path(d / best_name, zcfg)
-        if zmsg is not None:
-            commit_msg = zmsg
-            zip_commit_used = True
-        else:
-            zip_commit_err = zerr
-    if os.path.splitext(best_name)[1].lower() == ".zip" and self.cfg.autofill.zip_issue_enabled:
-        zicfg = ZipIssueConfig(
-            enabled=True,
-            filename=self.cfg.autofill.zip_issue_filename,
-            max_bytes=self.cfg.autofill.zip_issue_max_bytes,
-            max_ratio=self.cfg.autofill.zip_issue_max_ratio,
-        )
-        zid, zerr2 = read_issue_number_from_zip_path(d / best_name, zicfg)
-        if zid is not None:
-            issue_id = zid
-            zip_issue_used = True
-        else:
-            zip_issue_err = zerr2
-    if os.path.splitext(best_name)[1].lower() == ".zip":
-        ztcfg = ZipTargetConfig(
-            enabled=True,
-            filename="target.txt",
-            max_bytes=128,
-            max_ratio=200,
-        )
-        zip_target_repo, zip_target_err = read_target_repo_from_zip_path(
-            d / best_name,
-            ztcfg,
-        )
+    metadata = derive_patch_metadata(self, filename=best_name, path=d / best_name)
 
     payload: dict[str, Any] = {
         "found": True,
@@ -345,23 +242,23 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
         return _ok({"unchanged": True, "token": payload.get("token", "")})
 
     if self.cfg.autofill.derive_enabled:
-        payload["derived_issue"] = issue_id
-        payload["derived_commit_message"] = commit_msg
-    payload["derived_target_repo"] = zip_target_repo
-    if zip_commit_used:
+        payload["derived_issue"] = metadata.derived_issue
+        payload["derived_commit_message"] = metadata.derived_commit_message
+    payload["derived_target_repo"] = metadata.derived_target_repo
+    if metadata.zip_commit_used:
         payload["status"].append(
             f"autofill: commit from zip {self.cfg.autofill.zip_commit_filename}"
         )
-    elif zip_commit_err:
-        payload["status"].append(f"autofill: zip commit ignored ({zip_commit_err})")
-    if zip_issue_used:
+    elif metadata.zip_commit_err:
+        payload["status"].append(f"autofill: zip commit ignored ({metadata.zip_commit_err})")
+    if metadata.zip_issue_used:
         payload["status"].append(f"autofill: issue from zip {self.cfg.autofill.zip_issue_filename}")
-    elif zip_issue_err:
-        payload["status"].append(f"autofill: zip issue ignored ({zip_issue_err})")
-    if zip_target_repo is not None:
+    elif metadata.zip_issue_err:
+        payload["status"].append(f"autofill: zip issue ignored ({metadata.zip_issue_err})")
+    if metadata.derived_target_repo is not None:
         payload["status"].append("autofill: target from zip target.txt")
-    elif zip_target_err:
-        payload["status"].append(f"autofill: zip target ignored ({zip_target_err})")
+    elif metadata.zip_target_err:
+        payload["status"].append(f"autofill: zip target ignored ({metadata.zip_target_err})")
     return _ok(payload)
 
 

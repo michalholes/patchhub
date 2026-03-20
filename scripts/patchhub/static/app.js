@@ -23,9 +23,11 @@ var liveEvents = [];
 var liveLevel = "normal";
 
 var previewVisible = false;
+var patchesVisible = false;
 var workspacesVisible = false;
 var runsVisible = false;
 var jobsVisible = false;
+var patchesCache = [];
 var workspacesCache = [];
 
 function appLog(kind, message) {
@@ -114,6 +116,13 @@ async function loadParts(rt) {
 	);
 	noteLoad(
 		await PH.loadScript(
+			"/static/app_part_patch_inventory.js",
+			"app_part_patch_inventory",
+		),
+		"patch inventory module missing",
+	);
+	noteLoad(
+		await PH.loadScript(
 			"/static/app_part_pm_validation.js",
 			"app_part_pm_validation",
 		),
@@ -187,7 +196,14 @@ __ph_w.PH_APP_MAIN = async function PH_APP_MAIN(rt) {
 var IDLE_BACKOFF_MS = [2000, 5000, 15000, 30000, 60000];
 var idleBackoffIdx = 0;
 var idleNextDueMs = 0;
-var idleSigs = { jobs: "", runs: "", workspaces: "", hdr: "", snapshot: "" };
+var idleSigs = {
+	jobs: "",
+	runs: "",
+	patches: "",
+	workspaces: "",
+	hdr: "",
+	snapshot: "",
+};
 
 function setPreviewVisible(v) {
 	previewVisible = !!v;
@@ -497,7 +513,12 @@ var runsCache = [];
 var selectedRun = null;
 var tailLines = 200;
 
-var dirty = { issueId: false, commitMsg: false, patchPath: false };
+var dirty = {
+	issueId: false,
+	commitMsg: false,
+	patchPath: false,
+	targetRepo: false,
+};
 var latestToken = "";
 var lastAutofillClearedToken = "";
 var autofillTimer = null;

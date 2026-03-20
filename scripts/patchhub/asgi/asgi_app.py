@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingRes
 
 from patchhub import app_api_core as _core_api
 from patchhub.models import job_to_list_item_json
+from patchhub.patch_inventory import build_patch_inventory
 
 from .async_app_core import AsyncAppCore
 from .async_offload import to_thread
@@ -93,6 +94,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
                 "sigs": {
                     "jobs": str(snap.jobs_sig),
                     "runs": str(snap.runs_sig),
+                    "patches": str(snap.patches_sig),
                     "workspaces": str(snap.workspaces_sig),
                     "header": str(snap.header_sig),
                     "snapshot": str(snap.snapshot_sig),
@@ -192,6 +194,26 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
             return _not_modified_response(etag=etag)
         headers = {"ETag": etag} if (status == 200 and etag) else None
         return _json_bytes_response(status, data, headers=headers)
+
+    @app.get("/api/patches/inventory")
+    async def api_patches_inventory(request: Request) -> Response:
+        since_sig = str(request.query_params.get("since_sig", "")).strip()
+        sig, items = await to_thread(build_patch_inventory, core)
+        etag = _etag_quote(sig)
+        inm = request.headers.get("if-none-match")
+        if etag and _etag_matches(inm, etag):
+            return _not_modified_response(etag=etag)
+        if since_sig and since_sig == sig:
+            return _json_response_obj(
+                200,
+                {"ok": True, "unchanged": True, "sig": sig},
+                headers={"ETag": etag},
+            )
+        return _json_response_obj(
+            200,
+            {"ok": True, "items": items, "sig": sig},
+            headers={"ETag": etag},
+        )
 
     @app.get("/api/fs/read_text")
     async def api_fs_read_text(request: Request) -> Response:

@@ -7,7 +7,7 @@ import re
 import stat as statlib
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha1
 from pathlib import Path
@@ -21,6 +21,7 @@ from patchhub.models import (
     run_to_list_item_json,
     workspace_to_list_item_json,
 )
+from patchhub.patch_inventory import build_patch_inventory
 from patchhub.workspace_inventory import list_workspaces
 
 from .async_offload import to_thread
@@ -37,6 +38,8 @@ class IndexerSnapshot:
     workspaces_sig: str
     header_sig: str
     snapshot_sig: str
+    patches_items: list[dict[str, Any]] = field(default_factory=list)
+    patches_sig: str = ""
     seq: int = 0
 
 
@@ -335,6 +338,7 @@ class AsyncJobsRunsIndexer:
             except Exception:
                 lock_held = 0
 
+            patches_sig, patches_items = build_patch_inventory(self._core)
             workspaces_sig, workspaces_raw = list_workspaces(self._core, mem_jobs=mem)
             workspaces_items = [workspace_to_list_item_json(it) for it in workspaces_raw]
 
@@ -346,15 +350,17 @@ class AsyncJobsRunsIndexer:
                 base_runs=base_runs,
             )
             header_sig = build_header_sig(header_body)
-            snapshot_sig = "|".join([jobs_sig, runs_sig, workspaces_sig, header_sig])
+            snapshot_sig = "|".join([jobs_sig, runs_sig, patches_sig, workspaces_sig, header_sig])
 
             return IndexerSnapshot(
                 jobs_items=jobs_items,
                 runs_items=runs_items,
+                patches_items=patches_items,
                 workspaces_items=workspaces_items,
                 header_body=header_body,
                 jobs_sig=jobs_sig,
                 runs_sig=runs_sig,
+                patches_sig=patches_sig,
                 workspaces_sig=workspaces_sig,
                 header_sig=header_sig,
                 snapshot_sig=snapshot_sig,
@@ -367,6 +373,7 @@ class AsyncJobsRunsIndexer:
                 if (
                     prev.jobs_sig == snap.jobs_sig
                     and prev.runs_sig == snap.runs_sig
+                    and prev.patches_sig == snap.patches_sig
                     and prev.workspaces_sig == snap.workspaces_sig
                     and prev.header_sig == snap.header_sig
                 ):
