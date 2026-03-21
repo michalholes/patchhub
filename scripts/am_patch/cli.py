@@ -10,6 +10,7 @@ from am_patch.version import RUNNER_VERSION
 from .cli_help_text import fmt_full_help, fmt_short_help
 from .cli_ipc_surface import add_ipc_override_args
 from .cli_override_normalization import apply_explicit_gate_flag_overrides
+from .cli_self_backup_flags import add_self_backup_override_args
 
 
 class AppendOverride(argparse.Action):
@@ -254,6 +255,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         dest="overrides",
         metavar="RELPATH",
     )
+    add_self_backup_override_args(p, append_override=AppendOverride)
     p.add_argument(
         "--override",
         dest="overrides",

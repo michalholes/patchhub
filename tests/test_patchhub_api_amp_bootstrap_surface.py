@@ -48,6 +48,11 @@ def test_amp_bootstrap_surface_excludes_repo_owned_keys() -> None:
         policy = obj["schema"]["policy"]
 
         assert "target_repo_config_relpath" in policy
+        assert "artifacts_root" in policy
+        assert "self_backup_mode" in policy
+        assert "self_backup_dir" in policy
+        assert "self_backup_template" in policy
+        assert "self_backup_include_relpaths" in policy
         assert "default_branch" not in policy
         assert "python_gate_mode" not in policy
         assert "gate_monolith_enabled" not in policy
@@ -75,6 +80,14 @@ def test_amp_bootstrap_roundtrip_does_not_write_repo_owned_keys() -> None:
                 "values": {
                     "verbosity": "quiet",
                     "target_repo_config_relpath": ".am_patch/custom.repo.toml",
+                    "artifacts_root": "../artifacts-root",
+                    "self_backup_mode": "never",
+                    "self_backup_dir": "safe/quarantine",
+                    "self_backup_template": "custom_issue{issue}_{ts}.zip",
+                    "self_backup_include_relpaths": [
+                        "scripts/custom.py",
+                        "scripts/custom/",
+                    ],
                 },
                 "dry_run": False,
             },
@@ -84,5 +97,6 @@ def test_amp_bootstrap_roundtrip_does_not_write_repo_owned_keys() -> None:
         saved = cfg_path.read_text(encoding="utf-8")
         assert 'verbosity = "quiet"' in saved
         assert 'target_repo_config_relpath = ".am_patch/custom.repo.toml"' in saved
+        assert 'self_backup_dir = "safe/quarantine"' in saved
         assert "default_branch =" not in saved
         assert "python_gate_mode =" not in saved

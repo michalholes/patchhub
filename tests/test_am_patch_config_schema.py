@@ -26,8 +26,8 @@ def test_policy_schema_exposes_bucketed_pytest_routing_keys() -> None:
     schema = get_policy_schema()
     policy = schema["policy"]
 
-    assert SCHEMA_VERSION == "7"
-    assert schema["schema_version"] == "7"
+    assert SCHEMA_VERSION == "9"
+    assert schema["schema_version"] == "9"
     assert policy["gate_pytest_py_prefixes"]["type"] == "list[str]"
     assert policy["pytest_routing_mode"]["enum"] == ["legacy", "bucketed"]
     assert policy["pytest_roots"]["type"] == "dict[str,str]"
@@ -75,3 +75,22 @@ def test_bootstrap_policy_schema_is_bootstrap_only() -> None:
     assert "target_repo_config_relpath" in policy
     assert "python_gate_mode" not in policy
     assert "default_branch" not in policy
+
+
+def test_policy_schema_exposes_self_backup_keys() -> None:
+    from am_patch.config_schema import get_policy_schema
+
+    policy = get_policy_schema()["policy"]
+
+    assert policy["self_backup_mode"]["type"] == "str"
+    assert policy["self_backup_mode"]["enum"] == ["never", "initial_self_patch"]
+    assert policy["self_backup_mode"]["default"] == "initial_self_patch"
+    assert policy["self_backup_dir"]["type"] == "str"
+    assert policy["self_backup_dir"]["default"] == "quarantine"
+    assert policy["self_backup_template"]["type"] == "str"
+    assert policy["self_backup_template"]["default"] == "amp_self_backup_issue{issue}_{ts}.zip"
+    assert policy["self_backup_include_relpaths"]["type"] == "list[str]"
+    assert policy["self_backup_include_relpaths"]["default"] == [
+        "scripts/am_patch.py",
+        "scripts/am_patch/",
+    ]

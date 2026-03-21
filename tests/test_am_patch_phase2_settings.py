@@ -34,6 +34,10 @@ def test_phase2_cfg_keys_apply() -> None:
         "failure_zip_name": "fail.zip",
         "failure_zip_log_dir": "L",
         "failure_zip_patch_dir": "P",
+        "self_backup_mode": "never",
+        "self_backup_dir": "safe/quarantine",
+        "self_backup_template": "custom_issue{issue}_{ts}.zip",
+        "self_backup_include_relpaths": ["scripts/custom.py", "scripts/custom/"],
         "workspace_issue_dir_template": "ISSUE_{issue}",
         "workspace_repo_dir_name": "r",
         "workspace_meta_filename": "m.json",
@@ -62,6 +66,10 @@ def test_phase2_cfg_keys_apply() -> None:
     assert p.failure_zip_name == "fail.zip"
     assert p.failure_zip_log_dir == "L"
     assert p.failure_zip_patch_dir == "P"
+    assert p.self_backup_mode == "never"
+    assert p.self_backup_dir == "safe/quarantine"
+    assert p.self_backup_template == "custom_issue{issue}_{ts}.zip"
+    assert p.self_backup_include_relpaths == ["scripts/custom.py", "scripts/custom/"]
     assert p.workspace_issue_dir_template == "ISSUE_{issue}"
     assert p.workspace_repo_dir_name == "r"
     assert p.workspace_meta_filename == "m.json"
@@ -103,6 +111,16 @@ def test_phase2_cli_flags_set_overrides() -> None:
             "LOGS",
             "--failure-zip-patch-dir",
             "PATCHES",
+            "--artifacts-root",
+            "../artifacts-root",
+            "--self-backup-mode",
+            "never",
+            "--self-backup-dir",
+            "safe/quarantine",
+            "--self-backup-template",
+            "custom_issue{issue}_{ts}.zip",
+            "--self-backup-include-relpaths",
+            "scripts/custom.py,scripts/custom/",
             "--workspace-issue-dir-template",
             "T_{issue}",
             "--workspace-repo-dir-name",
@@ -155,6 +173,11 @@ def test_phase2_cli_flags_set_overrides() -> None:
     assert p.failure_zip_name == "z.zip"
     assert p.failure_zip_log_dir == "LOGS"
     assert p.failure_zip_patch_dir == "PATCHES"
+    assert p.artifacts_root == "../artifacts-root"
+    assert p.self_backup_mode == "never"
+    assert p.self_backup_dir == "safe/quarantine"
+    assert p.self_backup_template == "custom_issue{issue}_{ts}.zip"
+    assert p.self_backup_include_relpaths == ["scripts/custom.py", "scripts/custom/"]
     assert p.workspace_issue_dir_template == "T_{issue}"
     assert p.workspace_repo_dir_name == "REPO"
     assert p.workspace_meta_filename == "META.json"
@@ -168,6 +191,33 @@ def test_phase2_cli_flags_set_overrides() -> None:
     assert "/__X__/" in p.scope_ignore_contains
     assert p.venv_bootstrap_mode == "never"
     assert p.venv_bootstrap_python == ".venv/bin/python"
+
+
+def test_self_backup_dir_allows_nested_relative_subdir() -> None:
+    policy_cls, _apply_cli_overrides, build_policy, _parse_args = _import_am_patch()
+
+    p = build_policy(policy_cls(), {"self_backup_dir": "nested/safe/quarantine"})
+
+    assert p.self_backup_dir == "nested/safe/quarantine"
+
+
+def test_self_backup_dir_rejects_escape_subdir() -> None:
+    policy_cls, _apply_cli_overrides, build_policy, _parse_args = _import_am_patch()
+    from am_patch.errors import RunnerError
+
+    with pytest.raises(RunnerError) as excinfo:
+        build_policy(policy_cls(), {"self_backup_dir": "../escape"})
+
+    assert "invalid self_backup_dir" in str(excinfo.value)
+
+
+def test_self_backup_include_relpaths_config_empty_list_overrides_default() -> None:
+    policy_cls, _apply_cli_overrides, build_policy, _parse_args = _import_am_patch()
+
+    p = build_policy(policy_cls(), {"self_backup_include_relpaths": []})
+
+    assert p.self_backup_include_relpaths == []
+    assert p._src["self_backup_include_relpaths"] == "config"
 
 
 def test_target_repo_name_cli_flag_sets_override() -> None:
@@ -446,3 +496,24 @@ def test_finalize_workspace_allowlist_still_applies_with_workspace_binding(
     assert excinfo.value.stage == "CONFIG"
     assert excinfo.value.category == "INVALID"
     assert "traceback" not in str(excinfo.value).lower()
+
+
+def test_self_backup_include_relpaths_last_argv_wins() -> None:
+    policy_cls, apply_cli_overrides, _build_policy, parse_args = _import_am_patch()
+    cli = parse_args(
+        [
+            "--self-backup-include-relpaths",
+            "scripts/one.py,scripts/one/",
+            "--override",
+            "self_backup_include_relpaths=scripts/two.py,scripts/two/",
+            "--self-backup-include-relpaths",
+            "scripts/final.py,scripts/final/",
+            "123",
+            "patch.py",
+        ]
+    )
+
+    p = policy_cls()
+    apply_cli_overrides(p, {"overrides": cli.overrides})
+
+    assert p.self_backup_include_relpaths == ["scripts/final.py", "scripts/final/"]

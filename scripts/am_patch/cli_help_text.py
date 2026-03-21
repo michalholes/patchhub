@@ -32,6 +32,21 @@ Options:
   --target-repo-roots CSV
       Replace the target_repo_roots binding registry.
 
+  --artifacts-root PATH
+      Set explicit runner-owned artifacts root.
+
+  --self-backup-mode {{never,initial_self_patch}}
+      Control initial self-backup for self-target initial self-patch.
+
+  --self-backup-dir RELPATH
+      Set the relative artifacts subdirectory for initial self-backup zips.
+
+  --self-backup-template TEMPLATE
+      Set the initial self-backup filename template.
+
+  --self-backup-include-relpaths CSV
+      Replace initial self-backup include relpaths (runner-root-relative).
+
   -q, -v, -n, -d, --verbosity {{debug, verbose, normal, warning, quiet}}
       Control screen output amount. [default: verbose]
 
@@ -110,6 +125,21 @@ CORE / INFO
 
   --target-repo-roots CSV
       Replace the target_repo_roots binding registry.
+
+  --artifacts-root PATH
+      Set explicit runner-owned artifacts root.
+
+  --self-backup-mode {{never,initial_self_patch}}
+      Control initial self-backup for self-target initial self-patch.
+
+  --self-backup-dir RELPATH
+      Set the relative artifacts subdirectory for initial self-backup zips.
+
+  --self-backup-template TEMPLATE
+      Set the initial self-backup filename template.
+
+  --self-backup-include-relpaths CSV
+      Replace initial self-backup include relpaths (runner-root-relative).
 
   --version
       Print runner version and exit.

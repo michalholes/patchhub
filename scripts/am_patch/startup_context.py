@@ -20,6 +20,7 @@ from am_patch.config_file import load_repo_local_config
 from am_patch.engine_startup_runtime import build_startup_logger_and_ipc
 from am_patch.errors import RunnerError
 from am_patch.gates import run_badguys
+from am_patch.initial_self_backup import maybe_create_initial_self_backup
 from am_patch.ipc_socket import IpcController
 from am_patch.lock import FileLock
 from am_patch.log import Logger, new_log_file
@@ -207,6 +208,17 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
     if cli.mode == "workspace" and cli.issue_id is not None:
         try:
             live_base_sha = git_ops.head_sha(logger, live_target_root)
+            maybe_create_initial_self_backup(
+                logger=logger,
+                policy=policy,
+                issue_id=str(cli.issue_id),
+                runner_root=root_runner_root,
+                live_target_root=live_target_root,
+                artifacts_root=root_artifacts_root,
+                workspaces_dir=paths.workspaces_dir,
+                issue_dir_template=policy.workspace_issue_dir_template,
+                repo_dir_name=policy.workspace_repo_dir_name,
+            )
             preopened_workspace = ensure_workspace(
                 logger=logger,
                 workspaces_dir=paths.workspaces_dir,

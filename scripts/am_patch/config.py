@@ -9,6 +9,7 @@ from .config_file import _flatten_sections, load_config
 from .config_gate_execution import apply_gate_execution_cfg
 from .config_ipc_surface import apply_ipc_cfg_surface
 from .errors import RunnerError
+from .initial_self_backup import normalize_self_backup_policy
 from .policy_monolith_mixin import PolicyMonolithMixin
 from .pytest_namespace_config import (
     PYTEST_DEPENDENCIES_DEFAULT,
@@ -74,6 +75,12 @@ class Policy(PolicyMonolithMixin):
     failure_zip_log_dir: str = "logs"
     failure_zip_patch_dir: str = "patches"
 
+    self_backup_mode: str = "initial_self_patch"
+    self_backup_dir: str = "quarantine"
+    self_backup_template: str = "amp_self_backup_issue{issue}_{ts}.zip"
+    self_backup_include_relpaths: list[str] = field(
+        default_factory=lambda: ["scripts/am_patch.py", "scripts/am_patch/"]
+    )
     workspace_issue_dir_template: str = "issue_{issue}"
     workspace_repo_dir_name: str = "repo"
     workspace_meta_filename: str = "meta.json"
@@ -406,21 +413,24 @@ def _as_dict_list_str(
     return out
 
 
-def _as_list_str(d: dict[str, Any], k: str, default: list[str]) -> list[str]:
+def _as_list_str(
+    d: dict[str, Any], k: str, default: list[str], *, preserve_empty: bool = False
+) -> list[str]:
     v = d.get(k)
     if v is None:
         return list(default)
     if isinstance(v, list):
         out: list[str] = []
         for x in v:
-            if isinstance(x, str):
-                s = x.strip()
-                if s and s not in out:
-                    out.append(s)
-        return out or list(default)
+            if not isinstance(x, str):
+                continue
+            s = x.strip()
+            if s and s not in out:
+                out.append(s)
+        return out if preserve_empty else (out or list(default))
     if isinstance(v, str):
         s = v.strip()
-        return [s] if s else list(default)
+        return [s] if s else ([] if preserve_empty else list(default))
     return list(default)
 
 
@@ -619,6 +629,13 @@ def build_policy(
     p.failure_zip_patch_dir = str(cfg.get("failure_zip_patch_dir", p.failure_zip_patch_dir))
     _mark_cfg(p, cfg, "failure_zip_patch_dir")
 
+    for key in ("self_backup_mode", "self_backup_dir", "self_backup_template"):
+        setattr(p, key, _as_str_required(cfg, key, getattr(p, key)))
+        _mark_cfg(p, cfg, key)
+    p.self_backup_include_relpaths = _as_list_str(
+        cfg, "self_backup_include_relpaths", p.self_backup_include_relpaths, preserve_empty=True
+    )
+    _mark_cfg(p, cfg, "self_backup_include_relpaths")
     p.workspace_issue_dir_template = str(
         cfg.get("workspace_issue_dir_template", p.workspace_issue_dir_template)
     )
@@ -810,6 +827,8 @@ def build_policy(
         p.failure_zip_patch_dir, field="failure_zip_patch_dir"
     )
 
+    normalize_self_backup_policy(p)
+
     p.workspace_issue_dir_template = str(p.workspace_issue_dir_template).strip() or "issue_{issue}"
     p.workspace_repo_dir_name = _validate_basename(
         p.workspace_repo_dir_name, field="workspace_repo_dir_name"
@@ -972,7 +991,10 @@ def apply_cli_overrides(p: Policy, mapping: dict[str, object | None]) -> None:
         if isinstance(cur, list):
             if not isinstance(coerced, list):
                 raise RunnerError("CONFIG", "INVALID", f"invalid list override: {coerced!r}")
-            should_replace = k in REPO_OWNED_KEYS or k in {"target_repo_roots"}
+            should_replace = k in REPO_OWNED_KEYS or k in (
+                "self_backup_include_relpaths",
+                "target_repo_roots",
+            )
             if should_replace:
                 setattr(p, k, list(coerced))
             else:

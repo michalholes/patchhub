@@ -19,7 +19,7 @@ from typing import Any, get_args, get_origin, get_type_hints
 
 from am_patch.config import BOOTSTRAP_OWNED_KEYS, Policy
 
-SCHEMA_VERSION = "7"
+SCHEMA_VERSION = "9"
 
 
 # Explicit mapping of policy keys to TOML sections.
@@ -154,6 +154,10 @@ _SECTION_BY_KEY: dict[str, str] = {
     "failure_zip_delete_on_success_commit": "",
     "failure_zip_log_dir": "",
     "failure_zip_patch_dir": "",
+    "self_backup_mode": "",
+    "self_backup_dir": "",
+    "self_backup_template": "",
+    "self_backup_include_relpaths": "",
     "workspace_issue_dir_template": "",
     "workspace_repo_dir_name": "",
     "workspace_meta_filename": "",
@@ -246,6 +250,10 @@ _LABEL_BY_KEY: dict[str, str] = {
     "active_target_repo_root": "Paths: active target repo root",
     "target_repo_config_relpath": "Paths: target repo config relpath",
     "runner_subprocess_timeout_s": "Runner: subprocess timeout (s)",
+    "self_backup_mode": "Self-backup: mode",
+    "self_backup_dir": "Self-backup: dir",
+    "self_backup_template": "Self-backup: template",
+    "self_backup_include_relpaths": "Self-backup: include relpaths",
     "ruff_autofix": "Ruff: autofix",
     "ruff_autofix_legalize_outside": "Ruff: autofix legalize outside",
     "ruff_format": "Ruff: format",
@@ -432,6 +440,25 @@ _HELP_BY_KEY: dict[str, str] = {
         "Hard timeout for runner subprocesses in seconds; 0 disables it. "
         "See: scripts/am_patch_policy_glossary.md## Key: runner_subprocess_timeout_s"
     ),
+    "self_backup_mode": (
+        "Control whether the runner creates an initial self-backup before the first "
+        "self-target workspace creation. "
+        "See: scripts/am_patch_policy_glossary.md## Key: self_backup_mode"
+    ),
+    "self_backup_dir": (
+        "Relative artifacts subdirectory under artifacts_root used for the initial "
+        "self-backup zip. "
+        "See: scripts/am_patch_policy_glossary.md## Key: self_backup_dir"
+    ),
+    "self_backup_template": (
+        "Basename-like filename template used for the initial self-backup zip. "
+        "See: scripts/am_patch_policy_glossary.md## Key: self_backup_template"
+    ),
+    "self_backup_include_relpaths": (
+        "Runner-root-relative file and directory relpaths archived into the initial "
+        "self-backup zip. "
+        "See: scripts/am_patch_policy_glossary.md## Key: self_backup_include_relpaths"
+    ),
     "ruff_autofix": (
         "Run ruff in autofix mode before other gates. "
         "See: scripts/am_patch_policy_glossary.md## Key: ruff_autofix"
@@ -552,6 +579,7 @@ _ENUM_BY_KEY: dict[str, list[str]] = {
     "pytest_routing_mode": ["legacy", "bucketed"],
     "gate_typescript_mode": ["auto", "always"],
     "python_gate_mode": ["runner", "auto", "required"],
+    "self_backup_mode": ["never", "initial_self_patch"],
 }
 
 

@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from am_patch import git_ops
+from am_patch.initial_self_backup import maybe_create_initial_self_backup
+from am_patch.root_model import resolve_patch_root
 from am_patch.scope import changed_paths
 from am_patch.state import load_state
 from am_patch.workspace import create_checkpoint, ensure_workspace
@@ -49,6 +51,18 @@ def open_execution_context(
 
     ws = preopened_workspace
     if ws is None:
+        artifacts_root, _ = resolve_patch_root(policy, runner_root=runner_root)
+        maybe_create_initial_self_backup(
+            logger=logger,
+            policy=policy,
+            issue_id=str(cli.issue_id),
+            runner_root=runner_root,
+            live_target_root=repo_root,
+            artifacts_root=artifacts_root,
+            workspaces_dir=paths.workspaces_dir,
+            issue_dir_template=policy.workspace_issue_dir_template,
+            repo_dir_name=policy.workspace_repo_dir_name,
+        )
         ws = ensure_workspace(
             logger=logger,
             workspaces_dir=paths.workspaces_dir,

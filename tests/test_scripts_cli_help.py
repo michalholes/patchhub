@@ -26,3 +26,14 @@ def test_full_help_mentions_finalize_from_cwd_and_default_message() -> None:
 
     assert "--finalize-live-from-cwd [MESSAGE] (-s)" in text
     assert 'When MESSAGE is omitted, commit message defaults to "finalize".' in text
+
+
+def test_full_help_mentions_self_backup_flags() -> None:
+    fmt_full_help, _ = _import_help_text()
+    text = fmt_full_help("test")
+
+    assert "--artifacts-root PATH" in text
+    assert "--self-backup-mode {never,initial_self_patch}" in text
+    assert "--self-backup-dir RELPATH" in text
+    assert "--self-backup-template TEMPLATE" in text
+    assert "--self-backup-include-relpaths CSV" in text

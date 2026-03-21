@@ -581,6 +581,49 @@ Notes:
 - This key does not select the patched git repository.
 Related: patch_dir_name, patch_layout_logs_dir, patch_layout_json_dir, patch_layout_workspaces_dir, patch_layout_successful_dir, patch_layout_unsuccessful_dir, active_target_repo_root
 
+## Key: self_backup_mode
+Key: self_backup_mode
+Type: str
+Default: "initial_self_patch"
+Allowed: "never" | "initial_self_patch"
+Meaning: Controls whether the runner creates an initial self-backup before the first self-target workspace creation.
+Notes:
+- Applies only when canonical runner_root == live_target_root.
+- never disables the feature.
+- initial_self_patch creates the backup only when the issue workspace repo directory does not exist yet.
+Related: artifacts_root, self_backup_dir, self_backup_template, self_backup_include_relpaths
+
+## Key: self_backup_dir
+Key: self_backup_dir
+Type: str
+Default: "quarantine"
+Meaning: Relative artifacts subdirectory used for initial self-backup zip output.
+Notes:
+- This is a relative artifacts subdirectory under artifacts_root, not a second artifact root. Nested relative subdirectories are allowed.
+- The effective zip path is artifacts_root / self_backup_dir / rendered_filename.
+Related: artifacts_root, self_backup_mode, self_backup_template
+
+## Key: self_backup_template
+Key: self_backup_template
+Type: str
+Default: "amp_self_backup_issue{issue}_{ts}.zip"
+Meaning: Basename-like filename template used for the initial self-backup zip.
+Notes:
+- Supported placeholders are issue and ts.
+- Rendering must stay within the initial self-backup output directory.
+Related: self_backup_mode, self_backup_dir
+
+## Key: self_backup_include_relpaths
+Key: self_backup_include_relpaths
+Type: list[str]
+Default: ["scripts/am_patch.py", "scripts/am_patch/"]
+Meaning: Runner-root-relative file and directory relpaths archived into the initial self-backup zip.
+Notes:
+- File entries archive the named git-tracked file only.
+- Directory entries archive all git-tracked files under that subtree only.
+- The archived source set is determined only by this key.
+Related: self_backup_mode, self_backup_dir, self_backup_template
+
 ## Key: target_repo_roots
 Key: target_repo_roots
 Type: list[str]
