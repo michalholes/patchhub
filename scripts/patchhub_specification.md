@@ -2730,6 +2730,26 @@ Validation:
   `startup_after_recovery`) MUST keep their startup-only semantics and MUST
   NOT be reinterpreted as periodic scheduler policies.
 
+9.1.2 `[web_jobs_backup]` temporary SQLite artifact cleanup contract (HARD)
+
+When creating a verified backup via a temporary destination path, PatchHub MUST NOT leave orphaned temporary SQLite sidecar files in the backup directory after the backup lifecycle completes.
+
+Definitions:
+- temporary backup base path = the transient backup path before publish, using the final backup destination path plus the `.tmp` suffix
+- temporary SQLite sidecars = `<tmp_path>-wal`, `<tmp_path>-shm`, and `<tmp_path>-journal`
+- orphaned temporary sidecar = a temporary SQLite sidecar whose corresponding `<tmp_path>` base file does not exist
+
+Semantics:
+- Before starting a new verified backup, PatchHub MUST remove orphaned temporary SQLite sidecars from prior interrupted runs that match the configured backup destination template family plus the `.tmp` suffix.
+- On successful backup publish, PatchHub MUST ensure that no temporary SQLite sidecars remain for the just-published temporary backup base path.
+- On failed backup creation or failed verification, PatchHub MUST ensure that the temporary backup base path and its temporary SQLite sidecars are removed before the failure is surfaced.
+- Cleanup MUST be limited to orphaned temporary SQLite sidecars and current-run temporary backup cleanup; it MUST NOT delete final verified backup files.
+- Cleanup MUST NOT delete temporary SQLite sidecars when their corresponding temporary backup base path still exists.
+
+Validation:
+- Repeated startup and interval backup runs MUST NOT accumulate orphaned temporary SQLite sidecar files in the backup directory.
+- Verified backup retention pruning MUST continue to apply only to final verified backup files and MUST remain behaviorally unchanged for verified backup selection.
+
 The following safety invariants MUST remain non-configurable:
 - single authoritative backend mode
 - no dual-write authority
