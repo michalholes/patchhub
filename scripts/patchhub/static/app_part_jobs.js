@@ -1,20 +1,6 @@
-/**
- * @typedef {{
- * 	call?: (...args: unknown[]) => unknown,
- * 	register?: (name: string, api: Record<string, unknown>) => void,
- * }} PatchhubJobsBridge
- *
- * @typedef {{
- * 	updateProgressPanelFromEvents?: (payload: {jobs: unknown[]}) => void,
- * }} PatchhubUiSurface
- *
- * @typedef {Window & {
- * 	PH?: PatchhubJobsBridge,
- * 	AMP_PATCHHUB_UI?: PatchhubUiSurface,
- * }} PatchhubJobsWindow
- */
-var __ph_w = /** @type {PatchhubJobsWindow} */ (window);
-var PH = __ph_w.PH;
+/** @type {any} */
+var __ph_w = /** @type {any} */ (window);
+var PH = /** @type {any} */ (window).PH;
 var jobsCache = [];
 var rerunPrepareSeq = 0;
 var trackedJobDurationClock = null;
@@ -271,6 +257,12 @@ function prepareRerunLatestFromJobId(jobId, opts) {
 			setUiStatus("rerun_latest: no previous summary-eligible job");
 		}
 		return Promise.resolve(false);
+	}
+	if (!summaryJob && Array.isArray(jobsCache)) {
+		const knownJob = (jobsCache || []).find(
+			(job) => String((job && job.job_id) || "").trim() === candidateId,
+		);
+		if (knownJob) return Promise.resolve(false);
 	}
 	setUiStatus("rerun_latest: loading job_id=" + candidateId);
 	return loadJobDetail(candidateId)

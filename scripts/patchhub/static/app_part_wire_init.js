@@ -1,14 +1,5 @@
-/**
- * @typedef {{
- * 	call?: (...args: unknown[]) => unknown,
- * }} PatchhubWireBridge
- *
- * @typedef {Window & {
- * 	PH?: PatchhubWireBridge,
- * }} PatchhubWireWindow
- */
-var __ph_w = /** @type {PatchhubWireWindow} */ (window);
-var PH = __ph_w.PH;
+/** @type {any} */
+var PH = /** @type {any} */ (window).PH;
 
 function phCall(name, ...args) {
 	if (!PH || typeof PH.call !== "function") return undefined;
