@@ -689,7 +689,7 @@ Default behavior is backend="asgi".
 - cfg.meta.version: shown in UI and /api/config
 - cfg.runner.command: runner prefix argv (default ["python3","scripts/am_patch.py"])
 - cfg.paths.upload_dir: destination directory for uploads (must be under patches_root)
-- cfg.autofill.*: controls /api/patches/latest scanning and filename derivation
+- cfg.autofill.*: controls /api/patches/latest scanning and filename derivation; scan_ignore_filenames and scan_ignore_prefixes also filter /api/patches/inventory
 
 5.3.1 Targeting semantics
 
@@ -1827,7 +1827,9 @@ Rules:
   - direct child files under upload_dir, if upload_dir resolves under patches_root
 - Both scans MUST be non-recursive.
 - Directories MUST be ignored.
-- Candidate files are limited to:
+- Files whose basename equals any cfg.autofill.scan_ignore_filenames entry MUST be ignored.
+- Files whose basename starts with any cfg.autofill.scan_ignore_prefixes entry MUST be ignored.
+- Candidate files are otherwise limited to:
   - .zip files that contain at least one .patch entry
   - .patch files
   - .diff files
