@@ -21,6 +21,7 @@ HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo v
 13. Pri kazdom hladani korena bugu si MUSIS precitat si dotknutu specifikaciu celu. Az potom odvodzovat zavery.
 14. Ak v js suboroch najdes nejake "any" pre typescript, musis ma na to upozornit a ponuknut riesenie. A zakomponovat to riesenie do freeze.
 15. V AMP musia existovat defaultne hodnoty. Ale musia byt overridovatelne cez config a specializovane --flags (nie --override). A testy nesmu spadnut, ak by som defaulty overridoval. Ak pri inspekcii natrafis na taky test, sucastou freeze musi byt vyriesenie tohto problemu. Cele toto pravidlo plati vylucne pre AMP.
+16. Pred zverejnenim patchu specky musis hlbkovo skontrolovat, ci zodpoveda poslednemu odsuhlasenemu freeze a ci bol implementovany uplne, spravne a korektne. Ak freeze nezodpoveda, musis vygenerovat novy patch toho isteho freeze. Az ked hlbkove testy implementacie dopadnu pass, patch mozes zverejnit.
 
 Terminologia (HARD):
 PM = Patch authoring manual
