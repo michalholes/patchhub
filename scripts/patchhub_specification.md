@@ -689,7 +689,7 @@ Default behavior is backend="asgi".
 - cfg.meta.version: shown in UI and /api/config
 - cfg.runner.command: runner prefix argv (default ["python3","scripts/am_patch.py"])
 - cfg.paths.upload_dir: destination directory for uploads (must be under patches_root)
-- cfg.autofill.*: controls /api/patches/latest scanning and filename derivation; scan_ignore_filenames and scan_ignore_prefixes also filter /api/patches/inventory
+- cfg.autofill.*: controls /api/patches/latest scanning and filename derivation
 
 5.3.1 Targeting semantics
 
