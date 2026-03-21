@@ -398,54 +398,34 @@ process.stdout.write(JSON.stringify({
     )
 
 
-def test_rerun_latest_helper_skips_first_detail_ineligible_job() -> None:
+def test_rerun_latest_helper_fetches_detail_for_cached_ineligible_job() -> None:
     script_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_jobs.js"
     script = (
         _node_prelude(script_path)
         + """
 global.__apiPaths = [];
+window.PH.register("recorder", {
+  enqueue() {
+    global.__enqueueCalls = (global.__enqueueCalls || 0) + 1;
+  },
+});
 global.apiGet = (path) => {
   global.__apiPaths.push(path);
-  if (path === "/api/jobs") {
-    return Promise.resolve({
-      ok: true,
-      jobs: [
-        {
-          job_id: "job-first",
-          mode: "patch",
-          issue_id: "312",
-          commit_summary: "First summary candidate",
-          created_utc: "2026-03-13T12:00:00Z",
-          status: "success",
-          patch_basename: "issue_312_v5.zip",
-        },
-        {
-          job_id: "job-second",
-          mode: "patch",
-          issue_id: "311",
-          commit_summary: "Second summary candidate",
-          created_utc: "2026-03-13T11:00:00Z",
-          status: "success",
-          patch_basename: "issue_311_v1.zip",
-        },
-      ],
-    });
-  }
-  if (path === "/api/jobs/job-first") {
+  if (path === "/api/jobs/job-selected") {
     return Promise.resolve({
       ok: true,
       job: {
-        job_id: "job-first",
+        job_id: "job-selected",
         mode: "patch",
-        issue_id: "312",
-        commit_message: "First detail wins",
-        effective_patch_path: "patches/issue_312_v5.zip",
+        issue_id: "311",
+        commit_message: "Detail authority wins",
+        effective_patch_path: "patches/issue_311_v9.zip",
         canonical_command: [
           "python3",
           "scripts/am_patch.py",
-          "312",
-          "First detail wins",
-          "patches/issue_312_v5.zip",
+          "311",
+          "Detail authority wins",
+          "patches/issue_311_v9.zip",
         ],
       },
     });
@@ -453,29 +433,49 @@ global.apiGet = (path) => {
   return Promise.resolve({ ok: false, error: "unexpected path: " + path });
 };
 document.getElementById("mode").value = "rerun_latest";
-document.getElementById("issueId").value = "stale";
-document.getElementById("commitMsg").value = "stale";
-document.getElementById("patchPath").value = "stale";
-await prepareRerunLatestFromLatestJob();
+document.getElementById("issueId").value = "stale-issue";
+document.getElementById("commitMsg").value = "stale-message";
+document.getElementById("patchPath").value = "stale-patch";
+renderJobsFromResponse({
+  jobs: [
+    {
+      job_id: "job-selected",
+      mode: "patch",
+      issue_id: "311",
+      commit_summary: "",
+      created_utc: "2026-03-13T10:00:00Z",
+      status: "success",
+      patch_basename: "issue_311_v9.zip",
+    },
+  ],
+});
+await prepareRerunLatestFromJobId("job-selected", {
+  sourceLabel: "selected jobs item",
+  clearOnFailure: false,
+});
 process.stdout.write(JSON.stringify({
   issueId: document.getElementById("issueId").value,
   commitMsg: document.getElementById("commitMsg").value,
   patchPath: document.getElementById("patchPath").value,
+  validated: global.__validated,
   uiStatus: window.__uiStatus,
   uiErrors: window.__uiErrors,
   apiPaths: global.__apiPaths,
+  enqueueCalls: global.__enqueueCalls || 0,
 }));
 """
     )
     result = _run_node(script)
-    assert result["issueId"] == "312"
-    assert result["commitMsg"] == "First detail wins"
-    assert result["patchPath"] == "patches/issue_312_v5.zip"
+    assert result["issueId"] == "311"
+    assert result["commitMsg"] == "Detail authority wins"
+    assert result["patchPath"] == "patches/issue_311_v9.zip"
+    assert result["validated"]["mode"] == "rerun_latest"
     assert result["uiErrors"] == []
     assert result["uiStatus"][-1] == (
-        "rerun_latest: prepared form from latest candidate job_id=job-first"
+        "rerun_latest: prepared form from selected jobs item job_id=job-selected"
     )
-    assert result["apiPaths"] == ["/api/jobs", "/api/jobs/job-first"]
+    assert result["apiPaths"] == ["/api/jobs/job-selected"]
+    assert result["enqueueCalls"] == 0
 
 
 def test_progress_ui_keeps_active_controls_for_tracked_fallback_and_cancel_409() -> None:
@@ -533,6 +533,8 @@ def test_source_wires_rerun_latest_prepare_and_removes_workspace_auto_enqueue() 
     assert 'phCall("prepareRerunLatestFromLatestJob")' in wire_src
     assert 'phCall("prepareRerunLatestFromJobId"' in wire_src
     assert "clearOnFailure: false" in wire_src
+    assert "/** @type {any} */" not in jobs_src
+    assert "/** @type {any} */" not in wire_src
     assert "/api/fs/stat" not in jobs_src
     assert "loadRerunLatestUsableValues" not in jobs_src
     assert "selected job is not usable for Start-form autofill" not in jobs_src
@@ -599,6 +601,11 @@ def test_rerun_latest_selected_job_invalid_leaves_form_unchanged_and_sets_error(
     script = (
         _node_prelude(script_path)
         + """
+window.PH.register("recorder", {
+  enqueue() {
+    global.__enqueueCalls = (global.__enqueueCalls || 0) + 1;
+  },
+});
 global.apiGet = (path) => {
   if (path === "/api/jobs/job-invalid") {
     return Promise.resolve({ ok: false, error: "detail exploded" });
@@ -632,6 +639,7 @@ process.stdout.write(JSON.stringify({
   patchPath: document.getElementById("patchPath").value,
   uiStatus: window.__uiStatus,
   uiErrors: window.__uiErrors,
+  enqueueCalls: global.__enqueueCalls || 0,
 }));
 """
     )
@@ -643,6 +651,7 @@ process.stdout.write(JSON.stringify({
         "rerun_latest: cannot load selected jobs item job_id=job-invalid"
     )
     assert result["uiErrors"][-1] == "detail exploded"
+    assert result["enqueueCalls"] == 0
 
 
 def test_mode_change_to_rerun_latest_prepares_form_via_wire_buttons() -> None:
