@@ -61,10 +61,10 @@ gate_typescript_mode = "auto"
 gate_typescript_base_tsconfig = "tsconfig.json"
 typescript_targets = ["scripts/patchhub/static/", "types/"]
 
-gates_skip_docs = true
+gates_skip_docs = false
 gate_docs_include = [""]
 gate_docs_exclude = ["patches", "quarantine"]
-gate_docs_required_files = ["docs/change_fragments/"]
+gate_docs_required_files = [""]
 
 gate_badguys_runner = "off"
 gate_badguys_command = ["badguys/badguys.py", "-q", "--exclude=test_900_commit_push_timestamp"]
