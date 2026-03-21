@@ -131,9 +131,7 @@ def test_validate_book_returns_deterministic_suggestion() -> None:
     }
 
 
-def test_validate_book_uses_googlebooks_title_fallback_when_openlibrary_misses() -> (
-    None
-):
+def test_validate_book_uses_googlebooks_title_fallback_when_openlibrary_misses() -> None:
     plugin = _FakeOpenLibrary(
         docs=[],
         googlebooks_items=[

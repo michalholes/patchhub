@@ -47,8 +47,7 @@ ASSET_PATHS = [
 
 def _make_engine(tmp_path: Path) -> Any:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     defaults = {
         "file_io": {
@@ -73,9 +72,7 @@ def _make_engine(tmp_path: Path) -> Any:
     return ImportWizardEngine(resolver=resolver)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_import_ui_index_loads_v3_editor_assets_in_order(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -116,9 +113,7 @@ def test_import_ui_index_loads_v3_editor_assets_in_order(tmp_path: Path) -> None
     )
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_import_ui_serves_v3_editor_assets(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -134,9 +129,7 @@ def test_import_ui_serves_v3_editor_assets(tmp_path: Path) -> None:
         assert response.text
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_import_ui_index_exposes_flow_json_modal_controls(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -159,9 +152,7 @@ def test_import_ui_index_exposes_flow_json_modal_controls(tmp_path: Path) -> Non
     assert 'id="flowJsonCopySelected"' in html
     assert 'id="flowJsonCopyAll"' in html
     assert 'id="flowJsonApply"' in html
-    assert (
-        '<link rel="stylesheet" href="/import/ui/assets/flow_json_modal.css" />' in html
-    )
+    assert '<link rel="stylesheet" href="/import/ui/assets/flow_json_modal.css" />' in html
     assert html.index("/import/ui/assets/flow_json_file_io.js") < html.index(
         "/import/ui/assets/flow_json_modal_state.js"
     )
@@ -170,9 +161,7 @@ def test_import_ui_index_exposes_flow_json_modal_controls(tmp_path: Path) -> Non
     )
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_import_ui_serves_flow_json_modal_layout_contract(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -405,17 +394,13 @@ vm.runInThisContext(src.entrypoints);
   process.exit(1);
 }});
 """
-    proc = subprocess.run(
-        [node, "-e", script], cwd=REPO_ROOT, capture_output=True, text=True
-    )
+    proc = subprocess.run([node, "-e", script], cwd=REPO_ROOT, capture_output=True, text=True)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr or proc.stdout)
     return json.loads(proc.stdout)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_flow_json_modal_open_from_file_survives_focus_before_change(
     tmp_path: Path,
 ) -> None:
@@ -449,9 +434,7 @@ process.stdout.write(JSON.stringify({
     assert result["errorText"] == ""
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_flow_json_modal_open_from_file_cancel_still_returns_without_loading(
     tmp_path: Path,
 ) -> None:
@@ -483,9 +466,7 @@ process.stdout.write(JSON.stringify({
     assert result["errorText"] == ""
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_flow_json_modal_open_from_file_surfaces_fallback_exhaustion_error(
     tmp_path: Path,
 ) -> None:

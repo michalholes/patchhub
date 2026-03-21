@@ -33,9 +33,7 @@ def main(path):
 
         for field in FORBIDDEN_FIELDS:
             if field in obj:
-                raise SystemExit(
-                    f"FAIL forbidden field '{field}' present in {obj.get('id')}"
-                )
+                raise SystemExit(f"FAIL forbidden field '{field}' present in {obj.get('id')}")
 
         obj_type = obj.get("type")
         if obj_type == "rule":
@@ -77,17 +75,13 @@ def main(path):
         if not capability.get("triggers_rules"):
             raise SystemExit(f"FAIL capability without rules {capability_id}")
         if cap_route_refs[capability_id] == 0:
-            raise SystemExit(
-                f"FAIL capability not covered by any route {capability_id}"
-            )
+            raise SystemExit(f"FAIL capability not covered by any route {capability_id}")
 
     for surface_id, surface in surfaces.items():
         if not surface.get("route_ref"):
             raise SystemExit(f"FAIL surface without route_ref {surface_id}")
         if not surface.get("requires_capabilities"):
-            raise SystemExit(
-                f"FAIL surface without requires_capabilities {surface_id}"
-            )
+            raise SystemExit(f"FAIL surface without requires_capabilities {surface_id}")
 
     for route_id, route in routes.items():
         chain = route.get("provider_chain", [])
@@ -103,9 +97,7 @@ def main(path):
                 )
             seen.add(provider_id)
             if provider_id not in providers:
-                raise SystemExit(
-                    f"FAIL route {route_id} references missing provider {provider_id}"
-                )
+                raise SystemExit(f"FAIL route {route_id} references missing provider {provider_id}")
             provided |= set(providers[provider_id].get("provides_capabilities", []))
 
         if not caps_needed.issubset(provided):
@@ -118,8 +110,7 @@ def main(path):
         route_id = implementation.get("implements_route")
         if route_id not in routes:
             raise SystemExit(
-                "FAIL implementation "
-                f"{implementation_id} references missing route {route_id}"
+                f"FAIL implementation {implementation_id} references missing route {route_id}"
             )
 
         required = set(routes[route_id].get("covers_capabilities", []))
@@ -127,8 +118,7 @@ def main(path):
         if not required.issubset(declared):
             missing = required - declared
             raise SystemExit(
-                "FAIL implementation "
-                f"{implementation_id} missing capabilities {sorted(missing)}"
+                f"FAIL implementation {implementation_id} missing capabilities {sorted(missing)}"
             )
 
     print("V2.0.0 STRICT VALIDATION OK")

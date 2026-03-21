@@ -61,9 +61,7 @@ def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     return ImportWizardEngine(resolver=resolver)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_flow_config_history_is_bounded_and_ordered(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -106,9 +104,7 @@ def test_flow_config_history_is_bounded_and_ordered(tmp_path: Path) -> None:
     assert nf.status_code == 404
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_wizard_definition_history_is_bounded_and_ordered(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -179,9 +175,7 @@ def test_wizard_definition_history_is_bounded_and_ordered(tmp_path: Path) -> Non
     assert nf.status_code == 404
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_flow_config_validate_preserves_opaque_defaults_payload(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -210,9 +204,7 @@ def test_flow_config_validate_preserves_opaque_defaults_payload(tmp_path: Path) 
     }
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_wizard_definition_validate_rejects_legacy_v2_editor_payloads(
     tmp_path: Path,
 ) -> None:

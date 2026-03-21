@@ -35,15 +35,7 @@ def test_stage_publish_and_cleanup_surfaces_keep_root_relative_model(
         },
         "intake": {"kind": "dir", "archive_format": ""},
     }
-    staged_file = (
-        tmp_path
-        / "stage"
-        / "import_runtime"
-        / "work"
-        / "Author"
-        / "Book"
-        / "track01.mp3"
-    )
+    staged_file = tmp_path / "stage" / "import_runtime" / "work" / "Author" / "Book" / "track01.mp3"
     assert staged_file.read_bytes() == b"one"
 
     published = plugin.publish_import_path(
@@ -60,12 +52,8 @@ def test_stage_publish_and_cleanup_surfaces_keep_root_relative_model(
         "final": {"root": "stage", "relative_path": "Author/Book"},
         "cleanup_performed": True,
     }
-    assert (
-        tmp_path / "stage" / "Author" / "Book" / "track01.mp3"
-    ).read_bytes() == b"one"
-    assert not (
-        tmp_path / "stage" / "import_runtime" / "work" / "Author" / "Book"
-    ).exists()
+    assert (tmp_path / "stage" / "Author" / "Book" / "track01.mp3").read_bytes() == b"one"
+    assert not (tmp_path / "stage" / "import_runtime" / "work" / "Author" / "Book").exists()
 
 
 def test_stage_import_path_unpacks_archive_into_deterministic_work_tree(
@@ -92,9 +80,7 @@ def test_stage_import_path_unpacks_archive_into_deterministic_work_tree(
         "work": {"root": "stage", "relative_path": "import_runtime/work/bundle"},
         "intake": {"kind": "archive", "archive_format": "zip"},
     }
-    staged_file = (
-        tmp_path / "stage" / "import_runtime" / "work" / "bundle" / "track01.mp3"
-    )
+    staged_file = tmp_path / "stage" / "import_runtime" / "work" / "bundle" / "track01.mp3"
     assert staged_file.read_bytes() == b"one"
 
 
@@ -123,9 +109,7 @@ def test_publish_import_path_uses_deterministic_fallback_when_target_exists(
     )
 
     assert published["final"] == {"root": "outbox", "relative_path": "Author/Book__1"}
-    assert (
-        tmp_path / "outbox" / "Author" / "Book__1" / "track01.mp3"
-    ).read_bytes() == b"v2"
+    assert (tmp_path / "outbox" / "Author" / "Book__1" / "track01.mp3").read_bytes() == b"v2"
 
 
 def test_cleanup_import_path_removes_work_tree(tmp_path: Path) -> None:
@@ -137,6 +121,4 @@ def test_cleanup_import_path_removes_work_tree(tmp_path: Path) -> None:
     staged = plugin.stage_import_path("inbox", "Author/Book")
     plugin.cleanup_import_path(staged["work"]["relative_path"])
 
-    assert not (
-        tmp_path / "stage" / "import_runtime" / "work" / "Author" / "Book"
-    ).exists()
+    assert not (tmp_path / "stage" / "import_runtime" / "work" / "Author" / "Book").exists()

@@ -84,9 +84,7 @@ def _minimal_v3_definition() -> dict[str, object]:
     }
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_wizard_definition_v3_draft_activate_history_and_rollback(
     tmp_path: Path,
 ) -> None:
@@ -186,8 +184,5 @@ def test_create_session_surfaces_hint_when_authored_definition_is_invalid(
     assert result["error"]["code"] == "VALIDATION_ERROR"
     detail = result["error"]["details"][0]
     assert detail["reason"] == "invalid_authored_wizard_definition"
-    assert (
-        detail["meta"]["artifact_path"]
-        == "wizards/import/definitions/wizard_definition.json"
-    )
+    assert detail["meta"]["artifact_path"] == "wizards/import/definitions/wizard_definition.json"
     assert "Fix or replace" in detail["meta"]["hint"]

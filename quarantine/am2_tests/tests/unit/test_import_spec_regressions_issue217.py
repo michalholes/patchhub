@@ -80,9 +80,7 @@ def _disable_optional_steps() -> dict[str, object]:
     }
 
 
-def _mutate_state_for_finalize(
-    roots: dict[str, Path], session_id: str, *, policy: str
-) -> None:
+def _mutate_state_for_finalize(roots: dict[str, Path], session_id: str, *, policy: str) -> None:
     state_path = roots["wizards"] / "import" / "sessions" / session_id / "state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state.setdefault("answers", {})["final_summary_confirm"] = {"confirm_start": True}
@@ -107,12 +105,7 @@ def test_selection_expr_grammar_and_stable_ordering(tmp_path: Path) -> None:
 
     assert state.get("current_step_id") == "select_books"
 
-    item_ids = (
-        state.get("vars", {})
-        .get("phase1", {})
-        .get("select_books", {})
-        .get("ordered_ids")
-    )
+    item_ids = state.get("vars", {}).get("phase1", {}).get("select_books", {}).get("ordered_ids")
     assert isinstance(item_ids, list)
     assert len(item_ids) == 2
 
@@ -207,9 +200,7 @@ def test_conflicts_are_derived_from_plan_targets(tmp_path: Path) -> None:
     session_dir = roots["wizards"] / "import" / "sessions" / session_id
     conflicts = json.loads((session_dir / "conflicts.json").read_text(encoding="utf-8"))
     assert conflicts and conflicts[0].get("target_relative_path") == target_rel
-    assert conflicts[0].get("source_book_id") == plan.get("selected_books", [])[0].get(
-        "book_id"
-    )
+    assert conflicts[0].get("source_book_id") == plan.get("selected_books", [])[0].get("book_id")
 
 
 def test_job_requests_derived_from_plan_batch_size_and_idempotency(
@@ -258,12 +249,8 @@ def test_job_requests_derived_from_plan_batch_size_and_idempotency(
     assert submit_calls == [("job-217", 1)]
 
     session_dir = roots["wizards"] / "import" / "sessions" / session_id
-    job_doc = json.loads(
-        (session_dir / "job_requests.json").read_text(encoding="utf-8")
-    )
-    assert isinstance(job_doc.get("idempotency_key"), str) and job_doc.get(
-        "idempotency_key"
-    )
+    job_doc = json.loads((session_dir / "job_requests.json").read_text(encoding="utf-8"))
+    assert isinstance(job_doc.get("idempotency_key"), str) and job_doc.get("idempotency_key")
     actions = job_doc.get("actions")
     assert isinstance(actions, list) and len(actions) == 2
 
@@ -299,11 +286,7 @@ def test_final_summary_confirm_enters_phase2_boundary_without_processing_stop(
     state_json["current_step_id"] = "final_summary_confirm"
     state_json.setdefault("cursor", {})["step_id"] = "final_summary_confirm"
     state_json.setdefault("answers", {})["conflict_policy"] = {"mode": "auto"}
-    runtime = (
-        state_json.setdefault("vars", {})
-        .setdefault("phase1", {})
-        .setdefault("runtime", {})
-    )
+    runtime = state_json.setdefault("vars", {}).setdefault("phase1", {}).setdefault("runtime", {})
     runtime.setdefault("resolve_conflicts_batch", {})["has_conflicts"] = False
     state_path.write_text(json.dumps(state_json), encoding="utf-8")
 

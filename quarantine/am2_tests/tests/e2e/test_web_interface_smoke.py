@@ -16,9 +16,7 @@ async def test_root_shell_boots(page: Page, e2e_base_url: str) -> None:
     page.on(
         "response",
         lambda response: (
-            issues.append(
-                f"{response.request.resource_type} {response.status} {response.url}"
-            )
+            issues.append(f"{response.request.resource_type} {response.status} {response.url}")
             if response.request.resource_type in {"document", "script", "stylesheet"}
             and response.status >= 400
             else None
@@ -45,18 +43,14 @@ async def test_import_ui_loads(page: Page, e2e_base_url: str) -> None:
     page.on(
         "response",
         lambda response: (
-            issues.append(
-                f"{response.request.resource_type} {response.status} {response.url}"
-            )
+            issues.append(f"{response.request.resource_type} {response.status} {response.url}")
             if response.request.resource_type in {"document", "script", "stylesheet"}
             and response.status >= 400
             else None
         ),
     )
 
-    response = await page.goto(
-        f"{e2e_base_url}/import/ui/", wait_until="domcontentloaded"
-    )
+    response = await page.goto(f"{e2e_base_url}/import/ui/", wait_until="domcontentloaded")
     assert response is not None and response.ok, (
         "GET /import/ui/ did not return a successful document response"
     )

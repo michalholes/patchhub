@@ -17,8 +17,7 @@ RootName = import_module("plugins.file_io.service").RootName
 
 def _make_plugin(tmp_path: Path) -> tuple[Any, dict[str, Path]]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -59,9 +58,7 @@ def _disable_optional_steps() -> dict[str, object]:
     }
 
 
-def test_rerun_and_resume_read_session_finalize_surface_only(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_rerun_and_resume_read_session_finalize_surface_only(tmp_path: Path, monkeypatch) -> None:
     cast(Any, processed_required)._INSTALLED = False
     bus = get_event_bus()
     bus.clear()
@@ -98,9 +95,7 @@ def test_rerun_and_resume_read_session_finalize_surface_only(
             "album_artist": "Canonical Author",
         }
     }
-    state_doc.setdefault("answers", {})["final_summary_confirm"] = {
-        "confirm_start": True
-    }
+    state_doc.setdefault("answers", {})["final_summary_confirm"] = {"confirm_start": True}
     state_doc.setdefault("conflicts", {})["policy"] = "auto"
     state_doc["status"] = "in_progress"
     state_path.write_text(json.dumps(state_doc), encoding="utf-8")
@@ -139,18 +134,11 @@ def test_rerun_and_resume_read_session_finalize_surface_only(
     log_rel = f"import/sessions/{session_id}/finalize/AuthorA/Book1/processing.log"
     finalize = resumed["computed"]["finalize"]
     assert finalize["job_id"] == job_id
-    assert (
-        finalize["report_path"]
-        == f"wizards:import/sessions/{session_id}/finalize/report.json"
-    )
+    assert finalize["report_path"] == f"wizards:import/sessions/{session_id}/finalize/report.json"
     report_ref = f"wizards:import/sessions/{session_id}/finalize/report.json"
     assert finalize["artifacts"]["report"] == report_ref
-    assert list(finalize["artifacts"]["processing_logs"].values()) == [
-        f"wizards:{log_rel}"
-    ]
-    assert list(finalize["artifacts"]["dry_run_texts"].values()) == [
-        f"wizards:{dry_run_rel}"
-    ]
+    assert list(finalize["artifacts"]["processing_logs"].values()) == [f"wizards:{log_rel}"]
+    assert list(finalize["artifacts"]["dry_run_texts"].values()) == [f"wizards:{dry_run_rel}"]
     assert finalize["counts"] == {"books": 1, "capabilities": 3}
     assert finalize["status"] == "succeeded"
 

@@ -102,12 +102,8 @@ def test_renderer_neutrality_no_step_id_branching() -> None:
     # Renderer layers must not branch on step_id values.
     # We enforce this by forbidding step_id literal comparisons.
     repo_root = Path(__file__).resolve().parents[2]
-    cli_text = (repo_root / "plugins" / "import" / "cli_renderer.py").read_text(
-        encoding="utf-8"
-    )
-    ui_text = (repo_root / "plugins" / "import" / "ui_api.py").read_text(
-        encoding="utf-8"
-    )
+    cli_text = (repo_root / "plugins" / "import" / "cli_renderer.py").read_text(encoding="utf-8")
+    ui_text = (repo_root / "plugins" / "import" / "ui_api.py").read_text(encoding="utf-8")
 
     forbidden = [
         "step_id == ",
@@ -122,9 +118,7 @@ def test_renderer_neutrality_no_step_id_branching() -> None:
 
 def test_runtime_does_not_read_step_ids_from_step_catalog() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    engine_text = (repo_root / "plugins" / "import" / "engine.py").read_text(
-        encoding="utf-8"
-    )
+    engine_text = (repo_root / "plugins" / "import" / "engine.py").read_text(encoding="utf-8")
 
     assert "build_authority_known_step_ids" not in engine_text
 

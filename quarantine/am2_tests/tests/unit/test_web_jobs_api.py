@@ -57,9 +57,7 @@ def test_web_jobs_api_create_list_cancel(tmp_path: Path, monkeypatch: Any) -> No
     assert item.get("state") == "cancelled"
 
 
-def test_web_roots_api_and_wizard_job_path_resolution(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+def test_web_roots_api_and_wizard_job_path_resolution(tmp_path: Path, monkeypatch: Any) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("AUDIOMASON_FILE_IO_ROOTS_INBOX_DIR", str(tmp_path / "inbox"))
     monkeypatch.setenv("AUDIOMASON_FILE_IO_ROOTS_STAGE_DIR", str(tmp_path / "stage"))

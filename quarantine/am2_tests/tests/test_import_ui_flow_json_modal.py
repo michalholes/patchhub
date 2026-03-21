@@ -276,9 +276,7 @@ vm.runInThisContext(
   process.exit(1);
 }});
 """
-    proc = subprocess.run(
-        [node, "-e", script], cwd=REPO_ROOT, capture_output=True, text=True
-    )
+    proc = subprocess.run([node, "-e", script], cwd=REPO_ROOT, capture_output=True, text=True)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr or proc.stdout)
     return json.loads(proc.stdout)
@@ -418,9 +416,7 @@ process.stdout.write(JSON.stringify({
 """
     )
     assert result["switched"] is False
-    assert result["confirmCalls"] == [
-        "Discard modal changes and re-read the server draft?"
-    ]
+    assert result["confirmCalls"] == ["Discard modal changes and re-read the server draft?"]
     assert result["modalHidden"] is True
     assert result["modalTitle"] == "FlowConfig JSON"
     assert '"marker": 55' in str(result["editorValue"])
@@ -432,9 +428,7 @@ process.stdout.write(JSON.stringify({
     assert "saved" not in result["wizardDraft"]
 
 
-def test_flow_json_modal_rejects_initial_open_when_flow_editor_has_unsaved_changes() -> (
-    None
-):
+def test_flow_json_modal_rejects_initial_open_when_flow_editor_has_unsaved_changes() -> None:
     result = _run_node_scenario(
         """
 state.draftDirty = true;
@@ -464,9 +458,7 @@ process.stdout.write(JSON.stringify({
     assert result["editorValue"] == ""
 
 
-def test_flow_json_modal_open_from_file_marks_editor_dirty_and_abort_restores_server() -> (
-    None
-):
+def test_flow_json_modal_open_from_file_marks_editor_dirty_and_abort_restores_server() -> None:
     result = _run_node_scenario(
         """
 await window.AM2FlowJSONModalState.openModal("config");

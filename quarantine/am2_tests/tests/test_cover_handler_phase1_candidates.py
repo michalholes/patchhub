@@ -26,10 +26,7 @@ def test_discover_cover_candidates_orders_named_generic_and_embedded(
         stage_root="stage",
     )
 
-    ordered = [
-        (item["kind"], Path(item["path"]).name, item["apply_mode"])
-        for item in candidates
-    ]
+    ordered = [(item["kind"], Path(item["path"]).name, item["apply_mode"]) for item in candidates]
     assert ordered == [
         ("file", "cover.jpeg", "copy"),
         ("file", "folder.png", "copy"),

@@ -96,20 +96,14 @@ def _install_test_wizard(base_url: str) -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_import_ui_run_wizard_happy_path(
-    page: Page, e2e_web_base_url: str
-) -> None:
+async def test_import_ui_run_wizard_happy_path(page: Page, e2e_web_base_url: str) -> None:
     _install_test_wizard(e2e_web_base_url)
 
     probe = BrowserProbe(page)
     expected = active_import_ui_paths()
 
-    response = await page.goto(
-        f"{e2e_web_base_url}/import/ui/", wait_until="domcontentloaded"
-    )
-    assert response is not None and response.ok, (
-        "GET /import/ui/ did not return success"
-    )
+    response = await page.goto(f"{e2e_web_base_url}/import/ui/", wait_until="domcontentloaded")
+    assert response is not None and response.ok, "GET /import/ui/ did not return success"
 
     await expect(page).to_have_title(re.compile(r"AudioMason Import"))
     await expect(page.locator("#tabs")).to_be_visible()

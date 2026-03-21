@@ -214,8 +214,7 @@ PHASE2_EDITOR_PROGRAM = {
 
 def _make_engine(tmp_path: Path) -> tuple[ImportWizardEngine, dict[str, Path]]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -305,9 +304,7 @@ def test_phase2_editor_activation_affects_only_the_next_import_run(
 
     for node in draft["nodes"]:
         if node.get("step_id") == "invoke":
-            node["op"]["inputs"]["param_bindings"] = [
-                {"name": "name", "value": "Grace"}
-            ]
+            node["op"]["inputs"]["param_bindings"] = [{"name": "name", "value": "Grace"}]
         elif node.get("step_id") == "fork":
             node["op"]["inputs"]["branch_order"] = ["right", "left"]
         elif node.get("step_id") == "loop":

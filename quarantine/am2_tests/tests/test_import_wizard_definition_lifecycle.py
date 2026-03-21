@@ -88,9 +88,7 @@ def test_put_draft_does_not_change_active(tmp_path: Path) -> None:
     assert fingerprint_json(active1) == fingerprint_json(active0)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_rollback_endpoint_returns_v3(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -116,13 +114,8 @@ def test_rollback_endpoint_returns_v3(tmp_path: Path) -> None:
         nodes.append(node)
     d1["nodes"] = nodes
 
-    assert (
-        client.post("/import/ui/wizard-definition", json={"definition": d1}).status_code
-        == 200
-    )
-    assert (
-        client.post("/import/ui/wizard-definition/activate", json={}).status_code == 200
-    )
+    assert client.post("/import/ui/wizard-definition", json={"definition": d1}).status_code == 200
+    assert client.post("/import/ui/wizard-definition/activate", json={}).status_code == 200
 
     hist = client.get("/import/ui/wizard-definition/history").json()["items"]
     rid = str(hist[0]["id"])

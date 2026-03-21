@@ -146,9 +146,7 @@ def test_pipelines():
 
         try:
             pipeline = executor.load_pipeline(pipeline_path)
-            print(
-                f"OK {pipeline_name:20s} - {pipeline.name} ({len(pipeline.steps)} steps)"
-            )
+            print(f"OK {pipeline_name:20s} - {pipeline.name} ({len(pipeline.steps)} steps)")
 
             for step in pipeline.steps:
                 parallel = " (parallel)" if step.parallel else ""

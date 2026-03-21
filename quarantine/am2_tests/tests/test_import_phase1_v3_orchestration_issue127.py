@@ -21,8 +21,7 @@ build_default_wizard_definition_v3 = import_module(
 
 def _make_engine(tmp_path: Path) -> tuple[ImportWizardEngine, dict[str, Path]]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -56,9 +55,7 @@ def _make_engine(tmp_path: Path) -> tuple[ImportWizardEngine, dict[str, Path]]:
     return engine, roots
 
 
-def _write_book(
-    root: Path, author: str, book: str, filename: str = "track01.mp3"
-) -> None:
+def _write_book(root: Path, author: str, book: str, filename: str = "track01.mp3") -> None:
     book_dir = root / author / book
     book_dir.mkdir(parents=True, exist_ok=True)
     (book_dir / filename).write_text("x", encoding="utf-8")
@@ -84,9 +81,7 @@ def test_create_session_autofills_single_author_and_single_book(tmp_path: Path) 
         "author": "Author",
         "title": "Book",
     }
-    assert state["vars"]["phase1"]["policy"]["publish_policy"] == {
-        "target_root": "stage"
-    }
+    assert state["vars"]["phase1"]["policy"]["publish_policy"] == {"target_root": "stage"}
 
 
 def test_select_authors_refreshes_filtered_book_defaults_for_two_pass_flow(
@@ -103,9 +98,7 @@ def test_select_authors_refreshes_filtered_book_defaults_for_two_pass_flow(
 
     assert state["current_step_id"] == "select_books"
     assert state["vars"]["phase1"]["select_books"]["selection_expr"] == "all"
-    assert state["vars"]["phase1"]["select_books"][
-        "selected_source_relative_paths"
-    ] == [
+    assert state["vars"]["phase1"]["select_books"]["selected_source_relative_paths"] == [
         "A/Book1",
         "A/Book2",
     ]
@@ -185,10 +178,7 @@ def test_create_session_uses_metadata_validation_and_explicit_cover_choice(
 
     state = engine.create_session("inbox", "", mode="stage")
 
-    assert (
-        state["vars"]["phase1"]["metadata"]["validation"]["provider"]
-        == "metadata_openlibrary"
-    )
+    assert state["vars"]["phase1"]["metadata"]["validation"]["provider"] == "metadata_openlibrary"
     assert state["vars"]["phase1"]["runtime"]["effective_author_title"] == {
         "author": "Author A",
         "title": "Canonical Book",
@@ -198,20 +188,18 @@ def test_create_session_uses_metadata_validation_and_explicit_cover_choice(
         "candidate_id": "file:canonical-cover.png",
         "source_relative_path": "A/Book",
     }
-    assert state["vars"]["phase1"]["runtime"]["covers_policy"]["candidates"][0][
-        "candidate_id"
-    ] == ("file:canonical-cover.png")
-    assert state["vars"]["phase1"]["runtime"]["covers_policy"]["candidates"][0][
-        "path"
-    ] == ("A/Book/canonical-cover.png")
+    assert state["vars"]["phase1"]["runtime"]["covers_policy"]["candidates"][0]["candidate_id"] == (
+        "file:canonical-cover.png"
+    )
+    assert state["vars"]["phase1"]["runtime"]["covers_policy"]["candidates"][0]["path"] == (
+        "A/Book/canonical-cover.png"
+    )
 
 
 def test_default_v3_phase1_runtime_step_uses_flow_visible_runtime_projection() -> None:
     definition = build_default_wizard_definition_v3()
     phase1_node = next(
-        node
-        for node in definition["nodes"]
-        if node["step_id"] == "phase1_runtime_defaults"
+        node for node in definition["nodes"] if node["step_id"] == "phase1_runtime_defaults"
     )
     op = phase1_node["op"]
 
@@ -248,12 +236,8 @@ async def test_create_session_under_running_loop_awaits_metadata_validation_with
             "suggestion": {"author": "Author A", "title": "Canonical Book"},
         }
 
-    monkeypatch.setattr(
-        metadata_plugin.OpenLibraryPlugin, "validate_author", _validate_author
-    )
-    monkeypatch.setattr(
-        metadata_plugin.OpenLibraryPlugin, "validate_book", _validate_book
-    )
+    monkeypatch.setattr(metadata_plugin.OpenLibraryPlugin, "validate_author", _validate_author)
+    monkeypatch.setattr(metadata_plugin.OpenLibraryPlugin, "validate_book", _validate_book)
 
     with warnings.catch_warnings(record=True) as seen:
         warnings.simplefilter("always")
@@ -299,12 +283,8 @@ async def test_resume_repair_under_running_loop_rebuilds_phase1_without_warning(
             "suggestion": {"author": "Author A", "title": "Canonical Book"},
         }
 
-    monkeypatch.setattr(
-        metadata_plugin.OpenLibraryPlugin, "validate_author", _validate_author
-    )
-    monkeypatch.setattr(
-        metadata_plugin.OpenLibraryPlugin, "validate_book", _validate_book
-    )
+    monkeypatch.setattr(metadata_plugin.OpenLibraryPlugin, "validate_author", _validate_author)
+    monkeypatch.setattr(metadata_plugin.OpenLibraryPlugin, "validate_book", _validate_book)
 
     state = engine.create_session("inbox", "", mode="stage")
     session_id = str(state["session_id"])
@@ -347,9 +327,7 @@ async def test_create_session_under_running_loop_keeps_fallback_on_validation_fa
         del self, author, title
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(
-        metadata_plugin.OpenLibraryPlugin, "validate_author", _fail_author
-    )
+    monkeypatch.setattr(metadata_plugin.OpenLibraryPlugin, "validate_author", _fail_author)
     monkeypatch.setattr(metadata_plugin.OpenLibraryPlugin, "validate_book", _fail_book)
 
     with warnings.catch_warnings(record=True) as seen:

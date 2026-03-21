@@ -132,9 +132,7 @@ def test_tail_bytes_raises_for_directory(service: FileService) -> None:
 
 
 @pytest.mark.parametrize("max_bytes", [0, -1])
-def test_tail_bytes_rejects_non_positive_max_bytes(
-    service: FileService, max_bytes: int
-) -> None:
+def test_tail_bytes_rejects_non_positive_max_bytes(service: FileService, max_bytes: int) -> None:
     with service.open_write(RootName.INBOX, "x.bin") as f:
         f.write(b"x")
     with pytest.raises(ValueError):
@@ -171,9 +169,7 @@ def test_copy_path_copies_directory_across_roots(service: FileService) -> None:
     with service.open_write(RootName.INBOX, "Author/Book/track01.mp3") as f:
         f.write(b"one")
 
-    service.copy_path(
-        RootName.INBOX, "Author/Book", RootName.STAGE, "work/Book", overwrite=True
-    )
+    service.copy_path(RootName.INBOX, "Author/Book", RootName.STAGE, "work/Book", overwrite=True)
 
     with service.open_read(RootName.STAGE, "work/Book/track01.mp3") as f:
         assert f.read() == b"one"

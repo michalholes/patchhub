@@ -25,8 +25,7 @@ def _make_engine(
     nav_ui: str = "prompt",
 ) -> tuple[ImportWizardEngine, dict[str, Path]]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -106,18 +105,14 @@ def test_v2_and_v3_sessions_can_coexist_deterministically(tmp_path: Path) -> Non
     assert state_v3_loaded["effective_model"]["flowmodel_kind"] == "dsl_step_graph_v3"
 
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, _v2_definition()
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, _v2_definition())
 
     state_v2 = engine.create_session("inbox", "src")
     assert state_v2["session_id"] != state_v3["session_id"]
     assert state_v2["current_step_id"] == "select_authors"
 
     state_v2_loaded = engine.get_state(str(state_v2["session_id"]))
-    assert (
-        state_v2_loaded["effective_model"].get("flowmodel_kind") != "dsl_step_graph_v3"
-    )
+    assert state_v2_loaded["effective_model"].get("flowmodel_kind") != "dsl_step_graph_v3"
 
     state_v3_reloaded = engine.get_state(str(state_v3["session_id"]))
     assert state_v3_reloaded["effective_model"]["flowmodel_kind"] == "dsl_step_graph_v3"
@@ -141,27 +136,17 @@ def test_default_selection_policy_is_missing_means_v3_and_explicit_v2_wins(
     assert loaded_default_v3["effective_model"]["flowmodel_kind"] == "dsl_step_graph_v3"
 
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, _v2_definition()
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, _v2_definition())
 
     state_explicit_v2 = engine.create_session("inbox", "v2_explicit")
     loaded_explicit_v2 = engine.get_state(str(state_explicit_v2["session_id"]))
-    assert (
-        loaded_explicit_v2["effective_model"].get("flowmodel_kind")
-        != "dsl_step_graph_v3"
-    )
+    assert loaded_explicit_v2["effective_model"].get("flowmodel_kind") != "dsl_step_graph_v3"
 
     fs.delete_file(RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH)
 
     state_default_v3_again = engine.create_session("inbox", "v3_default_again")
-    loaded_default_v3_again = engine.get_state(
-        str(state_default_v3_again["session_id"])
-    )
-    assert (
-        loaded_default_v3_again["effective_model"]["flowmodel_kind"]
-        == "dsl_step_graph_v3"
-    )
+    loaded_default_v3_again = engine.get_state(str(state_default_v3_again["session_id"]))
+    assert loaded_default_v3_again["effective_model"]["flowmodel_kind"] == "dsl_step_graph_v3"
 
 
 def test_session_snapshot_stays_frozen_without_legacy_json(tmp_path: Path) -> None:
@@ -181,14 +166,10 @@ def test_session_snapshot_stays_frozen_without_legacy_json(tmp_path: Path) -> No
     assert not fs.exists(RootName.WIZARDS, "import/catalog/catalog.json")
     assert not fs.exists(RootName.WIZARDS, "import/flow/current.json")
 
-    snapshot_before = read_json(
-        fs, RootName.WIZARDS, f"{session_dir}/effective_model.json"
-    )
+    snapshot_before = read_json(fs, RootName.WIZARDS, f"{session_dir}/effective_model.json")
     flow_cfg = read_json(fs, RootName.WIZARDS, "import/config/flow_config.json")
     flow_cfg["steps"] = {"filename_policy": {"enabled": False}}
     atomic_write_json(fs, RootName.WIZARDS, "import/config/flow_config.json", flow_cfg)
-    snapshot_after = read_json(
-        fs, RootName.WIZARDS, f"{session_dir}/effective_model.json"
-    )
+    snapshot_after = read_json(fs, RootName.WIZARDS, f"{session_dir}/effective_model.json")
 
     assert snapshot_after == snapshot_before

@@ -96,14 +96,10 @@ def test_resume_reinjection_updates_fingerprint_only_when_model_changed(
     assert fingerprint_json(em_stripped) != fingerprint_json(em_full)
 
     # Simulate an older persisted model/state fingerprint pair.
-    em_path.write_text(
-        json.dumps(em_stripped, ensure_ascii=True, sort_keys=True), encoding="utf-8"
-    )
+    em_path.write_text(json.dumps(em_stripped, ensure_ascii=True, sort_keys=True), encoding="utf-8")
     st_old = json.loads(st_path.read_text(encoding="utf-8"))
     st_old["model_fingerprint"] = fingerprint_json(em_stripped)
-    st_path.write_text(
-        json.dumps(st_old, ensure_ascii=True, sort_keys=True), encoding="utf-8"
-    )
+    st_path.write_text(json.dumps(st_old, ensure_ascii=True, sort_keys=True), encoding="utf-8")
 
     # create_session sees an existing session and runs the upgrader.
     resumed = engine.create_session("inbox", "src2", mode="stage")

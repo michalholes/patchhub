@@ -49,9 +49,7 @@ def test_loader_adds_repo_root_for_builtin_plugins_package(tmp_path: Path) -> No
 
     original_sys_path = list(sys.path)
     original_plugins_modules = {
-        k: v
-        for k, v in sys.modules.items()
-        if k == "plugins" or k.startswith("plugins.")
+        k: v for k, v in sys.modules.items() if k == "plugins" or k.startswith("plugins.")
     }
 
     try:
@@ -59,9 +57,7 @@ def test_loader_adds_repo_root_for_builtin_plugins_package(tmp_path: Path) -> No
         sys.path = [p for p in sys.path if p != str(repo_root)]
 
         # Ensure any previously imported real 'plugins' package cannot mask the tmp_path package.
-        for key in [
-            k for k in list(sys.modules) if k == "plugins" or k.startswith("plugins.")
-        ]:
+        for key in [k for k in list(sys.modules) if k == "plugins" or k.startswith("plugins.")]:
             del sys.modules[key]
         loader = PluginLoader(
             builtin_plugins_dir=plugins_dir,
@@ -75,9 +71,7 @@ def test_loader_adds_repo_root_for_builtin_plugins_package(tmp_path: Path) -> No
         assert sys.path[0] == str(repo_root)
     finally:
         # Restore sys.modules to avoid leaking temporary packages into other tests.
-        for key in [
-            k for k in list(sys.modules) if k == "plugins" or k.startswith("plugins.")
-        ]:
+        for key in [k for k in list(sys.modules) if k == "plugins" or k.startswith("plugins.")]:
             del sys.modules[key]
         sys.modules.update(original_plugins_modules)
         sys.path = original_sys_path

@@ -6,9 +6,7 @@ from importlib import import_module
 
 import pytest
 
-normalize_flow_config = import_module(
-    "plugins.import.flow_config_validation"
-).normalize_flow_config
+normalize_flow_config = import_module("plugins.import.flow_config_validation").normalize_flow_config
 validate_flow_config_editor_boundary = import_module(
     "plugins.import.flow_config_validation"
 ).validate_flow_config_editor_boundary

@@ -57,9 +57,7 @@ def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     return ImportWizardEngine(resolver=resolver)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_set_config_invalid_body_returns_error_envelope(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

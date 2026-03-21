@@ -116,9 +116,7 @@ def test_run_job_rejects_incomplete_process_contract_binding(
         meta={"contract_id": IMPORT_PROCESS_CONTRACT_ID},
     )
 
-    with pytest.raises(
-        RuntimeError, match="unsupported or incomplete process contract"
-    ):
+    with pytest.raises(RuntimeError, match="unsupported or incomplete process contract"):
         orchestrator.run_job(job.job_id, plugin_loader=loader)
 
     stored = orchestrator.get_job(job.job_id)
@@ -142,9 +140,7 @@ def test_run_job_preserves_legacy_pipeline_dispatch_without_contract_id(
     ctx = ProcessingContext(id="ctx1", source=src)
     orchestrator = Orchestrator()
 
-    req = ProcessRequest(
-        contexts=[ctx], pipeline_path=pipeline_path, plugin_loader=None
-    )
+    req = ProcessRequest(contexts=[ctx], pipeline_path=pipeline_path, plugin_loader=None)
     job_id = orchestrator.start_process(req)
 
     job = orchestrator.get_job(job_id)

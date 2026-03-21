@@ -88,9 +88,7 @@ def test_flow_model_contains_resolve_conflicts_before_processing(
     _write_inbox_source_dir(roots, "book1")
 
     flow_model = engine.get_flow_model()
-    steps = {
-        s.get("step_id"): s for s in flow_model.get("steps", []) if isinstance(s, dict)
-    }
+    steps = {s.get("step_id"): s for s in flow_model.get("steps", []) if isinstance(s, dict)}
     step_ids = list(steps)
 
     assert step_ids.count("phase1_runtime_defaults") == 1
@@ -105,9 +103,7 @@ def test_step_schemas_match_spec_field_names(tmp_path: Path) -> None:
     _write_inbox_source_dir(roots, "book1")
 
     flow_model = engine.get_flow_model()
-    steps = {
-        s.get("step_id"): s for s in flow_model.get("steps", []) if isinstance(s, dict)
-    }
+    steps = {s.get("step_id"): s for s in flow_model.get("steps", []) if isinstance(s, dict)}
 
     final_writes = [
         w.get("to_path")
@@ -154,13 +150,9 @@ def test_final_summary_confirm_uses_confirm_start_gate(tmp_path: Path) -> None:
     _write_inbox_source_dir(roots, "book1")
 
     flow_model = engine.get_flow_model()
-    steps = {
-        s.get("step_id"): s for s in flow_model.get("steps", []) if isinstance(s, dict)
-    }
+    steps = {s.get("step_id"): s for s in flow_model.get("steps", []) if isinstance(s, dict)}
 
     final_step = steps["final_summary_confirm"]
-    final_writes = [
-        w.get("to_path") for w in final_step.get("writes", []) if isinstance(w, dict)
-    ]
+    final_writes = [w.get("to_path") for w in final_step.get("writes", []) if isinstance(w, dict)]
     assert final_step.get("primitive_id") == "ui.prompt_confirm"
     assert final_writes == ["$.state.answers.final_summary_confirm.confirm_start"]

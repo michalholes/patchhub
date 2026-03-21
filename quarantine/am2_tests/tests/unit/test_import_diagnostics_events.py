@@ -133,9 +133,7 @@ def test_submit_process_job_uses_session_engine_outside_repo_cwd(
 
     seen: dict[str, object] = {}
 
-    def _run_job(
-        self, job_id: str, *, plugin_loader: object, verbosity: int = 1
-    ) -> None:
+    def _run_job(self, job_id: str, *, plugin_loader: object, verbosity: int = 1) -> None:
         seen["job_id"] = job_id
         seen["plugin_loader"] = plugin_loader
         seen["import_plugin"] = cast(Any, plugin_loader).get_plugin("import")
@@ -213,9 +211,7 @@ def _write_minimal_plugin(repo_root: Path, *, name: str, class_name: str) -> Non
     )
 
 
-def test_submit_loader_autoloads_required_process_plugins(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_submit_loader_autoloads_required_process_plugins(monkeypatch, tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     for name, class_name in [
         ("audio_processor", "AudioProcessorPlugin"),
@@ -225,12 +221,8 @@ def test_submit_loader_autoloads_required_process_plugins(
         _write_minimal_plugin(repo_root, name=name, class_name=class_name)
 
     diag_mod = import_module("plugins.import.engine_diagnostics_required")
-    monkeypatch.setattr(
-        diag_mod, "_builtin_plugins_root", lambda: repo_root / "plugins"
-    )
-    monkeypatch.setattr(
-        diag_mod, "_user_plugins_root", lambda: tmp_path / "user_plugins"
-    )
+    monkeypatch.setattr(diag_mod, "_builtin_plugins_root", lambda: repo_root / "plugins")
+    monkeypatch.setattr(diag_mod, "_user_plugins_root", lambda: tmp_path / "user_plugins")
 
     loader = diag_mod._plugin_loader(engine=object())
     diag_mod._ensure_required_process_plugins(loader=loader)

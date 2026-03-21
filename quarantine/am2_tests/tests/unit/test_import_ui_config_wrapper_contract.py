@@ -57,9 +57,7 @@ def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     return ImportWizardEngine(resolver=resolver)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_config_requires_wrapper(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -75,9 +73,7 @@ def test_config_requires_wrapper(tmp_path: Path) -> None:
     assert data["error"]["code"] == "VALIDATION_ERROR"
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_config_rejects_unknown_root_keys(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

@@ -84,9 +84,7 @@ def _make_engine(tmp_path: Path) -> ImportWizardEngine:
 def test_get_flow_model_v3_declares_kind_and_primitive_metadata(tmp_path: Path) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, PROMPT_V3_WITH_WRITES
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, PROMPT_V3_WITH_WRITES)
 
     flow_model = engine.get_flow_model()
 
@@ -140,9 +138,7 @@ def test_prompt_submit_without_writes_keeps_answers_and_inputs_empty(
 ) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, PROMPT_V3_NO_WRITES
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, PROMPT_V3_NO_WRITES)
 
     state = engine.create_session("inbox", "")
     assert state["status"] == "in_progress"

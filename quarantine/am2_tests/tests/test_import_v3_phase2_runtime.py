@@ -291,8 +291,7 @@ SEED_ITEMS_GUARD_PROGRAM = {
 
 def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -324,9 +323,7 @@ def test_flow_invoke_uses_explicit_param_binding_and_deterministic_trace(
 ) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, FLOW_INVOKE_PROGRAM
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, FLOW_INVOKE_PROGRAM)
 
     state = engine.create_session("inbox", "")
 
@@ -345,9 +342,7 @@ def test_flow_invoke_uses_explicit_param_binding_and_deterministic_trace(
 def test_fork_join_preserves_branch_order_and_trace_order(tmp_path: Path) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, FORK_JOIN_PROGRAM
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, FORK_JOIN_PROGRAM)
 
     state = engine.create_session("inbox", "")
 
@@ -369,9 +364,7 @@ def test_fork_join_preserves_branch_order_and_trace_order(tmp_path: Path) -> Non
 def test_loop_emits_deterministic_iteration_trace_order(tmp_path: Path) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, SEED_ITEMS_PROGRAM
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, SEED_ITEMS_PROGRAM)
 
     state = engine.create_session("inbox", "")
 
@@ -393,9 +386,7 @@ def test_loop_emits_deterministic_iteration_trace_order(tmp_path: Path) -> None:
 def test_loop_guard_fails_when_iterable_exceeds_max_iterations(tmp_path: Path) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, SEED_ITEMS_GUARD_PROGRAM
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, SEED_ITEMS_GUARD_PROGRAM)
 
     out = engine.create_session("inbox", "")
 

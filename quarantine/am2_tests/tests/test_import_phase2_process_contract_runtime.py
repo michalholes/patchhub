@@ -25,9 +25,7 @@ class _FakeAudioProcessor:
         chapters: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         self.calls.append(f"audio.plan:{source.name}")
-        return [
-            {"source": source, "output": output_dir / f"{source.stem}.mp3", "order": 1}
-        ]
+        return [{"source": source, "output": output_dir / f"{source.stem}.mp3", "order": 1}]
 
     async def _execute_plan(self, plan: list[dict[str, Any]]) -> list[Path]:
         outputs: list[Path] = []
@@ -114,8 +112,7 @@ class _FakeLoader:
 
 def _make_plugin(tmp_path: Path) -> tuple[ImportPlugin, dict[str, Path]]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -232,9 +229,7 @@ async def test_import_plugin_runs_phase2_process_contract_from_job_requests(
             }
         ],
     }
-    (session_dir / "job_requests.json").write_text(
-        json.dumps(job_requests), encoding="utf-8"
-    )
+    (session_dir / "job_requests.json").write_text(json.dumps(job_requests), encoding="utf-8")
 
     await plugin.run_process_contract(
         job_id="job-129",

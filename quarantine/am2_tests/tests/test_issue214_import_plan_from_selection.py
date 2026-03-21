@@ -92,9 +92,7 @@ def test_invalid_selection_bounces_back_to_select_books(tmp_path: Path) -> None:
     engine.submit_step(session_id, "select_authors", {"selection": "all"})
     # NOTE: submit_step auto-advances through computed-only steps, so this will
     # compute the plan once already.
-    state_after_books = engine.submit_step(
-        session_id, "select_books", {"selection": "1"}
-    )
+    state_after_books = engine.submit_step(session_id, "select_books", {"selection": "1"})
     assert "error" not in state_after_books
 
     session_dir = f"import/sessions/{session_id}"
@@ -109,9 +107,7 @@ def test_invalid_selection_bounces_back_to_select_books(tmp_path: Path) -> None:
             continue
         new_discovery.append(it)
 
-    atomic_write_json(
-        fs, RootName.WIZARDS, f"{session_dir}/discovery.json", new_discovery
-    )
+    atomic_write_json(fs, RootName.WIZARDS, f"{session_dir}/discovery.json", new_discovery)
 
     # Re-enter select_books deterministically. The current v3 prompt payload
     # uses ordinal selection values, so after discovery compaction the old
@@ -126,6 +122,4 @@ def test_invalid_selection_bounces_back_to_select_books(tmp_path: Path) -> None:
     err = state2.get("error") if isinstance(state2, dict) else None
     assert isinstance(err, dict)
     assert err.get("code") == "VALIDATION_ERROR"
-    assert (
-        str(engine.get_state(session_id).get("current_step_id") or "") == "select_books"
-    )
+    assert str(engine.get_state(session_id).get("current_step_id") or "") == "select_books"

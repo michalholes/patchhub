@@ -80,9 +80,7 @@ def _client_for_engine(tmp_path: Path):
     return TestClient(app)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_session_start_missing_mode_is_400(tmp_path: Path) -> None:
     client = _client_for_engine(tmp_path)
 
@@ -97,9 +95,7 @@ def test_session_start_missing_mode_is_400(tmp_path: Path) -> None:
     assert data["error"]["details"][0]["path"] == "$.mode"
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_session_start_unknown_field_is_400(tmp_path: Path) -> None:
     client = _client_for_engine(tmp_path)
 
@@ -114,9 +110,7 @@ def test_session_start_unknown_field_is_400(tmp_path: Path) -> None:
     assert data["error"]["details"][0]["path"] == "$.model"
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_session_start_invalid_mode_is_400(tmp_path: Path) -> None:
     client = _client_for_engine(tmp_path)
 
@@ -131,9 +125,7 @@ def test_session_start_invalid_mode_is_400(tmp_path: Path) -> None:
     assert data["error"]["details"][0]["path"] == "$.mode"
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_session_start_valid_payload_is_200(tmp_path: Path) -> None:
     client = _client_for_engine(tmp_path)
 
@@ -148,9 +140,7 @@ def test_session_start_valid_payload_is_200(tmp_path: Path) -> None:
     assert "session_id" in data
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_session_start_conflict_requires_explicit_intent(tmp_path: Path) -> None:
     client = _client_for_engine(tmp_path)
 
@@ -172,9 +162,7 @@ def test_session_start_conflict_requires_explicit_intent(tmp_path: Path) -> None
     assert meta["session_id"] == first.json()["session_id"]
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_session_start_new_intent_resets_existing_session(tmp_path: Path) -> None:
     client = _client_for_engine(tmp_path)
 

@@ -66,9 +66,7 @@ def _write_inbox_source_dir(roots: dict[str, Path], rel_dir: str) -> None:
     (d / "b.txt").write_text("y", encoding="utf-8")
 
 
-def _submit_runtime_default(
-    engine: object, session_id: str, step_id: str
-) -> dict[str, object]:
+def _submit_runtime_default(engine: object, session_id: str, step_id: str) -> dict[str, object]:
     state = engine.get_state(session_id)
     runtime = state.get("vars", {}).get("phase1", {}).get("runtime", {})
     if step_id == "effective_author":
@@ -119,9 +117,7 @@ def test_session_state_min_fields_and_answers_are_canonical(tmp_path: Path) -> N
         assert key in state
 
     assert state["vars"]["phase1"]["policy"]["clean_inbox"] == "ask"
-    assert (
-        state["vars"]["phase1"]["policy"]["root_audio_baseline"]["title"] == "Untitled"
-    )
+    assert state["vars"]["phase1"]["policy"]["root_audio_baseline"]["title"] == "Untitled"
 
     session_id = str(state["session_id"])
 
@@ -179,9 +175,7 @@ def test_compute_plan_populates_state_computed_plan_summary(tmp_path: Path) -> N
     assert state2["vars"]["phase1"]["runtime"]["filename_policy"]["mode"] == "keep"
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_config_reset_uses_builtin_defaults(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -193,9 +187,7 @@ def test_config_reset_uses_builtin_defaults(tmp_path: Path) -> None:
     # Make ACTIVE non-default so the test can prove that /config/reset only touches DRAFT.
     atomic_write_json = import_module("plugins.import.storage").atomic_write_json
     active_marker = {"version": 1, "steps": {}, "defaults": {"marker": 9}}
-    atomic_write_json(
-        fs, RootName.WIZARDS, "import/config/flow_config.json", active_marker
-    )
+    atomic_write_json(fs, RootName.WIZARDS, "import/config/flow_config.json", active_marker)
 
     app = FastAPI()
     app.include_router(build_router(engine=engine))

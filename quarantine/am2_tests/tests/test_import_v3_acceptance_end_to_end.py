@@ -14,8 +14,7 @@ ImportWizardEngine = import_module("plugins.import.engine").ImportWizardEngine
 
 def _make_engine(tmp_path: Path) -> tuple[ImportWizardEngine, ConfigResolver, Path]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -84,14 +83,10 @@ def test_default_v3_cli_acceptance_keeps_selection_and_plan_state(
     assert len(session_dirs) == 1
     session_dir = session_dirs[0]
 
-    effective_model = json.loads(
-        (session_dir / "effective_model.json").read_text(encoding="utf-8")
-    )
+    effective_model = json.loads((session_dir / "effective_model.json").read_text(encoding="utf-8"))
     state = json.loads((session_dir / "state.json").read_text(encoding="utf-8"))
     plan = json.loads((session_dir / "plan.json").read_text(encoding="utf-8"))
-    job_requests = json.loads(
-        (session_dir / "job_requests.json").read_text(encoding="utf-8")
-    )
+    job_requests = json.loads((session_dir / "job_requests.json").read_text(encoding="utf-8"))
 
     assert effective_model["flowmodel_kind"] == "dsl_step_graph_v3"
     assert state["phase"] == 2
@@ -109,13 +104,8 @@ def test_default_v3_cli_acceptance_keeps_selection_and_plan_state(
         "source_relative_path": "Author A/Book A",
     }
     assert state["vars"]["phase1"]["policy"]["clean_inbox"] == "ask"
-    assert (
-        state["vars"]["phase1"]["policy"]["root_audio_baseline"]["author"]
-        == "__ROOT_AUDIO__"
-    )
-    assert (
-        state["vars"]["phase1"]["policy"]["root_audio_baseline"]["title"] == "Untitled"
-    )
+    assert state["vars"]["phase1"]["policy"]["root_audio_baseline"]["author"] == "__ROOT_AUDIO__"
+    assert state["vars"]["phase1"]["policy"]["root_audio_baseline"]["title"] == "Untitled"
     assert job_requests["actions"][0]["source"] == {
         "relative_path": "Author A/Book A",
         "root": "inbox",

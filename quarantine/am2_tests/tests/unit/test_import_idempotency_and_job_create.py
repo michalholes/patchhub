@@ -109,18 +109,14 @@ def test_start_processing_is_idempotent(monkeypatch, tmp_path: Path) -> None:
     assert state["jobs"]["emitted"] == ["job-123"]
     assert state["jobs"]["submitted"] == ["job-123"]
 
-    idem_path = (
-        roots["wizards"] / "import" / "sessions" / session_id / "idempotency.json"
-    )
+    idem_path = roots["wizards"] / "import" / "sessions" / session_id / "idempotency.json"
     assert idem_path.exists()
     mapping = json.loads(idem_path.read_text(encoding="utf-8"))
     assert isinstance(mapping, dict)
     assert "job-123" in set(mapping.values())
 
 
-def test_start_processing_preserves_sync_submit_state_updates(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_start_processing_preserves_sync_submit_state_updates(monkeypatch, tmp_path: Path) -> None:
     engine, roots = _make_engine(tmp_path)
     rel = "book5_sync"
     _write_inbox_source_dir(roots, rel)
@@ -140,9 +136,7 @@ def test_start_processing_preserves_sync_submit_state_updates(
     finalize = {
         "job_id": "job-124",
         "report_path": f"wizards:import/sessions/{session_id}/finalize/report.json",
-        "artifacts": {
-            "report": f"wizards:import/sessions/{session_id}/finalize/report.json"
-        },
+        "artifacts": {"report": f"wizards:import/sessions/{session_id}/finalize/report.json"},
         "counts": {"books": 1},
         "status": "succeeded",
     }

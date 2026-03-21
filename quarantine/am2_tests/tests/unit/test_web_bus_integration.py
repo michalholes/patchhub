@@ -76,9 +76,7 @@ def test_web_emits_route_boundary_diagnostics(tmp_path: Path, monkeypatch: Any) 
     bus.unsubscribe("boundary.end", on_end)
 
 
-def test_web_has_no_import_pause_resume_endpoints(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+def test_web_has_no_import_pause_resume_endpoints(tmp_path: Path, monkeypatch: Any) -> None:
     # Minimal File IO roots so ImportEngineService can initialize.
     inbox = tmp_path / "inbox"
     inbox.mkdir(parents=True)

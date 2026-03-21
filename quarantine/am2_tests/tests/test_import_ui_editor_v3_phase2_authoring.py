@@ -94,9 +94,7 @@ PHASE2_DEFINITION = {
                         }
                     },
                 },
-                "writes": [
-                    {"macro_ref": "fork_write", "args": {"target_path": "$.state"}}
-                ],
+                "writes": [{"macro_ref": "fork_write", "args": {"target_path": "$.state"}}],
             },
         },
         {
@@ -119,12 +117,8 @@ PHASE2_DEFINITION = {
 
 def test_index_loads_phase2_assets_before_boot() -> None:
     source = Path("plugins/import/ui/web/index.html").read_text(encoding="utf-8")
-    assert source.index("dsl_editor/library_panel.js") < source.index(
-        "dsl_editor/boot_v3.js"
-    )
-    assert source.index("dsl_editor/capability_forms.js") < source.index(
-        "dsl_editor/boot_v3.js"
-    )
+    assert source.index("dsl_editor/library_panel.js") < source.index("dsl_editor/boot_v3.js")
+    assert source.index("dsl_editor/capability_forms.js") < source.index("dsl_editor/boot_v3.js")
 
 
 def test_palette_exposes_phase2_add_node_affordances() -> None:
@@ -183,9 +177,7 @@ def test_flow_invoke_and_flow_loop_render_first_class_capability_forms() -> None
     )
     loop_keys = _collect_attr_values(loop_out["tree"], "data-am2-capability-key")
     assert {"iterable_expr", "item_var", "max_iterations"}.issubset(loop_keys)
-    assert loop_out["patches"][-1]["inputs"]["iterable_expr"] == {
-        "expr": "$.state.vars.next_items"
-    }
+    assert loop_out["patches"][-1]["inputs"]["iterable_expr"] == {"expr": "$.state.vars.next_items"}
 
 
 def test_parallel_fork_join_supports_first_class_branch_authoring() -> None:
@@ -193,14 +185,10 @@ def test_parallel_fork_join_supports_first_class_branch_authoring() -> None:
         {
             "definition": PHASE2_DEFINITION,
             "selected_step_id": "fork_root",
-            "actions": [
-                {"kind": "click", "attr": "data-am2-capability-add", "value": "branch"}
-            ],
+            "actions": [{"kind": "click", "attr": "data-am2-capability-add", "value": "branch"}],
         }
     )
-    assert "parallel.fork_join" in _collect_attr_values(
-        out["tree"], "data-am2-capability-form"
-    )
+    assert "parallel.fork_join" in _collect_attr_values(out["tree"], "data-am2-capability-form")
     latest = out["patches"][-1]["inputs"]
     assert latest["branch_order"] == ["left", "branch_2"]
     assert latest["branches"]["branch_2"]["target_library"] == "named_subflow"
@@ -227,9 +215,7 @@ def test_library_panel_owns_library_authoring_ui_and_events() -> None:
         }
     )
     assert "true" in _collect_attr_values(out["tree"], "data-am2-library-panel")
-    assert "named_subflow" in _collect_attr_values(
-        out["tree"], "data-am2-library-editor"
-    )
+    assert "named_subflow" in _collect_attr_values(out["tree"], "data-am2-library-editor")
     assert out["events"][0] == {
         "kind": "patch_library",
         "update": {"params": [{"name": "display_name", "required": True}]},
@@ -269,20 +255,13 @@ def test_graph_ops_support_library_scoped_phase2_authoring() -> None:
     wizard = out["snapshot"]["wizardDraft"]
     assert out["graph_label"] == "library:helper_flow"
     assert wizard["macros"]["fork_write"]["params"] == ["target_path"]
-    assert wizard["libraries"]["helper_flow"]["params"] == [
-        {"name": "item", "required": False}
-    ]
-    assert (
-        wizard["libraries"]["helper_flow"]["nodes"][0]["op"]["primitive_id"]
-        == "flow.loop"
-    )
+    assert wizard["libraries"]["helper_flow"]["params"] == [{"name": "item", "required": False}]
+    assert wizard["libraries"]["helper_flow"]["nodes"][0]["op"]["primitive_id"] == "flow.loop"
 
 
 def test_unknown_phase2_keys_survive_raw_json_apply_then_visual_edit() -> None:
     raw_text = json.dumps(PHASE2_DEFINITION, separators=(",", ":"))
-    raw_out = _run_node(
-        _RAW_JSON_SCRIPT, {"textarea_value": raw_text, "raw_mode": True}
-    )
+    raw_out = _run_node(_RAW_JSON_SCRIPT, {"textarea_value": raw_text, "raw_mode": True})
     assert raw_out["events"] == [
         {"kind": "apply", "value": raw_text},
         {"kind": "mode", "value": False},

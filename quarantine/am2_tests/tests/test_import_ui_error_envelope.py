@@ -68,9 +68,7 @@ def _write_inbox_source_dir(roots: dict[str, Path], rel_dir: str) -> None:
     (d / "file.txt").write_text("x", encoding="utf-8")
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_session_start_returns_invariant_violation_envelope(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -85,9 +83,7 @@ def test_session_start_returns_invariant_violation_envelope(tmp_path: Path) -> N
     assert isinstance(flow_config, dict)
 
     flow_config["steps"] = {"select_authors": {"enabled": False}}
-    atomic_write_json(
-        fs, RootName.WIZARDS, "import/config/flow_config.json", flow_config
-    )
+    atomic_write_json(fs, RootName.WIZARDS, "import/config/flow_config.json", flow_config)
 
     app = FastAPI()
     app.include_router(build_router(engine=engine))
@@ -114,9 +110,7 @@ def test_cli_missing_model_envelope_references_wizard_definition_and_flow_config
     def _boom(*args: object, **kwargs: object) -> object:
         raise FileNotFoundError("import/definitions/wizard_definition.json")
 
-    monkeypatch.setattr(
-        import_module("plugins.import.cli"), "start_user_facing_session", _boom
-    )
+    monkeypatch.setattr(import_module("plugins.import.cli"), "start_user_facing_session", _boom)
 
     with pytest.raises(SystemExit) as exc:
         import_cli_main(

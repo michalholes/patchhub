@@ -50,9 +50,7 @@ def _write_inbox_source_dir(roots: dict[str, Path], rel_dir: str) -> None:
     (d / "file.txt").write_text("x", encoding="utf-8")
 
 
-def _mutate_state_for_finalize(
-    roots: dict[str, Path], session_id: str, *, policy: str
-) -> None:
+def _mutate_state_for_finalize(roots: dict[str, Path], session_id: str, *, policy: str) -> None:
     state_path = roots["wizards"] / "import" / "sessions" / session_id / "state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state.setdefault("inputs", {})["final_summary_confirm"] = {"confirm_start": True}

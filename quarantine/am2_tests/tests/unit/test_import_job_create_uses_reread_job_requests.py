@@ -49,9 +49,7 @@ def _make_engine(tmp_path: Path) -> Any:
     return ImportWizardEngine(resolver=resolver)
 
 
-def test_start_processing_uses_persisted_idempotency_key(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_start_processing_uses_persisted_idempotency_key(tmp_path: Path, monkeypatch) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
 
@@ -78,9 +76,7 @@ def test_start_processing_uses_persisted_idempotency_key(
             "policy": "ask",
         },
         "inputs": {},
-        "vars": {
-            "phase1": {"runtime": {"final_summary_confirm": {"confirm_start": True}}}
-        },
+        "vars": {"phase1": {"runtime": {"final_summary_confirm": {"confirm_start": True}}}},
         "answers": {},
         "computed": {},
         "selected_author_ids": [],
@@ -133,15 +129,8 @@ def test_start_processing_uses_persisted_idempotency_key(
             obj = read_json(fs_in, root_in, rel_path_in)
             assert isinstance(obj, dict)
             obj["idempotency_key"] = "persisted_key"
-            data = (
-                json.dumps(
-                    obj, ensure_ascii=True, separators=(",", ":"), sort_keys=True
-                )
-                + "\n"
-            )
-            with fs_in.open_write(
-                root_in, rel_path_in, overwrite=True, mkdir_parents=True
-            ) as f:
+            data = json.dumps(obj, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
+            with fs_in.open_write(root_in, rel_path_in, overwrite=True, mkdir_parents=True) as f:
                 f.write(data.encode("utf-8"))
 
     monkeypatch.setattr(eng_mod, "atomic_write_text", _wrapped_atomic_write_text)

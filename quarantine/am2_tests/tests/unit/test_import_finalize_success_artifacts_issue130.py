@@ -17,8 +17,7 @@ RootName = import_module("plugins.file_io.service").RootName
 
 def _make_plugin(tmp_path: Path) -> tuple[Any, dict[str, Path]]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -66,9 +65,7 @@ def _write_inbox_books(roots: dict[str, Path]) -> None:
         (book_dir / "track.txt").write_text(book, encoding="utf-8")
 
 
-def _mutate_state_for_finalize(
-    roots: dict[str, Path], session_id: str, *, policy: str
-) -> None:
+def _mutate_state_for_finalize(roots: dict[str, Path], session_id: str, *, policy: str) -> None:
     state_path = roots["wizards"] / "import" / "sessions" / session_id / "state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state.setdefault("answers", {})["id3_policy"] = {
@@ -85,9 +82,7 @@ def _mutate_state_for_finalize(
     state_path.write_text(json.dumps(state), encoding="utf-8")
 
 
-def _start_processing(
-    plugin: Any, roots: dict[str, Path], monkeypatch
-) -> tuple[str, str]:
+def _start_processing(plugin: Any, roots: dict[str, Path], monkeypatch) -> tuple[str, str]:
     engine = plugin.get_engine()
     diag_mod = import_module("plugins.import.engine_diagnostics_required")
     monkeypatch.setattr(diag_mod, "submit_process_job", lambda **_kw: None)
@@ -123,12 +118,8 @@ def test_finalize_success_artifacts_and_ignore_registry_are_success_only(
     fs = plugin.get_engine().get_file_service()
 
     report_rel = f"import/sessions/{session_id}/finalize/report.json"
-    book1_log_rel = (
-        f"import/sessions/{session_id}/finalize/AuthorA/Book1/processing.log"
-    )
-    book2_log_rel = (
-        f"import/sessions/{session_id}/finalize/AuthorA/Book2/processing.log"
-    )
+    book1_log_rel = f"import/sessions/{session_id}/finalize/AuthorA/Book1/processing.log"
+    book2_log_rel = f"import/sessions/{session_id}/finalize/AuthorA/Book2/processing.log"
     book1_dry_run_rel = (
         f"import/sessions/{session_id}/finalize/AuthorA/Book1/"
         "Canonical Author - Canonical Edition.dryrun.txt"
@@ -181,9 +172,7 @@ def test_finalize_success_artifacts_and_ignore_registry_are_success_only(
     assert report["status"] == "succeeded"
     assert report["counts"] == {"books": 2, "capabilities": 6}
     assert report["artifacts"]["report"] == f"wizards:{report_rel}"
-    report_books = {
-        book["source"]["relative_path"]: book["book_id"] for book in report["books"]
-    }
+    report_books = {book["source"]["relative_path"]: book["book_id"] for book in report["books"]}
     assert report["artifacts"]["processing_logs"] == {
         report_books["AuthorA/Book1"]: f"wizards:{book1_log_rel}",
         report_books["AuthorA/Book2"]: f"wizards:{book2_log_rel}",
@@ -214,9 +203,7 @@ def test_finalize_success_artifacts_and_ignore_registry_are_success_only(
         "publish.write",
     ]
 
-    line0 = json.loads(
-        (roots["wizards"] / book1_log_rel).read_text(encoding="utf-8").strip()
-    )
+    line0 = json.loads((roots["wizards"] / book1_log_rel).read_text(encoding="utf-8").strip())
     assert line0["status"] == "succeeded"
     assert line0["source"] == {"root": "inbox", "relative_path": "AuthorA/Book1"}
     assert line0["authority"]["metadata_tags"]["values"]["title"] == "Canonical Edition"

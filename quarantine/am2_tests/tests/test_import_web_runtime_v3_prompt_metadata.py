@@ -59,8 +59,7 @@ PROMPT_FLOW = {
 
 def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -110,9 +109,7 @@ process.stdout.write(JSON.stringify(out));
     return json.loads(proc.stdout)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_import_ui_index_loads_v3_runtime_assets_in_order(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -194,9 +191,7 @@ def test_import_wizard_v3_render_keeps_existing_step_heading_when_items_refresh(
 
     state = engine.create_session("inbox", "")
     state_view = engine.get_state(str(state["session_id"]))
-    projected_step = engine.get_step_definition(
-        str(state["session_id"]), "select_authors"
-    )
+    projected_step = engine.get_step_definition(str(state["session_id"]), "select_authors")
 
     script = """
 const fs = require('fs');
@@ -268,9 +263,7 @@ def test_import_wizard_v3_fetches_current_step_projection_for_display_items(
 
     state = engine.create_session("inbox", "")
     state_view = engine.get_state(str(state["session_id"]))
-    projected_step = engine.get_step_definition(
-        str(state["session_id"]), "select_authors"
-    )
+    projected_step = engine.get_step_definition(str(state["session_id"]), "select_authors")
 
     script = """
 const fs = require('fs');

@@ -33,8 +33,7 @@ def _make_engine(
     nav_ui: str = "prompt",
 ) -> tuple[ImportWizardEngine, dict[str, Path]]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -91,9 +90,7 @@ def test_load_or_bootstrap_can_create_shipped_v3_default(tmp_path: Path) -> None
     )
     assert phase1_node["op"]["primitive_id"] == "import.phase1_runtime"
     assert any(node["step_id"] == "effective_author" for node in out["nodes"])
-    assert any(
-        node["step_id"] == "covers_policy_override_prepare" for node in out["nodes"]
-    )
+    assert any(node["step_id"] == "covers_policy_override_prepare" for node in out["nodes"])
     assert out == expected
 
 

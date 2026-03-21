@@ -405,8 +405,7 @@ def test_diag_mode_log_no_follow(
     out_lines = capsys.readouterr().out.splitlines()
     assert any(line.startswith("LOG: ") for line in out_lines)
     info_lines = (
-        "INFO" in line and "audiomason.web:" in line and "hello" in line
-        for line in out_lines
+        "INFO" in line and "audiomason.web:" in line and "hello" in line for line in out_lines
     )
     assert any(info_lines)
 
@@ -485,7 +484,6 @@ def test_diag_mode_both_no_follow(
     assert any("diag.job.start" in line for line in out_lines)
     assert any(line.startswith("LOG: ") for line in out_lines)
     info_lines = (
-        "INFO" in line and "audiomason.web:" in line and "hello" in line
-        for line in out_lines
+        "INFO" in line and "audiomason.web:" in line and "hello" in line for line in out_lines
     )
     assert any(info_lines)

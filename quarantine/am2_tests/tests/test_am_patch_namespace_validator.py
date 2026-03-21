@@ -89,9 +89,7 @@ def test_namespace_validator_fails_for_missing_namespace_module_mapping() -> Non
 
 
 def test_namespace_validator_fails_for_missing_repo_dependency_edge() -> None:
-    broken_deps = {
-        key: list(values) for key, values in PYTEST_DEPENDENCIES_DEFAULT.items()
-    }
+    broken_deps = {key: list(values) for key, values in PYTEST_DEPENDENCIES_DEFAULT.items()}
     broken_deps["amp.phb"] = []
     try:
         validate_namespace_policy(
@@ -109,9 +107,7 @@ def test_namespace_validator_fails_for_missing_repo_dependency_edge() -> None:
 
 
 def test_namespace_validator_fails_for_missing_dependency_endpoint() -> None:
-    broken_deps = {
-        key: list(values) for key, values in PYTEST_DEPENDENCIES_DEFAULT.items()
-    }
+    broken_deps = {key: list(values) for key, values in PYTEST_DEPENDENCIES_DEFAULT.items()}
     broken_deps["amp.phb"] = ["amp.missing"]
     try:
         validate_namespace_policy(
@@ -125,15 +121,12 @@ def test_namespace_validator_fails_for_missing_dependency_endpoint() -> None:
     except ValueError as exc:
         assert "missing_dependency_endpoint:amp.phb->amp.missing" in str(exc)
     else:
-        raise AssertionError(
-            "expected validator to fail for missing dependency endpoint"
-        )
+        raise AssertionError("expected validator to fail for missing dependency endpoint")
 
 
 def test_namespace_validator_fails_for_missing_external_override_endpoint() -> None:
     broken_external = {
-        key: list(values)
-        for key, values in PYTEST_EXTERNAL_DEPENDENCIES_DEFAULT.items()
+        key: list(values) for key, values in PYTEST_EXTERNAL_DEPENDENCIES_DEFAULT.items()
     }
     broken_external["am2.plugins.import"] = ["am2.plugins.not_real"]
     try:
@@ -146,17 +139,14 @@ def test_namespace_validator_fails_for_missing_external_override_endpoint() -> N
             pytest_external_dependencies=broken_external,
         )
     except ValueError as exc:
-        assert (
-            "missing_external_override_endpoint:am2.plugins.import->am2.plugins.not_real"
-            in str(exc)
+        assert "missing_external_override_endpoint:am2.plugins.import->am2.plugins.not_real" in str(
+            exc
         )
     else:
         raise AssertionError("expected validator to fail for missing external endpoint")
 
 
-def test_namespace_validator_fails_when_external_override_conflicts_with_repo_evidence() -> (
-    None
-):
+def test_namespace_validator_fails_when_external_override_conflicts_with_repo_evidence() -> None:
     try:
         validate_namespace_policy(
             repo_root=REPO_ROOT,
@@ -164,23 +154,17 @@ def test_namespace_validator_fails_when_external_override_conflicts_with_repo_ev
             pytest_tree=PYTEST_TREE_DEFAULT,
             pytest_namespace_modules=PYTEST_NAMESPACE_MODULES_DEFAULT,
             pytest_dependencies=PYTEST_DEPENDENCIES_DEFAULT,
-            pytest_external_dependencies={
-                "am2.plugins.web_interface": ["am2.plugins.import"]
-            },
+            pytest_external_dependencies={"am2.plugins.web_interface": ["am2.plugins.import"]},
         )
     except ValueError as exc:
         assert (
             "external_override_conflicts_repo:am2.plugins.web_interface->am2.plugins.import"
         ) in str(exc)
     else:
-        raise AssertionError(
-            "expected validator to reject mixed repo and external evidence"
-        )
+        raise AssertionError("expected validator to reject mixed repo and external evidence")
 
 
-def test_namespace_validator_accepts_explicit_external_override_without_repo_evidence() -> (
-    None
-):
+def test_namespace_validator_accepts_explicit_external_override_without_repo_evidence() -> None:
     evidence = validate_namespace_policy(
         repo_root=REPO_ROOT,
         pytest_roots=PYTEST_ROOTS_DEFAULT,

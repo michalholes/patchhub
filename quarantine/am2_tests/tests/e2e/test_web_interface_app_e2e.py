@@ -30,16 +30,12 @@ def test_active_js_coverage_map_matches_scope() -> None:
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_root_shell_boots_with_expected_script(
-    page: Page, e2e_web_base_url: str
-) -> None:
+async def test_root_shell_boots_with_expected_script(page: Page, e2e_web_base_url: str) -> None:
     probe = BrowserProbe(page)
     expected = active_web_interface_paths()
 
     response = await page.goto(f"{e2e_web_base_url}/", wait_until="domcontentloaded")
-    assert response is not None and response.ok, (
-        "GET / did not return a successful response"
-    )
+    assert response is not None and response.ok, "GET / did not return a successful response"
 
     await expect(page).to_have_title(re.compile(r"AudioMason Web Interface"))
     await expect(page.locator("#app")).to_be_visible()

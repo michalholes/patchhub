@@ -26,9 +26,7 @@ class TestPluginAutoLoading:
         plugin_dirs = loader.discover()
 
         assert len(plugin_dirs) > 0, "No plugins discovered"
-        assert any(p.name == "cmd_interface" for p in plugin_dirs), (
-            "CLI plugin not discovered"
-        )
+        assert any(p.name == "cmd_interface" for p in plugin_dirs), "CLI plugin not discovered"
 
     def test_discover_user_plugins(self, tmp_path):
         """Test discovery of user plugins."""
@@ -187,9 +185,7 @@ class SystemPlugin:
 
         # Discover all
         loader = PluginLoader(
-            builtin_plugins_dir=builtin_plugins_dir
-            if builtin_plugins_dir.exists()
-            else None,
+            builtin_plugins_dir=builtin_plugins_dir if builtin_plugins_dir.exists() else None,
             user_plugins_dir=user_plugins_dir,
             system_plugins_dir=system_plugins_dir,
         )

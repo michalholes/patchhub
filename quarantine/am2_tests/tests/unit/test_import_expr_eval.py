@@ -61,9 +61,7 @@ def test_eval_expr_ref_supports_split() -> None:
 
 def test_eval_expr_ref_supports_any_all_and_len() -> None:
     ok, value, error = eval_expr_ref(
-        {
-            "expr": "any($.inputs.flags) and all($.inputs.flags) and len($.inputs.flags) == 2"
-        },
+        {"expr": "any($.inputs.flags) and all($.inputs.flags) and len($.inputs.flags) == 2"},
         state={},
         inputs={"flags": [True, True]},
     )

@@ -157,9 +157,7 @@ def test_ui_message_does_not_project_prompt_metadata(tmp_path: Path) -> None:
 def test_invalid_autofill_metadata_requires_expr_ref(tmp_path: Path) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, INVALID_AUTOFILL_FLOW
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, INVALID_AUTOFILL_FLOW)
 
     with pytest.raises(FinalizeError, match="autofill_if must be ExprRef"):
         engine.get_flow_model()
@@ -168,9 +166,7 @@ def test_invalid_autofill_metadata_requires_expr_ref(tmp_path: Path) -> None:
 def test_non_bool_autofill_expr_fails_during_phase1(tmp_path: Path) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, NON_BOOL_AUTOFILL_FLOW
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, NON_BOOL_AUTOFILL_FLOW)
 
     out = engine.create_session("inbox", "")
 

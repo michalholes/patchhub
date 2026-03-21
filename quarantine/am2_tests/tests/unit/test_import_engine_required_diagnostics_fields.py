@@ -56,9 +56,7 @@ def test_mandatory_events_have_required_fields(tmp_path: Path) -> None:
 
         return _cb
 
-    cbs = {
-        name: _mk_cb(name) for name in ("model.load", "model.validate", "session.start")
-    }
+    cbs = {name: _mk_cb(name) for name in ("model.load", "model.validate", "session.start")}
     for name, cb in cbs.items():
         bus.subscribe(name, cb)
 

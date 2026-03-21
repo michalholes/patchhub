@@ -236,8 +236,7 @@ PHASE2_ACCEPTANCE_PROGRAM = {
 
 def _make_engine(tmp_path: Path) -> tuple[ImportWizardEngine, ConfigResolver, Path]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -309,9 +308,7 @@ def test_phase2_cli_acceptance_smoke_covers_runtime_capability_set(
     assert len(session_dirs) == 1
     session_dir = session_dirs[0]
 
-    effective_model = json.loads(
-        (session_dir / "effective_model.json").read_text(encoding="utf-8")
-    )
+    effective_model = json.loads((session_dir / "effective_model.json").read_text(encoding="utf-8"))
     state = json.loads((session_dir / "state.json").read_text(encoding="utf-8"))
 
     assert effective_model["flowmodel_kind"] == "dsl_step_graph_v3"

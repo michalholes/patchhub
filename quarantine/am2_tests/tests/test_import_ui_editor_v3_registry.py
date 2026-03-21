@@ -86,9 +86,7 @@ Promise.resolve()
 """
 
 
-def _run_node_registry_api(
-    payload: dict[str, object], *, timeout: int = 5
-) -> dict[str, object]:
+def _run_node_registry_api(payload: dict[str, object], *, timeout: int = 5) -> dict[str, object]:
     try:
         proc = subprocess.run(
             ["node", "-e", _NODE_REGISTRY_SCRIPT],
@@ -105,8 +103,7 @@ def _run_node_registry_api(
 
 def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     defaults = {
         "file_io": {
@@ -131,9 +128,7 @@ def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     return ImportWizardEngine(resolver=resolver)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_import_ui_v3_registry_endpoint_returns_bootstrapped_primitives(
     tmp_path: Path,
 ) -> None:
@@ -149,9 +144,7 @@ def test_import_ui_v3_registry_endpoint_returns_bootstrapped_primitives(
     assert response.status_code == 200
     registry = response.json()["registry"]
     assert registry["registry_version"] == 1
-    primitive_ids = {
-        str(item.get("primitive_id")) for item in registry.get("primitives", [])
-    }
+    primitive_ids = {str(item.get("primitive_id")) for item in registry.get("primitives", [])}
     assert primitive_ids
     assert all(primitive_ids)
     assert "select_authors" not in primitive_ids

@@ -83,13 +83,9 @@ def test_effective_model_contains_selection_items(tmp_path: Path) -> None:
     assert authors.get("ordered_ids")
     assert books.get("ordered_ids")
 
-    state2 = engine.submit_step(
-        str(state["session_id"]), "select_authors", {"selection": "all"}
-    )
+    state2 = engine.submit_step(str(state["session_id"]), "select_authors", {"selection": "all"})
     assert "error" not in state2
-    state2 = engine.submit_step(
-        str(state["session_id"]), "select_books", {"selection": "all"}
-    )
+    state2 = engine.submit_step(str(state["session_id"]), "select_books", {"selection": "all"})
     assert "error" not in state2
     selected = state2.get("selected_book_ids") or []
     assert isinstance(selected, list)
@@ -262,9 +258,9 @@ def test_root_scoped_author_filter_keeps_local_book_ordinals(tmp_path: Path) -> 
 
     plan = engine.compute_plan(session_id)
     assert plan.get("summary", {}).get("selected_books") == 1
-    assert [
-        item.get("source_relative_path") for item in plan.get("selected_books", [])
-    ] == ["A/Book2"]
+    assert [item.get("source_relative_path") for item in plan.get("selected_books", [])] == [
+        "A/Book2"
+    ]
 
     out = engine.submit_step(session_id, "select_books", {"selection": "3"})
     err = out.get("error") if isinstance(out, dict) else None

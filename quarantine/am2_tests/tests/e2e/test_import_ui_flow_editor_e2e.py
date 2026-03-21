@@ -21,9 +21,7 @@ async def test_import_ui_flow_editor_shell_is_present_and_wired(
         wait_until="domcontentloaded",
         timeout=10_000,
     )
-    assert response is not None and response.ok, (
-        "GET /import/ui/ did not return success"
-    )
+    assert response is not None and response.ok, "GET /import/ui/ did not return success"
 
     flow_tab = page.locator('#tabs .tabBtn[data-tab="flow"]')
     flow_panel = page.locator('.tabPanel[data-panel="flow"]')

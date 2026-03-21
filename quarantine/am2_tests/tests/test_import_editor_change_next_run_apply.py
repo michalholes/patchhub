@@ -16,8 +16,7 @@ RootName = import_module("plugins.file_io.service.types").RootName
 
 def _make_engine(tmp_path: Path) -> tuple[ImportWizardEngine, dict[str, Path]]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -111,10 +110,7 @@ def test_v3_editor_activation_affects_only_the_next_import_run(tmp_path: Path) -
         f"import/sessions/{session_id_2}/effective_workflow.json",
     )
     assert _workflow_node(workflow1, "select_books")["op"]["inputs"]["label"] == "Books"
-    assert (
-        _workflow_node(workflow2, "select_books")["op"]["inputs"]["label"]
-        == "Edited Books"
-    )
+    assert _workflow_node(workflow2, "select_books")["op"]["inputs"]["label"] == "Edited Books"
 
     engine.submit_step(session_id_2, "select_authors", {"selection": "all"})
     step2 = engine.get_step_definition(session_id_2, "select_books")

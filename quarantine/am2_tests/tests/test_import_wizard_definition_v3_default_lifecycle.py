@@ -21,8 +21,7 @@ WIZARD_DEFINITION_REL_PATH = import_module(
 
 def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -85,9 +84,7 @@ def test_existing_v2_artifact_keeps_v2_dispatch_while_v3_bootstrap_stays_availab
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
 
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, _v2_definition()
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, _v2_definition())
 
     loaded = load_or_bootstrap_wizard_definition(fs, bootstrap_default_version=3)
     assert loaded["version"] == 2

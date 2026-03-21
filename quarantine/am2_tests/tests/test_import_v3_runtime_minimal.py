@@ -110,12 +110,12 @@ def test_v3_runtime_runs_phase1_runtime_then_ctrl_stop(tmp_path: Path) -> None:
 
 def test_phase1_runtime_uses_registry_dispatch_only() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    interpreter_text = (
-        repo_root / "plugins" / "import" / "dsl" / "interpreter_v3.py"
-    ).read_text(encoding="utf-8")
-    intake_text = (
-        repo_root / "plugins" / "import" / "phase1_source_intake.py"
-    ).read_text(encoding="utf-8")
+    interpreter_text = (repo_root / "plugins" / "import" / "dsl" / "interpreter_v3.py").read_text(
+        encoding="utf-8"
+    )
+    intake_text = (repo_root / "plugins" / "import" / "phase1_source_intake.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "execute_import_phase1_primitive" not in interpreter_text
     assert "_is_phase1_runtime_primitive" not in interpreter_text

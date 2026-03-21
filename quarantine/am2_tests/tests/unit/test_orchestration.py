@@ -36,9 +36,7 @@ def test_orchestrator_start_process_succeeds(
     ctx = ProcessingContext(id="ctx1", source=src)
     orchestrator = Orchestrator()
 
-    req = ProcessRequest(
-        contexts=[ctx], pipeline_path=pipeline_path, plugin_loader=None
-    )
+    req = ProcessRequest(contexts=[ctx], pipeline_path=pipeline_path, plugin_loader=None)
     job_id = orchestrator.start_process(req)
 
     job = orchestrator.get_job(job_id)

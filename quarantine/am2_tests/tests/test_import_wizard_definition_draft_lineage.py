@@ -36,8 +36,7 @@ except Exception:
 
 def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -80,9 +79,7 @@ def test_reset_draft_uses_active_v3_not_v2_default(tmp_path: Path) -> None:
 
     assert draft["version"] == 3
     assert fingerprint_json(draft) == fingerprint_json(active_v3)
-    meta = read_json(
-        fs, RootName.WIZARDS, wizard_storage.WIZARD_DEFINITION_DRAFT_META_REL_PATH
-    )
+    meta = read_json(fs, RootName.WIZARDS, wizard_storage.WIZARD_DEFINITION_DRAFT_META_REL_PATH)
     assert meta == {"source_active_fingerprint": fingerprint_json(active_v3)}
 
 
@@ -102,12 +99,8 @@ def test_get_quarantines_legacy_draft_that_shadows_v3_active(tmp_path: Path) -> 
 
     assert loaded["version"] == 3
     assert fingerprint_json(loaded) == fingerprint_json(active_v3)
-    assert not fs.exists(
-        RootName.WIZARDS, wizard_storage.WIZARD_DEFINITION_DRAFT_REL_PATH
-    )
-    assert not fs.exists(
-        RootName.WIZARDS, wizard_storage.WIZARD_DEFINITION_DRAFT_META_REL_PATH
-    )
+    assert not fs.exists(RootName.WIZARDS, wizard_storage.WIZARD_DEFINITION_DRAFT_REL_PATH)
+    assert not fs.exists(RootName.WIZARDS, wizard_storage.WIZARD_DEFINITION_DRAFT_META_REL_PATH)
     draft_fp = fingerprint_json(wizard_storage.canonicalize_to_supported(fs, stale_v2))
     active_fp = fingerprint_json(active_v3)
     qdraft, qmeta = wizard_storage._wizard_definition_draft_quarantine_paths(
@@ -119,9 +112,7 @@ def test_get_quarantines_legacy_draft_that_shadows_v3_active(tmp_path: Path) -> 
     assert fs.exists(RootName.WIZARDS, qmeta)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_activate_endpoint_rejects_stale_draft_and_keeps_active_v3(
     tmp_path: Path,
 ) -> None:
@@ -165,7 +156,5 @@ def test_matching_legacy_draft_without_metadata_seeds_lineage(tmp_path: Path) ->
     loaded = wizard_storage.get_wizard_definition_draft(fs)
 
     assert fingerprint_json(loaded) == fingerprint_json(active_v3)
-    meta = read_json(
-        fs, RootName.WIZARDS, wizard_storage.WIZARD_DEFINITION_DRAFT_META_REL_PATH
-    )
+    meta = read_json(fs, RootName.WIZARDS, wizard_storage.WIZARD_DEFINITION_DRAFT_META_REL_PATH)
     assert meta == {"source_active_fingerprint": fingerprint_json(active_v3)}

@@ -58,9 +58,7 @@ def _make_engine(tmp_path: Path) -> ImportWizardEngine:
     return ImportWizardEngine(resolver=resolver)
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_flow_config_validate_does_not_persist(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -83,9 +81,7 @@ def test_flow_config_validate_does_not_persist(tmp_path: Path) -> None:
     assert (after.get("defaults") or {}).get("marker") != 1
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_flow_config_history_and_rollback(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -120,9 +116,7 @@ def test_flow_config_history_and_rollback(tmp_path: Path) -> None:
     assert nf.status_code == 404
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_wizard_definition_history_and_rollback(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -163,20 +157,10 @@ def test_wizard_definition_history_and_rollback(tmp_path: Path) -> None:
     d1 = _with_help(0, "history one")
     d2 = _with_help(1, "history two")
 
-    assert (
-        client.post("/import/ui/wizard-definition", json={"definition": d1}).status_code
-        == 200
-    )
-    assert (
-        client.post("/import/ui/wizard-definition/activate", json={}).status_code == 200
-    )
-    assert (
-        client.post("/import/ui/wizard-definition", json={"definition": d2}).status_code
-        == 200
-    )
-    assert (
-        client.post("/import/ui/wizard-definition/activate", json={}).status_code == 200
-    )
+    assert client.post("/import/ui/wizard-definition", json={"definition": d1}).status_code == 200
+    assert client.post("/import/ui/wizard-definition/activate", json={}).status_code == 200
+    assert client.post("/import/ui/wizard-definition", json={"definition": d2}).status_code == 200
+    assert client.post("/import/ui/wizard-definition/activate", json={}).status_code == 200
 
     hist = client.get("/import/ui/wizard-definition/history").json()["items"]
     ids = [it["id"] for it in hist]
@@ -198,9 +182,7 @@ def test_wizard_definition_history_and_rollback(tmp_path: Path) -> None:
     assert nf.status_code == 404
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_wizard_definition_editor_rejects_v2_payloads(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

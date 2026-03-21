@@ -14,8 +14,7 @@ ImportWizardEngine = import_module("plugins.import.engine").ImportWizardEngine
 
 def _make_engine(tmp_path: Path) -> tuple[ImportWizardEngine, ConfigResolver]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -61,9 +60,7 @@ def test_interactive_launcher_prompts_for_new_when_session_exists(
     (src_dir / "file.txt").write_text("x", encoding="utf-8")
 
     created = engine.create_session("inbox", "src", mode="stage")
-    session_dir = (
-        tmp_path / "wizards" / "import" / "sessions" / str(created["session_id"])
-    )
+    session_dir = tmp_path / "wizards" / "import" / "sessions" / str(created["session_id"])
     marker = session_dir / "marker.txt"
     marker.write_text("old", encoding="utf-8")
 

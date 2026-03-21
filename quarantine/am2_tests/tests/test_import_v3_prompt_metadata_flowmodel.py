@@ -141,9 +141,7 @@ def test_flow_model_projects_prompt_ui_and_step_api_normalizes_current_step(
 ) -> None:
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, PROMPT_METADATA_FLOW
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, PROMPT_METADATA_FLOW)
 
     flow_model = engine.get_flow_model()
     steps = {step["step_id"]: step for step in flow_model["steps"]}
@@ -191,18 +189,14 @@ except Exception:
     _HAS_HTTPX = False
 
 
-@pytest.mark.skipif(
-    (not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required"
-)
+@pytest.mark.skipif((not _HAS_FASTAPI) or (not _HAS_HTTPX), reason="fastapi+httpx required")
 def test_step_routes_project_active_v3_metadata(tmp_path: Path) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     engine = _make_engine(tmp_path)
     fs = engine.get_file_service()
-    atomic_write_json(
-        fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, PROMPT_METADATA_FLOW
-    )
+    atomic_write_json(fs, RootName.WIZARDS, WIZARD_DEFINITION_REL_PATH, PROMPT_METADATA_FLOW)
 
     app = FastAPI()
     app.include_router(build_router(engine=engine))
@@ -250,18 +244,14 @@ def test_build_step_catalog_projection_rejects_underivable_inputs() -> None:
             flow_config={"version": 1, "steps": {}, "defaults": {}},
         )
 
-    with pytest.raises(
-        FinalizeError, match="wizard_definition graph.nodes must be a list"
-    ):
+    with pytest.raises(FinalizeError, match="wizard_definition graph.nodes must be a list"):
         build_step_catalog_projection(
             wizard_definition={"version": 2, "graph": {}},
             flow_config={"version": 1, "steps": {}, "defaults": {}},
         )
 
 
-def test_flow_config_editor_boundary_preserves_defaults_without_catalog_authority() -> (
-    None
-):
+def test_flow_config_editor_boundary_preserves_defaults_without_catalog_authority() -> None:
     original = step_catalog_module.STEP_CATALOG.get("parallelism")
     step_catalog_module.STEP_CATALOG["parallelism"] = {"id": "parallelism"}
     try:
@@ -291,9 +281,7 @@ def test_validate_wizard_definition_structure_does_not_read_projection_behaviora
         raise AssertionError("projection helper should not be consulted")
 
     monkeypatch.setattr(step_catalog_module, "get_step_details", _boom)
-    monkeypatch.setattr(
-        step_catalog_module, "build_default_step_catalog_projection", _boom
-    )
+    monkeypatch.setattr(step_catalog_module, "build_default_step_catalog_projection", _boom)
 
     try:
         validate_wizard_definition_structure(

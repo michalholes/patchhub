@@ -54,9 +54,7 @@ class _FakeAudioProcessor:
     ) -> list[dict[str, Any]]:
         del chapters
         self.calls.append(f"audio.plan:{source.name}")
-        return [
-            {"source": source, "output": output_dir / f"{source.stem}.mp3", "order": 1}
-        ]
+        return [{"source": source, "output": output_dir / f"{source.stem}.mp3", "order": 1}]
 
     async def _execute_plan(self, plan: list[dict[str, Any]]) -> list[Path]:
         outputs: list[Path] = []
@@ -114,9 +112,7 @@ class _FakeID3Tagger:
     ) -> None:
         del wipe_before_write, preserve_cover, file_index
         values = dict(tags.get("values") or {}) if isinstance(tags, dict) else {}
-        self.calls.append(
-            "tags.write:" + mp3_file.name + ":" + str(values.get("title") or "")
-        )
+        self.calls.append("tags.write:" + mp3_file.name + ":" + str(values.get("title") or ""))
         mp3_file.write_bytes(mp3_file.read_bytes() + b"|tags")
 
 
@@ -230,9 +226,7 @@ def _prepare_pending_process_job(
     assert isinstance(job_ids, list) and len(job_ids) == 1
     job_id = str(job_ids[0])
 
-    job_requests_path = (
-        roots["wizards"] / "import" / "sessions" / session_id / "job_requests.json"
-    )
+    job_requests_path = roots["wizards"] / "import" / "sessions" / session_id / "job_requests.json"
     job_requests = json.loads(job_requests_path.read_text(encoding="utf-8"))
     return plugin, roots, session_id, job_id, job_requests
 
@@ -261,8 +255,8 @@ def test_canonical_job_requests_persist_detached_runtime_bootstrap(
 def test_pending_process_job_adopts_detached_runtime_without_original_host_engine(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _host_plugin, roots, session_id, job_id, job_requests = (
-        _prepare_pending_process_job(tmp_path, monkeypatch)
+    _host_plugin, roots, session_id, job_id, job_requests = _prepare_pending_process_job(
+        tmp_path, monkeypatch
     )
 
     detached_roots = _roots(tmp_path, prefix="detached")

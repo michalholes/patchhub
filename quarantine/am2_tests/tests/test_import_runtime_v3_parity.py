@@ -123,8 +123,7 @@ AUTOFILL_FLOW = {
 
 def _make_engine(tmp_path: Path) -> tuple[Any, ConfigResolver]:
     roots = {
-        name: tmp_path / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: tmp_path / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
@@ -339,8 +338,6 @@ def test_cli_and_web_share_scoped_author_prompt_select_display_items(
 
 
 def test_web_start_processing_posts_canonical_confirm_payload() -> None:
-    js = Path("plugins/import/ui/web/assets/import_wizard.js").read_text(
-        encoding="utf-8"
-    )
+    js = Path("plugins/import/ui/web/assets/import_wizard.js").read_text(encoding="utf-8")
     assert "body: JSON.stringify({ confirm: true })" in js
     assert 'body: "{}"' not in js

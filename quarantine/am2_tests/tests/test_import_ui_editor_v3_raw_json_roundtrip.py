@@ -573,9 +573,7 @@ vm.runInThisContext(src.state);
   process.exit(1);
 }});
 """
-    proc = subprocess.run(
-        [node, "-e", script], capture_output=True, text=True, check=False
-    )
+    proc = subprocess.run([node, "-e", script], capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr or proc.stdout)
     return json.loads(proc.stdout)

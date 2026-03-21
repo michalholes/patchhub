@@ -308,8 +308,7 @@ def _actual_repo_ownership() -> dict[str, tuple[str, ...]]:
             tuple(sorted(PYTEST_TREE_DEFAULT.items())),
             tuple(
                 sorted(
-                    (key, tuple(values))
-                    for key, values in PYTEST_NAMESPACE_MODULES_DEFAULT.items()
+                    (key, tuple(values)) for key, values in PYTEST_NAMESPACE_MODULES_DEFAULT.items()
                 )
             ),
         )
@@ -379,9 +378,7 @@ def test_import_change_pulls_web_and_import_e2e_surfaces_in_actual_repo() -> Non
     assert "tests/e2e/test_web_interface_smoke.py" in targets
 
 
-def test_web_interface_change_pulls_web_and_import_e2e_surfaces_in_actual_repo() -> (
-    None
-):
+def test_web_interface_change_pulls_web_and_import_e2e_surfaces_in_actual_repo() -> None:
     targets = _actual_repo_targets("plugins/web_interface/core.py")
     assert "tests/e2e/test_import_ui_flow_editor_e2e.py" in targets
     assert "tests/e2e/test_import_ui_run_wizard_e2e.py" in targets
@@ -396,9 +393,7 @@ def test_file_io_change_keeps_consumer_and_web_surfaces_in_actual_repo() -> None
     assert "tests/e2e/test_web_interface_app_e2e.py" in targets
 
 
-def test_actual_repo_unmatched_script_changes_route_via_catchall_path_evidence() -> (
-    None
-):
+def test_actual_repo_unmatched_script_changes_route_via_catchall_path_evidence() -> None:
     check_patch_targets = _actual_repo_targets("scripts/check_patch_pm.py")
     assert "tests/test_check_patch_pm.py" in check_patch_targets
     assert "tests/test_scripts_cli_help.py" in check_patch_targets
@@ -455,9 +450,7 @@ def test_help_smoke() -> None:
     assert targets == ["tests/test_tooling_help.py"]
 
 
-def test_patchhub_change_does_not_pull_import_only_e2e_from_asset_inventory_helper() -> (
-    None
-):
+def test_patchhub_change_does_not_pull_import_only_e2e_from_asset_inventory_helper() -> None:
     targets = _actual_repo_targets("scripts/patchhub/app.py")
     assert "tests/e2e/test_patchhub_debug_ui_e2e.py" in targets
     assert "tests/e2e/test_import_ui_run_wizard_e2e.py" not in targets

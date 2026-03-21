@@ -19,19 +19,14 @@ def test_text_utils():
 
     # Test strip_diacritics
     assert (
-        utils.strip_diacritics(
-            "P\u0159\u00edli\u0161 \u017elu\u0165ou\u010dk\u00fd k\u016f\u0148"
-        )
+        utils.strip_diacritics("P\u0159\u00edli\u0161 \u017elu\u0165ou\u010dk\u00fd k\u016f\u0148")
         == "Prilis zlutoucky kun"
     )
     print("OK strip_diacritics works")
 
     # Test slug
     assert utils.slug("George Orwell - 1984") == "george-orwell-1984"
-    assert (
-        utils.slug("P\u0159\u00edli\u0161 \u017elu\u0165ou\u010dk\u00fd")
-        == "prilis-zlutoucky"
-    )
+    assert utils.slug("P\u0159\u00edli\u0161 \u017elu\u0165ou\u010dk\u00fd") == "prilis-zlutoucky"
     print("OK slug works")
 
     # Test clean_text
@@ -106,9 +101,7 @@ def test_metadata_plugins():
     import importlib.util
 
     # Google Books
-    plugin_file = (
-        Path(__file__).parent.parent / "plugins/metadata_googlebooks/plugin.py"
-    )
+    plugin_file = Path(__file__).parent.parent / "plugins/metadata_googlebooks/plugin.py"
     spec = importlib.util.spec_from_file_location("google_plugin", plugin_file)
     if spec and spec.loader:
         module = importlib.util.module_from_spec(spec)
@@ -117,9 +110,7 @@ def test_metadata_plugins():
         print("OK Google Books plugin loads")
 
     # OpenLibrary
-    plugin_file = (
-        Path(__file__).parent.parent / "plugins/metadata_openlibrary/plugin.py"
-    )
+    plugin_file = Path(__file__).parent.parent / "plugins/metadata_openlibrary/plugin.py"
     spec = importlib.util.spec_from_file_location("ol_plugin", plugin_file)
     if spec and spec.loader:
         module = importlib.util.module_from_spec(spec)

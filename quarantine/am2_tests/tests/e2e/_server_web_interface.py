@@ -20,8 +20,7 @@ def _bootstrap_paths() -> Path:
 
 def _build_defaults(state_dir: Path) -> dict[str, object]:
     roots = {
-        name: state_dir / name
-        for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
+        name: state_dir / name for name in ("inbox", "stage", "outbox", "jobs", "config", "wizards")
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)

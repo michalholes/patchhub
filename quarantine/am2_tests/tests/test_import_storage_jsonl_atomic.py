@@ -55,9 +55,7 @@ def test_append_jsonl_creates_file_atomically(tmp_path: Path) -> None:
     with fs.open_read(RootName.WIZARDS, rel) as f:
         lines = f.read().decode("utf-8").splitlines()
 
-    assert lines == [
-        json.dumps({"a": 1}, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
-    ]
+    assert lines == [json.dumps({"a": 1}, ensure_ascii=True, separators=(",", ":"), sort_keys=True)]
 
 
 def test_append_jsonl_appends_two_lines(tmp_path: Path) -> None:
