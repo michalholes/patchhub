@@ -93,10 +93,14 @@ Normative semantics:
 -   failure_zip_delete_on_success_commit = true
 -   failure_zip_log_dir = "logs"
 -   failure_zip_patch_dir = "patches"
+-   self_backup_mode = "initial_self_patch" (allowed: never\|initial_self_patch)
+-   self_backup_dir = "quarantine"
+-   self_backup_template = "amp_self_backup_issue{issue}_{ts}.zip"
+-   self_backup_include_relpaths = ["scripts/am_patch.py", "scripts/am_patch/"]
 
-Note: Zip artifacts written by the runner (failure zip and the success
-archive zip) are written atomically (tmp file + replace + fsync) to avoid
-partial reads.
+Note: Zip artifacts written by the runner (failure zip, the initial self-backup zip,
+and the success archive zip) are written atomically (tmp file + replace + fsync)
+to avoid partial reads.
 
 -   workspace_issue_dir_template = "issue\_{issue}"
 -   workspace_repo_dir_name = "repo"
@@ -593,6 +597,10 @@ The root-model keys artifacts_root, target_repo_roots, active_target_repo_root,
 and target_repo_config_relpath are part of the override symmetry contract and
 MUST be controllable via `--override KEY=VALUE`.
 
+The self-backup keys `self_backup_mode`, `self_backup_dir`,
+`self_backup_template`, and `self_backup_include_relpaths` are part of the
+override symmetry contract and MUST be controllable via `--override KEY=VALUE`.
+
 The target-selection keys `target_repo_name`, `active_target_repo_root`, and
 `target_repo_roots` are part of the override symmetry contract and MUST be
 controllable via both:
@@ -933,6 +941,11 @@ most common mode switches. The flags map to policy keys as follows:
 - `--active-target-repo-root PATH` -> active_target_repo_root
 - `--target-repo-roots CSV` -> target_repo_roots
 - `--target-repo-config-relpath RELPATH` -> target_repo_config_relpath
+- `--artifacts-root PATH` -> artifacts_root
+- `--self-backup-mode {never,initial_self_patch}` -> self_backup_mode
+- `--self-backup-dir RELPATH` -> self_backup_dir
+- `--self-backup-template TEMPLATE` -> self_backup_template
+- `--self-backup-include-relpaths CSV` -> self_backup_include_relpaths
 - `--ruff-mode {auto,always}` -> gate_ruff_mode
 - `--mypy-mode {auto,always}` -> gate_mypy_mode
 - `--pytest-mode {auto,always}` -> gate_pytest_mode
@@ -941,6 +954,18 @@ most common mode switches. The flags map to policy keys as follows:
 
 Policy keys without a dedicated UX flag remain fully controllable through
 `--override KEY=VALUE`. This includes `gate_pytest_py_prefixes`.
+
+For `artifacts_root`, `self_backup_mode`, `self_backup_dir`,
+`self_backup_template`, and `self_backup_include_relpaths`, the dedicated CLI
+flag and `--override KEY=...` are the same CLI precedence tier. For the same
+effective key, the last argv occurrence wins.
+
+`--self-backup-include-relpaths` semantics:
+- CSV is a comma-separated list of runner-root-relative repo relpaths.
+- Each item may name either a file path or a directory path.
+- A directory item means all git-tracked files under that subtree.
+- The effective runtime value may differ from the shipped default because of
+  config or CLI overrides; override of this key MUST remain supported.
 
 Target-selection semantics are defined only in section 3.1.1.
 Repo-config discovery semantics are defined only in section 3.1.
@@ -1394,6 +1419,43 @@ Pull/rebase only when explicitly enabled.
   `PREFLIGHT WORKSPACE`.
 - The runner MUST surface that failure as a controlled user-facing error,
   not as an unhandled exception or traceback.
+
+### 9.2 Initial self-backup for initial self-patch
+
+- This behavior applies only to self-target runs where canonical
+  `runner_root == live_target_root`.
+- `self_backup_mode` controls the behavior:
+  - `never` disables initial self-backup.
+  - `initial_self_patch` enables the behavior described below.
+- For this feature, an initial self-patch means that before the first
+  `ensure_workspace(...)` call in the run, the issue workspace repo
+  directory computed exactly as
+  `workspaces_dir / workspace_issue_dir_template.format(issue=issue_id) / workspace_repo_dir_name`
+  does not exist.
+- If `self_backup_mode == "initial_self_patch"` and that issue workspace
+  repo directory does not exist, the runner MUST create an initial
+  self-backup immediately before that first `ensure_workspace(...)` call.
+- If the issue workspace repo directory already exists, the runner MUST
+  skip the initial self-backup.
+- The initial self-backup zip path is always rendered as
+  `artifacts_root / self_backup_dir / rendered_filename`.
+- `self_backup_dir` is a relative artifact subdirectory, not a second
+  artifact root.
+- The set of archived source paths is determined only by
+  `self_backup_include_relpaths`. The implementation MUST NOT hardcode a
+  second source-path list outside the shipped defaults for that key.
+- Each entry of `self_backup_include_relpaths` is a runner-root-relative
+  repo relpath and may name either a file or a directory.
+- A directory entry means all git-tracked files under that subtree.
+- If creation of the initial self-backup fails, the run MUST fail in a
+  controlled way before patch application begins.
+- This feature intentionally does not add a persisted self-backup marker
+  to `meta.json`.
+- This feature intentionally does not use `workspace_attempt` to decide
+  whether the run is initial or repair-like.
+- This feature intentionally does not require artifact-exists dedupe. A
+  repeated self-backup after a failure that occurred before workspace
+  creation is permitted.
 
 ------------------------------------------------------------------------
 
