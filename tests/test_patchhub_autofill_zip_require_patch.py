@@ -36,7 +36,12 @@ def _set_mtime(path: Path, seconds: int) -> None:
     os.utime(path, (seconds, seconds))
 
 
-def _cfg(scan_zip_require_patch: bool) -> AppConfig:
+def _cfg(
+    scan_zip_require_patch: bool,
+    *,
+    scan_ignore_filenames: list[str] | None = None,
+    scan_ignore_prefixes: list[str] | None = None,
+) -> AppConfig:
     return AppConfig(
         server=ServerConfig(host="127.0.0.1", port=1),
         meta=MetaConfig(version="test"),
@@ -65,8 +70,8 @@ def _cfg(scan_zip_require_patch: bool) -> AppConfig:
             poll_interval_seconds=10,
             scan_dir="patches",
             scan_extensions=[".zip"],
-            scan_ignore_filenames=[],
-            scan_ignore_prefixes=[],
+            scan_ignore_filenames=list(scan_ignore_filenames or []),
+            scan_ignore_prefixes=list(scan_ignore_prefixes or []),
             choose_strategy="mtime_ns",
             tiebreaker="lex_name",
             derive_enabled=False,
@@ -106,8 +111,18 @@ class _SelfDummy:
     _derive_from_filename = api_core._derive_from_filename
 
 
-def _mk_self(tmp_path: Path, scan_zip_require_patch: bool) -> _SelfDummy:
-    cfg = _cfg(scan_zip_require_patch)
+def _mk_self(
+    tmp_path: Path,
+    scan_zip_require_patch: bool,
+    *,
+    scan_ignore_filenames: list[str] | None = None,
+    scan_ignore_prefixes: list[str] | None = None,
+) -> _SelfDummy:
+    cfg = _cfg(
+        scan_zip_require_patch,
+        scan_ignore_filenames=scan_ignore_filenames,
+        scan_ignore_prefixes=scan_ignore_prefixes,
+    )
     jail = FsJail(
         repo_root=tmp_path,
         patches_root_rel=cfg.paths.patches_root,
@@ -213,3 +228,36 @@ def test_scan_zip_require_patch_true_corrupted_zip_is_ignored(tmp_path: Path) ->
     assert payload["found"] is True
     assert payload["filename"] == "valid_patch.zip"
     assert "ignored_zip_no_patch=1" in _status_text(payload)
+
+
+def test_latest_ignore_rules_remain_unchanged(tmp_path: Path) -> None:
+    s = _mk_self(
+        tmp_path,
+        scan_zip_require_patch=True,
+        scan_ignore_filenames=["ignore_me.zip"],
+        scan_ignore_prefixes=["patched_"],
+    )
+    patches_root = s.jail.patches_root()
+
+    ignored_name = patches_root / "ignore_me.zip"
+    ignored_prefix = patches_root / "patched_issue_367.zip"
+    selected = patches_root / "issue_367_keep_me.zip"
+
+    _make_zip(ignored_name, {"x.patch": b"diff"})
+    _make_zip(ignored_prefix, {"x.patch": b"diff"})
+    _make_zip(selected, {"x.patch": b"diff"})
+
+    _set_mtime(ignored_name, 1_000_000_300)
+    _set_mtime(ignored_prefix, 1_000_000_200)
+    _set_mtime(selected, 1_000_000_100)
+
+    status, body = api_core.api_patches_latest(s)
+    assert status == 200
+    payload = json.loads(body.decode("utf-8"))
+    assert payload["ok"]
+    assert payload["found"] is True
+    assert payload["filename"] == "issue_367_keep_me.zip"
+    st = _status_text(payload)
+    assert "ignored_name=1" in st
+    assert "ignored_prefix=1" in st
+    assert "selected=issue_367_keep_me.zip" in st

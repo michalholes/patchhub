@@ -222,6 +222,15 @@ def _candidate_kind(path: Path) -> str | None:
     return None
 
 
+def autofill_ignore_reason(cfg: Any, filename: str) -> str | None:
+    if filename in {str(x) for x in cfg.autofill.scan_ignore_filenames}:
+        return "name"
+    prefixes = tuple(str(x) for x in cfg.autofill.scan_ignore_prefixes)
+    if filename.startswith(prefixes):
+        return "prefix"
+    return None
+
+
 def build_patch_inventory(core: Any) -> tuple[str, list[dict[str, Any]]]:
     rows: list[_PatchInventoryRecord] = []
     seen_paths: set[str] = set()
@@ -242,6 +251,9 @@ def build_patch_inventory(core: Any) -> tuple[str, list[dict[str, Any]]]:
                 if not entry.is_file():
                     continue
             except Exception:
+                continue
+            name = entry.name
+            if autofill_ignore_reason(core.cfg, name) is not None:
                 continue
             path = Path(entry.path)
             kind = _candidate_kind(path)

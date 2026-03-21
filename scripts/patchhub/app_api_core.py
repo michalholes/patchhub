@@ -21,7 +21,11 @@ from .app_support import (
 from .command_parse import CommandParseError, parse_runner_command
 from .indexing import compute_stats, iter_runs, runs_signature
 from .models import run_to_list_item_json
-from .patch_inventory import derive_filename_metadata, derive_patch_metadata
+from .patch_inventory import (
+    autofill_ignore_reason,
+    derive_filename_metadata,
+    derive_patch_metadata,
+)
 from .targeting import (
     resolve_targeting_runtime,
     validate_selected_target_repo,
@@ -168,9 +172,6 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
         return _ok(payload_nf)
 
     exts = {str(x).lower() for x in self.cfg.autofill.scan_extensions}
-    ignore_names = {str(x) for x in self.cfg.autofill.scan_ignore_filenames}
-    ignore_pfx = [str(x) for x in self.cfg.autofill.scan_ignore_prefixes]
-
     best_name: str | None = None
     best_m = -1
     scanned = 0
@@ -183,10 +184,11 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
             continue
         scanned += 1
         name = p.name
-        if name in ignore_names:
+        ignore_reason = autofill_ignore_reason(self.cfg, name)
+        if ignore_reason == "name":
             ignored_name += 1
             continue
-        if any(name.startswith(px) for px in ignore_pfx):
+        if ignore_reason == "prefix":
             ignored_prefix += 1
             continue
         if os.path.splitext(name)[1].lower() not in exts:
