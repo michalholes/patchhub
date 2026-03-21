@@ -24,6 +24,8 @@ _REQUIRED_TABLES = (
     "web_jobs_meta",
 )
 
+_TEMP_SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
+
 
 @dataclass(frozen=True)
 class WebJobsBackupSettings:
@@ -143,10 +145,51 @@ def _template_name_parts(template: str) -> tuple[str, str]:
     return prefix, suffix
 
 
-def _template_regex(template: str) -> re.Pattern[str]:
+def _template_name_pattern(template: str) -> str:
     prefix, suffix = _template_name_parts(template)
     body = r"\d{8}T\d{6}Z(?:_\d{2})?"
-    return re.compile(rf"^{re.escape(prefix)}{body}{re.escape(suffix)}$")
+    return rf"{re.escape(prefix)}{body}{re.escape(suffix)}"
+
+
+def _template_regex(template: str) -> re.Pattern[str]:
+    return re.compile(rf"^{_template_name_pattern(template)}$")
+
+
+def _tmp_sidecar_regex(template: str) -> re.Pattern[str]:
+    suffixes = "|".join(re.escape(item) for item in _TEMP_SQLITE_SIDECAR_SUFFIXES)
+    return re.compile(rf"^{_template_name_pattern(template)}\.tmp(?:{suffixes})$")
+
+
+def _tmp_sidecar_paths(tmp_path: Path) -> tuple[Path, ...]:
+    return tuple(
+        tmp_path.with_name(f"{tmp_path.name}{suffix}") for suffix in _TEMP_SQLITE_SIDECAR_SUFFIXES
+    )
+
+
+def _cleanup_tmp_family(tmp_path: Path) -> None:
+    for sidecar in _tmp_sidecar_paths(tmp_path):
+        sidecar.unlink(missing_ok=True)
+    tmp_path.unlink(missing_ok=True)
+
+
+def _orphan_tmp_base_for_sidecar(path: Path) -> Path | None:
+    for suffix in _TEMP_SQLITE_SIDECAR_SUFFIXES:
+        if path.name.endswith(suffix):
+            return path.with_name(path.name[: -len(suffix)])
+    return None
+
+
+def _cleanup_orphaned_tmp_sidecars(*, directory: Path, template: str) -> None:
+    if not directory.is_dir():
+        return
+    regex = _tmp_sidecar_regex(template)
+    for path in directory.iterdir():
+        if not path.is_file() or not regex.match(path.name):
+            continue
+        base_path = _orphan_tmp_base_for_sidecar(path)
+        if base_path is None or base_path.exists():
+            continue
+        path.unlink(missing_ok=True)
 
 
 def _candidate_destination(template_path: Path) -> Path:
@@ -236,7 +279,11 @@ def create_verified_backup(
     destination = _collision_safe_path(_candidate_destination(template_path))
     tmp_path = destination.with_name(destination.name + ".tmp")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path.unlink(missing_ok=True)
+    _cleanup_orphaned_tmp_sidecars(
+        directory=destination.parent,
+        template=settings.destination_template,
+    )
+    _cleanup_tmp_family(tmp_path)
     try:
         with sqlite3.connect(str(db_path)) as src_conn:
             src_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -245,8 +292,9 @@ def create_verified_backup(
         if settings.verify_after_backup:
             verify_sqlite_backup(tmp_path)
         tmp_path.replace(destination)
+        _cleanup_tmp_family(tmp_path)
     except Exception:
-        tmp_path.unlink(missing_ok=True)
+        _cleanup_tmp_family(tmp_path)
         raise
     _prune_verified_backups(patches_root=patches_root, settings=settings)
     return VerifiedBackupResult(path=destination, verified=True)

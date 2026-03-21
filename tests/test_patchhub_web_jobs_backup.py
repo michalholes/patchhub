@@ -12,6 +12,7 @@ sys.path.insert(0, str(_SCRIPTS))
 from patchhub.models import JobRecord
 from patchhub.web_jobs_backup import (
     WebJobsBackupSettings,
+    _tmp_sidecar_paths,
     create_verified_backup,
     latest_verified_backup,
 )
@@ -45,6 +46,7 @@ def seeded_db(tmp_path: Path) -> tuple[Path, Path, WebJobsDatabase]:
 
 def test_create_verified_backup_retains_only_verified_files(
     seeded_db: tuple[Path, Path, WebJobsDatabase],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _repo_root, patches_root, db = seeded_db
     settings = WebJobsBackupSettings(
@@ -54,6 +56,19 @@ def test_create_verified_backup_retains_only_verified_files(
         verify_after_backup=True,
         trigger_policy="manual",
         restore_source_preference=("latest_backup",),
+    )
+    sidecar_targets: list[Path] = []
+    original_verify = sys.modules["patchhub.web_jobs_backup"].verify_sqlite_backup
+
+    def _verify_with_sidecars(path: Path) -> None:
+        sidecar_targets.extend(_tmp_sidecar_paths(path))
+        for sidecar in _tmp_sidecar_paths(path):
+            sidecar.write_text("orphan", encoding="utf-8")
+        original_verify(path)
+
+    monkeypatch.setattr(
+        "patchhub.web_jobs_backup.verify_sqlite_backup",
+        _verify_with_sidecars,
     )
     first = create_verified_backup(
         db_path=db.cfg.db_path,
@@ -80,6 +95,8 @@ def test_create_verified_backup_retains_only_verified_files(
     assert first.path not in backups
     assert second.path in backups
     assert third.path in backups
+    for sidecar in sidecar_targets:
+        assert not sidecar.exists()
 
 
 def test_backup_verification_failure_keeps_previous_verified_backup(
@@ -101,8 +118,13 @@ def test_backup_verification_failure_keeps_previous_verified_backup(
         settings=settings,
     )
 
+    failed_tmp_path: Path | None = None
+
     def _boom(path: Path) -> None:
-        del path
+        nonlocal failed_tmp_path
+        failed_tmp_path = path
+        for sidecar in _tmp_sidecar_paths(path):
+            sidecar.write_text("orphan", encoding="utf-8")
         raise RuntimeError("forced_verify_failure")
 
     monkeypatch.setattr("patchhub.web_jobs_backup.verify_sqlite_backup", _boom)
@@ -113,5 +135,58 @@ def test_backup_verification_failure_keeps_previous_verified_backup(
             settings=settings,
         )
 
+    assert failed_tmp_path is not None
     backups = list((patches_root / "artifacts" / "backups").glob("*.sqlite3"))
     assert backups == [first.path]
+    assert not failed_tmp_path.exists()
+    for sidecar in _tmp_sidecar_paths(failed_tmp_path):
+        assert not sidecar.exists()
+
+
+def test_create_verified_backup_cleans_only_orphaned_temp_sidecars(
+    seeded_db: tuple[Path, Path, WebJobsDatabase],
+) -> None:
+    _repo_root, patches_root, db = seeded_db
+    settings = WebJobsBackupSettings(
+        enabled=True,
+        destination_template="artifacts/backups/web_jobs_backup_{timestamp}.sqlite3",
+        retain_count=5,
+        verify_after_backup=True,
+        trigger_policy="manual",
+        restore_source_preference=("latest_backup",),
+    )
+    first = create_verified_backup(
+        db_path=db.cfg.db_path,
+        patches_root=patches_root,
+        settings=settings,
+    )
+    backup_dir = first.path.parent
+
+    orphan_tmp_path = first.path.with_name(first.path.name.replace(".sqlite3", "_42.sqlite3.tmp"))
+    orphan_sidecars = list(_tmp_sidecar_paths(orphan_tmp_path))
+    for sidecar in orphan_sidecars:
+        sidecar.write_text("orphan", encoding="utf-8")
+
+    kept_tmp_path = first.path.with_name(first.path.name + ".tmp")
+    kept_tmp_path.write_text("keep", encoding="utf-8")
+    kept_sidecars = list(_tmp_sidecar_paths(kept_tmp_path))
+    for sidecar in kept_sidecars:
+        sidecar.write_text("keep", encoding="utf-8")
+
+    unrelated_sidecar = backup_dir / "outside_template.sqlite3.tmp-wal"
+    unrelated_sidecar.write_text("keep", encoding="utf-8")
+
+    second = create_verified_backup(
+        db_path=db.cfg.db_path,
+        patches_root=patches_root,
+        settings=settings,
+    )
+
+    assert first.path.exists()
+    assert second.path.exists()
+    for sidecar in orphan_sidecars:
+        assert not sidecar.exists()
+    assert kept_tmp_path.exists()
+    for sidecar in kept_sidecars:
+        assert sidecar.exists()
+    assert unrelated_sidecar.exists()
