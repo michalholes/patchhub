@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .errors import RunnerError
 from .gate_docs import check_docs_gate
+from .gate_step_capture import GateStepCallback, run_logged_gate_step
 from .gates_wiring_guard import assert_single_run_gates_callsite
 from .log import Logger
 from .monolith_gate import run_monolith_gate
@@ -307,6 +308,7 @@ def run_ruff(
     ruff_format: bool,
     autofix: bool,
     targets: list[str],
+    gate_step_callback: GateStepCallback | None = None,
 ) -> bool:
     targets = _norm_targets(targets, ["src", "tests"])
     py = _select_python_for_gate(
@@ -318,9 +320,12 @@ def run_ruff(
 
     if ruff_format:
         logger.section("GATE: RUFF FORMAT")
-        rfmt = logger.run_logged(
-            _cmd_py("ruff", python=py) + ["format", *targets],
-            cwd=cwd,
+        rfmt = run_logged_gate_step(
+            logger,
+            cwd,
+            step_key="ruff_format",
+            argv=_cmd_py("ruff", python=py) + ["format", *targets],
+            callback=gate_step_callback,
             failure_dump_mode="warn_detail",
         )
         if rfmt.returncode != 0:
@@ -338,9 +343,12 @@ def run_ruff(
         return False
 
     logger.section("GATE: RUFF (fix)")
-    _ = logger.run_logged(
-        _cmd_py("ruff", python=py) + ["check", *targets, "--fix"],
-        cwd=cwd,
+    _ = run_logged_gate_step(
+        logger,
+        cwd,
+        step_key="ruff_fix",
+        argv=_cmd_py("ruff", python=py) + ["check", *targets, "--fix"],
+        callback=gate_step_callback,
         failure_dump_mode="warn_detail",
     )
 
@@ -360,6 +368,7 @@ def run_biome(
     format_command: list[str],
     autofix: bool,
     fix_command: list[str],
+    gate_step_callback: GateStepCallback | None = None,
 ) -> bool:
     triggered, paths = check_file_scoped_gate(decision_paths, extensions=extensions)
     if not triggered:
@@ -387,7 +396,14 @@ def run_biome(
 
         logger.section("GATE: BIOME FORMAT")
         logger.line("gate_biome_format_cmd=" + " ".join(fmt_cmd0))
-        r0 = logger.run_logged([*fmt_cmd0, *existing], cwd=cwd, failure_dump_mode="warn_detail")
+        r0 = run_logged_gate_step(
+            logger,
+            cwd,
+            step_key="biome_format",
+            argv=[*fmt_cmd0, *existing],
+            callback=gate_step_callback,
+            failure_dump_mode="warn_detail",
+        )
         if r0.returncode != 0:
             return False
 
@@ -413,7 +429,14 @@ def run_biome(
 
     logger.section("GATE: BIOME_AUTOFIX (apply)")
     logger.line("gate_biome_fix_cmd=" + " ".join(fix_cmd0))
-    _ = logger.run_logged([*fix_cmd0, *existing], cwd=cwd, failure_dump_mode="warn_detail")
+    _ = run_logged_gate_step(
+        logger,
+        cwd,
+        step_key="biome_autofix",
+        argv=[*fix_cmd0, *existing],
+        callback=gate_step_callback,
+        failure_dump_mode="warn_detail",
+    )
 
     logger.section("GATE: BIOME (final)")
     r2 = logger.run_logged([*cmd0, *existing], cwd=cwd)
@@ -645,6 +668,7 @@ def run_gates(
     python_gate_python: str = ".venv/bin/python",
     decision_paths: list[str],
     progress: Callable[[str], None] | None = None,
+    gate_step_callback: GateStepCallback | None = None,
 ) -> None:
     global _RUN_GATES_WIRING_CHECKED
     if not _RUN_GATES_WIRING_CHECKED:
@@ -757,6 +781,7 @@ def run_gates(
                 format_command=biome_fmt_cmd,
                 autofix=biome_autofix,
                 fix_command=biome_fix_cmd,
+                gate_step_callback=gate_step_callback,
             )
 
         if name == "typescript":
@@ -802,6 +827,7 @@ def run_gates(
                 ruff_format=ruff_format,
                 autofix=ruff_autofix,
                 targets=ruff_targets,
+                gate_step_callback=gate_step_callback,
             )
 
         if name == "pytest":

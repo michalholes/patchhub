@@ -76,3 +76,32 @@ def test_docs_status_entries_use_cwd(monkeypatch, tmp_path: Path) -> None:
 
     assert captured.get("changed_path_entries_root") == cwd
     assert captured.get("docs_status_entries") == [("??", "docs/change_fragments/test.md")]
+
+
+def test_gate_step_callback_propagated(monkeypatch, tmp_path: Path) -> None:
+    policy_cls, wiring_mod = _import_runner_modules()
+
+    captured: dict[str, object] = {}
+
+    def fake_run_gates(*_args, **kwargs):
+        captured["gate_step_callback"] = kwargs.get("gate_step_callback")
+
+    import am_patch.gates as gates_mod
+
+    monkeypatch.setattr(gates_mod, "run_gates", fake_run_gates)
+    monkeypatch.setattr(wiring_mod, "changed_path_entries", lambda *_a, **_k: [])
+
+    def callback(**_kwargs: object) -> None:
+        return None
+
+    wiring_mod.run_policy_gates(
+        logger=None,  # type: ignore[arg-type]
+        cwd=tmp_path,
+        repo_root=tmp_path,
+        policy=policy_cls(),
+        decision_paths=[],
+        progress=None,
+        gate_step_callback=callback,
+    )
+
+    assert captured.get("gate_step_callback") is callback

@@ -17,6 +17,7 @@ def run_policy_gates(
     policy: Policy,
     decision_paths: list[str],
     progress: Callable[[str], None] | None,
+    gate_step_callback: Callable[..., None] | None = None,
 ) -> None:
     """Run gates using a single canonical Policy->run_gates wiring.
 
@@ -115,4 +116,5 @@ def run_policy_gates(
         python_gate_python=policy.python_gate_python,
         decision_paths=decision_paths,
         progress=progress,
+        gate_step_callback=gate_step_callback,
     )

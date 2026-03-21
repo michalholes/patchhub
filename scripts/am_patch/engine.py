@@ -54,7 +54,6 @@ from am_patch.runtime import (
     _stage_fail,
     _stage_ok,
     _stage_rank,
-    _under_targets,
 )
 from am_patch.scope import changed_paths, enforce_scope_delta
 from am_patch.startup_context import RunContext, build_paths_and_logger
@@ -82,6 +81,89 @@ def _detect_engine_roots(module_file: str | Path | None = None) -> tuple[Path, P
     else:
         runner_root = import_root
     return runner_root, import_root
+
+
+def _step_delta(pre_dirty: list[str], post_dirty: list[str]) -> list[str]:
+    pre_set = {p for p in pre_dirty if p}
+    return sorted(p for p in post_dirty if p and p not in pre_set)
+
+
+def _legacy_legalized_key(step_key: str) -> str | None:
+    if step_key in {"ruff_format", "ruff_fix"}:
+        return "legalized_ruff_autofix_files"
+    if step_key == "biome_format":
+        return "legalized_biome_format_files"
+    if step_key == "biome_autofix":
+        return "legalized_biome_autofix_files"
+    return None
+
+
+def _under_configured_targets(rel: str, targets: list[str]) -> bool:
+    for target in targets:
+        item = str(target or "").strip().rstrip("/")
+        if item and (rel == item or rel.startswith(item + "/")):
+            return True
+    return False
+
+
+def _ruff_step_eligible(policy: Policy, step_key: str, delta: list[str]) -> list[str]:
+    if step_key == "ruff_format":
+        enabled = bool(policy.ruff_format)
+    elif step_key == "ruff_fix":
+        enabled = bool(policy.ruff_autofix)
+    else:
+        return []
+    if not enabled or not getattr(policy, "ruff_autofix_legalize_outside", True):
+        return []
+    return sorted(p for p in delta if _under_configured_targets(p, policy.ruff_targets))
+
+
+def _biome_step_eligible(policy: Policy, step_key: str, delta: list[str]) -> list[str]:
+    if step_key == "biome_format":
+        enabled = bool(policy.biome_format)
+        legalize_outside = bool(getattr(policy, "biome_format_legalize_outside", True))
+    elif step_key == "biome_autofix":
+        enabled = bool(policy.biome_autofix)
+        legalize_outside = bool(getattr(policy, "biome_autofix_legalize_outside", True))
+    else:
+        return []
+    if not enabled or not legalize_outside:
+        return []
+    exts = [str(ext).lower() for ext in policy.gate_biome_extensions]
+    return sorted(p for p in delta if any(p.lower().endswith(ext) for ext in exts))
+
+
+def _gate_step_capture_sink(
+    *,
+    logger: Any,
+    policy: Policy,
+    workspace_root: Path,
+    state: Any,
+    files_for_fail_zip: list[str],
+    step_key: str,
+    pre_dirty: list[str],
+    post_dirty: list[str],
+) -> tuple[Any, list[str]]:
+    delta = _step_delta(pre_dirty, post_dirty)
+    if step_key.startswith("ruff_"):
+        eligible = _ruff_step_eligible(policy, step_key, delta)
+    else:
+        eligible = _biome_step_eligible(policy, step_key, delta)
+    legalized = sorted(p for p in eligible if p not in state.allowed_union)
+    updated_fail_zip = sorted(set(files_for_fail_zip) | set(post_dirty))
+    if not legalized:
+        logger.line(f"gate_step_legalized_{step_key}={legalized}")
+        return state, updated_fail_zip
+    next_state = type(state)(
+        base_sha=state.base_sha,
+        allowed_union=set(state.allowed_union) | set(legalized),
+    )
+    save_state(workspace_root, next_state)
+    logger.line(f"gate_step_legalized_{step_key}={legalized}")
+    legacy_key = _legacy_legalized_key(step_key)
+    if legacy_key is not None:
+        logger.line(f"{legacy_key}={legalized}")
+    return next_state, updated_fail_zip
 
 
 __all__ = [
@@ -366,6 +448,19 @@ def run_mode(ctx: RunContext) -> RunResult:
         st = exec_ctx.state_before
         live_guard_before = exec_ctx.live_guard_before
 
+        def _capture_sink(*, step_key: str, pre_dirty: list[str], post_dirty: list[str]) -> None:
+            nonlocal st, files_for_fail_zip
+            st, files_for_fail_zip = _gate_step_capture_sink(
+                logger=logger,
+                policy=policy,
+                workspace_root=ws.root,
+                state=st,
+                files_for_fail_zip=files_for_fail_zip,
+                step_key=step_key,
+                pre_dirty=pre_dirty,
+                post_dirty=post_dirty,
+            )
+
         try:
             touched_for_zip: list[str] = []
             failed_patch_blobs: list[tuple[str, bytes]] = []
@@ -526,6 +621,7 @@ def run_mode(ctx: RunContext) -> RunResult:
             decision_paths=touched,
             progress=_gate_progress,
             run_badguys_gate=True,
+            gate_step_callback=_capture_sink,
         )
 
         # Live repo guard: optionally also after gates.
@@ -561,44 +657,6 @@ def run_mode(ctx: RunContext) -> RunResult:
         # Determine what to promote/commit: all current dirty paths within allowed_union.
         dirty_all = changed_paths(logger, ws.repo)
 
-        # Ruff autofix may introduce additional changes after the patch. When enabled,
-        # automatically legalize ruff-only changes outside FILES (bounded to ruff_targets).
-        if policy.ruff_autofix and getattr(policy, "ruff_autofix_legalize_outside", True):
-            patch_set = set(dirty_after_patch)
-            now_set = set(dirty_all)
-            ruff_only = sorted(p for p in (now_set - patch_set) if p)
-            if ruff_only:
-                legalized = sorted([p for p in ruff_only if _under_targets(p)])
-                if legalized:
-                    st = update_union(st, legalized)
-                    save_state(ws.root, st)
-                    logger.line(f"legalized_ruff_autofix_files={legalized}")
-        if policy.biome_format and getattr(policy, "biome_format_legalize_outside", True):
-            patch_set = set(dirty_after_patch)
-            now_set = set(dirty_all)
-            biome_only = sorted(p for p in (now_set - patch_set) if p)
-            if biome_only:
-                exts = [str(e).lower() for e in policy.gate_biome_extensions]
-                legalized = sorted(
-                    [p for p in biome_only if any(p.lower().endswith(e) for e in exts)]
-                )
-                if legalized:
-                    st = update_union(st, legalized)
-                    save_state(ws.root, st)
-                    logger.line(f"legalized_biome_format_files={legalized}")
-        if policy.biome_autofix and getattr(policy, "biome_autofix_legalize_outside", True):
-            patch_set = set(dirty_after_patch)
-            now_set = set(dirty_all)
-            biome_only = sorted(p for p in (now_set - patch_set) if p)
-            if biome_only:
-                exts = [str(e).lower() for e in policy.gate_biome_extensions]
-                legalized = sorted(
-                    [p for p in biome_only if any(p.lower().endswith(e) for e in exts)]
-                )
-                if legalized:
-                    st = update_union(st, legalized)
-                    save_state(ws.root, st)
-                    logger.line(f"legalized_biome_autofix_files={legalized}")
         if defer_patch_apply_failure:
             # Ensure failure archive includes any gate-induced changes.
             files_for_fail_zip = sorted(set(files_for_fail_zip) | set(dirty_all))

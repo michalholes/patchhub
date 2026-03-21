@@ -30,6 +30,7 @@ def run_validation(
     decision_paths: list[str],
     progress: Any,
     run_badguys_gate: bool,
+    gate_step_callback: Any = None,
 ) -> GateSummary:
     if not getattr(policy, "gate_monolith_extensions", None):
         raise RunnerError(
@@ -45,6 +46,7 @@ def run_validation(
         policy=policy,
         decision_paths=decision_paths,
         progress=progress,
+        gate_step_callback=gate_step_callback,
     )
 
     if run_badguys_gate and getattr(policy, "gate_badguys", False):
