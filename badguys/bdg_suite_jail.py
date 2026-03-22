@@ -155,16 +155,37 @@ def _suite_jail_origin_repo_root(repo_root: Path) -> Path:
     return repo_root / ".git" / "suite_jail_origin.git"
 
 
+_FALLBACK_GIT_USER_NAME = "BadGuys Suite Jail"
+_FALLBACK_GIT_USER_EMAIL = "badguys-suite-jail@example.invalid"
+
+
 def _sync_git_identity(*, host_repo_root: Path, repo_root: Path) -> None:
-    for key in ("user.name", "user.email"):
-        value = _git_local_config(cwd=host_repo_root, key=key)
-        if value is None:
-            continue
+    for key, value in _resolve_git_identity(host_repo_root=host_repo_root).items():
         _git_stdout(
             cwd=repo_root,
             argv=["git", "config", "--local", key, value],
             label=(f"git config --local {key} failed while syncing suite jail identity"),
         )
+
+
+def _resolve_git_identity(*, host_repo_root: Path) -> dict[str, str]:
+    name = _git_identity_value(_git_local_config(cwd=host_repo_root, key="user.name"))
+    email = _git_identity_value(_git_local_config(cwd=host_repo_root, key="user.email"))
+    if name is not None and email is not None:
+        return {"user.name": name, "user.email": email}
+    return {
+        "user.name": _FALLBACK_GIT_USER_NAME,
+        "user.email": _FALLBACK_GIT_USER_EMAIL,
+    }
+
+
+def _git_identity_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    return trimmed
 
 
 def _git_local_config(*, cwd: Path, key: str) -> str | None:

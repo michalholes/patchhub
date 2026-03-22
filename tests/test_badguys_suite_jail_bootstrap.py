@@ -116,6 +116,66 @@ def test_prepare_suite_jail_bootstraps_git_repo_without_runtime_baggage(
     assert issue_artifact.exists()
 
 
+def test_prepare_suite_jail_uses_fallback_git_identity_when_local_identity_missing(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True)
+    _init_repo(repo_root)
+    _git(repo_root, "config", "--local", "--unset", "user.name")
+    _git(repo_root, "config", "--local", "--unset", "user.email")
+
+    jail = prepare_suite_jail(
+        host_repo_root=repo_root,
+        issue_id=ISSUE_ID,
+        host_bind_paths=[],
+    )
+    try:
+        assert _git(jail.repo_root, "config", "--get", "user.name") == (
+            bdg_suite_jail._FALLBACK_GIT_USER_NAME
+        )
+        assert _git(jail.repo_root, "config", "--get", "user.email") == (
+            bdg_suite_jail._FALLBACK_GIT_USER_EMAIL
+        )
+    finally:
+        teardown_suite_jail(repo_root, ISSUE_ID)
+
+
+def test_prepare_suite_jail_uses_fallback_git_identity_when_local_identity_blank(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True)
+    _init_repo(repo_root)
+
+    real_git_local_config = bdg_suite_jail._git_local_config
+
+    def _fake_git_local_config(*, cwd: Path, key: str) -> str | None:
+        if key == "user.name":
+            return "   "
+        if key == "user.email":
+            return "test@example.com"
+        return real_git_local_config(cwd=cwd, key=key)
+
+    monkeypatch.setattr(bdg_suite_jail, "_git_local_config", _fake_git_local_config)
+
+    jail = prepare_suite_jail(
+        host_repo_root=repo_root,
+        issue_id=ISSUE_ID,
+        host_bind_paths=[],
+    )
+    try:
+        assert _git(jail.repo_root, "config", "--get", "user.name") == (
+            bdg_suite_jail._FALLBACK_GIT_USER_NAME
+        )
+        assert _git(jail.repo_root, "config", "--get", "user.email") == (
+            bdg_suite_jail._FALLBACK_GIT_USER_EMAIL
+        )
+    finally:
+        teardown_suite_jail(repo_root, ISSUE_ID)
+
+
 def test_prepare_suite_jail_does_not_swallow_git_local_config_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
