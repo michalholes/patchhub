@@ -59,12 +59,7 @@ def prepare_suite_jail(
     if root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(
-        host_repo_root,
-        repo_root,
-        ignore=_copytree_ignore,
-        dirs_exist_ok=False,
-    )
+    _bootstrap_jail_repo(host_repo_root=host_repo_root, repo_root=repo_root)
     _prepare_bind_targets(
         host_repo_root=host_repo_root,
         jail_repo_root=repo_root,
@@ -119,6 +114,40 @@ def teardown_suite_jail(host_repo_root: Path, issue_id: str) -> None:
     shutil.rmtree(suite_jail_root(host_repo_root, issue_id), ignore_errors=True)
 
 
+def _bootstrap_jail_repo(*, host_repo_root: Path, repo_root: Path) -> None:
+    base_sha = _git_stdout(
+        cwd=host_repo_root,
+        argv=["git", "rev-parse", "HEAD"],
+        label="unable to resolve live repo HEAD for suite jail bootstrap",
+    )
+    _git_stdout(
+        cwd=host_repo_root,
+        argv=["git", "clone", "--no-hardlinks", str(host_repo_root), str(repo_root)],
+        label="git clone failed while bootstrapping suite jail repo",
+    )
+    _git_stdout(
+        cwd=repo_root,
+        argv=["git", "checkout", base_sha],
+        label=(f"git checkout failed while bootstrapping suite jail repo at {base_sha}"),
+    )
+
+
+def _git_stdout(*, cwd: Path, argv: list[str], label: str) -> str:
+    proc = subprocess.run(
+        argv,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode == 0:
+        return (proc.stdout or "").strip()
+    detail = (proc.stderr or proc.stdout or "").strip()
+    if not detail:
+        detail = "command failed"
+    raise SystemExit(f"FAIL: suite jail: {label}: {detail}")
+
+
 def _prepare_bind_targets(
     *,
     host_repo_root: Path,
@@ -144,10 +173,3 @@ def _repo_relative_path(*, host_repo_root: Path, host_path: Path) -> Path:
         return resolved_host.relative_to(resolved_root)
     except ValueError as exc:
         raise SystemExit(f"FAIL: suite jail bind path outside repo root: {host_path}") from exc
-
-
-def _copytree_ignore(current_dir: str, names: list[str]) -> set[str]:
-    current = Path(current_dir)
-    if current.name == "patches" and "badguys_suite_jail" in names:
-        return {"badguys_suite_jail"}
-    return set()
