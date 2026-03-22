@@ -1,4 +1,4 @@
-# AM Patch Runner - Functional Specification v10 (UPDATED)
+# AM Patch Runner - Functional Specification v11 (UPDATED)
 
 This document is **authoritative** for the AM Patch Runner contract.
 
@@ -1435,6 +1435,8 @@ Pull/rebase only when explicitly enabled.
 - If `self_backup_mode == "initial_self_patch"` and that issue workspace
   repo directory does not exist, the runner MUST create an initial
   self-backup immediately before that first `ensure_workspace(...)` call.
+- If `test_mode == true`, the runner MUST skip the initial self-backup.
+- For this case, the skip reason is `test_mode`.
 - If the issue workspace repo directory already exists, the runner MUST
   skip the initial self-backup.
 - The initial self-backup zip path is always rendered as
