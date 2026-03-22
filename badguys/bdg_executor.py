@@ -468,6 +468,7 @@ def _exec_one(
             cli_console_verbosity,
             cli_log_verbosity,
             None,
+            None,
         )
         runner_cmd = list(cfg.runner_cmd)
         if cli_commit_limit is not None:

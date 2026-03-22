@@ -33,6 +33,7 @@ def _make_ctx(repo_root: Path) -> Ctx:
         full_runner_tests=[],
         copy_runner_log=False,
         write_subprocess_stdio=False,
+        suite_jail=False,
     )
     return Ctx(
         repo_root=repo_root,
@@ -63,6 +64,9 @@ def test_cleanup_issue_artifacts_removes_current_artifacts_each_time(
         _touch(patches_dir / f"patched_issue{ISSUE_ID}_v01.zip")
         _touch(patches_dir / f"issue_{ISSUE_ID}__bdg__test_probe.json")
         _touch(
+            patches_dir / "badguys_artifacts" / f"issue_{ISSUE_ID}" / "test_probe" / "artifact.txt"
+        )
+        _touch(
             patches_dir
             / "workspaces"
             / f"issue_{ISSUE_ID}"
@@ -81,6 +85,7 @@ def test_cleanup_issue_artifacts_removes_current_artifacts_each_time(
     assert not (patches_dir / "unsuccessful" / f"issue_{ISSUE_ID}_failure.zip").exists()
     assert not (patches_dir / f"patched_issue{ISSUE_ID}_v01.zip").exists()
     assert not (patches_dir / f"issue_{ISSUE_ID}__bdg__test_probe.json").exists()
+    assert not (patches_dir / "badguys_artifacts" / f"issue_{ISSUE_ID}").exists()
     assert not (patches_dir / "workspaces" / f"issue_{ISSUE_ID}").exists()
 
     seed_current_issue()
@@ -105,6 +110,13 @@ def test_cleanup_issue_artifacts_preserves_other_issue_artifacts(
     _touch(patches_dir / f"issue_{OTHER_ISSUE_ID}__bdg__test_probe.json")
     _touch(
         patches_dir
+        / "badguys_artifacts"
+        / f"issue_{OTHER_ISSUE_ID}"
+        / "test_probe"
+        / "artifact.txt"
+    )
+    _touch(
+        patches_dir
         / "workspaces"
         / f"issue_{OTHER_ISSUE_ID}"
         / "repo"
@@ -122,4 +134,5 @@ def test_cleanup_issue_artifacts_preserves_other_issue_artifacts(
     assert (patches_dir / "unsuccessful" / f"issue_{OTHER_ISSUE_ID}_failure.zip").exists()
     assert (patches_dir / f"patched_issue{OTHER_ISSUE_ID}_v01.zip").exists()
     assert (patches_dir / f"issue_{OTHER_ISSUE_ID}__bdg__test_probe.json").exists()
+    assert (patches_dir / "badguys_artifacts" / f"issue_{OTHER_ISSUE_ID}").exists()
     assert (patches_dir / "workspaces" / f"issue_{OTHER_ISSUE_ID}").exists()

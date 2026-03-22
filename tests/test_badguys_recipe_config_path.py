@@ -171,6 +171,67 @@ def test_build_cfg_uses_recipe_from_selected_config_path(tmp_path: Path) -> None
     assert "--verbosity=quiet" not in result.value
 
 
+def test_build_cfg_passes_no_suite_jail_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path
+    alt_path = _write_alt_config(repo_root, include_commit_limit_step=False)
+    bdg = BdgTest(
+        test_id="test_cfg",
+        makes_commit=False,
+        is_guard=False,
+        assets={
+            "cfg": BdgAsset(
+                asset_id="cfg",
+                kind="toml_text",
+                content='[suite]\nrunner_verbosity = "quiet"\n',
+                entries=[],
+            )
+        },
+        steps=[BdgStep(op="BUILD_CFG", params={"input_asset": "cfg"})],
+    )
+    subst = SubstCtx(issue_id="777", now_stamp="20260307_150000")
+    mats = materialize_assets(
+        repo_root=repo_root,
+        config_path=alt_path.relative_to(repo_root),
+        subst=subst,
+        bdg=bdg,
+    )
+    seen: list[bool | None] = []
+
+    def _fake_make_cfg(
+        repo_root: Path,
+        config_path: Path,
+        cli_runner_verbosity: str | None,
+        cli_console_verbosity: str | None,
+        cli_log_verbosity: str | None,
+        cli_per_run_logs_post_run: str | None,
+        cli_suite_jail: bool | None,
+    ) -> object:
+        seen.append(cli_suite_jail)
+        return type("Cfg", (), {"runner_cmd": ["python3", "scripts/am_patch.py"]})()
+
+    monkeypatch.setattr("badguys.run_suite._make_cfg", _fake_make_cfg)
+
+    result = execute_bdg_step(
+        repo_root=repo_root,
+        config_path=alt_path.relative_to(repo_root),
+        cfg_runner_cmd=["python3", "scripts/am_patch.py", "--verbosity=quiet"],
+        subst=subst,
+        full_runner_tests=set(),
+        step=bdg.steps[0],
+        mats=mats,
+        test_id=bdg.test_id,
+        step_index=0,
+        step_runner_cfg=_step_runner_cfg(repo_root),
+    )
+
+    assert result.rc == 0
+    assert result.value == "python3 scripts/am_patch.py"
+    assert seen == [None]
+
+
 def test_materialize_assets_rejects_legacy_subject_authority(tmp_path: Path) -> None:
     repo_root = tmp_path
     alt_path = _write_alt_config_with_legacy_subject(repo_root)
