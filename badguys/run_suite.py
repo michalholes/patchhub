@@ -671,8 +671,23 @@ def _inner_suite_run(args: argparse.Namespace, cfg: SuiteCfg, *, run_id: str) ->
     )
 
 
-def _suite_inner_argv(args: argparse.Namespace) -> list[str]:
-    argv = [sys.executable, "badguys/badguys.py"]
+def _suite_jail_python(repo_root: Path) -> str:
+    return _suite_jail_visible_path(repo_root=repo_root, value=sys.executable)
+
+
+def _suite_jail_visible_path(*, repo_root: Path, value: str) -> str:
+    candidate = Path(str(value))
+    if not candidate.is_absolute():
+        return str(value)
+    try:
+        relative = candidate.relative_to(repo_root)
+    except ValueError:
+        return str(candidate)
+    return str(Path("/repo") / relative)
+
+
+def _suite_inner_argv(args: argparse.Namespace, *, repo_root: Path) -> list[str]:
+    argv = [_suite_jail_python(repo_root), "badguys/badguys.py"]
     argv += ["--config", str(getattr(args, "config", "badguys/config.toml"))]
     commit_limit = getattr(args, "commit_limit", None)
     if commit_limit is not None:
@@ -737,7 +752,9 @@ def _outer_suite_run(
         env = os.environ.copy()
         env["AM_BADGUYS_SUITE_JAIL_INNER"] = "1"
         env["AM_BADGUYS_RUN_ID"] = run_id
-        inner_argv = _suite_inner_argv(args)
+        jail_python = _suite_jail_python(repo_root)
+        env["AM_PATCH_BADGUYS_RUNNER_PYTHON"] = jail_python
+        inner_argv = _suite_inner_argv(args, repo_root=repo_root)
         return run_in_suite_jail(
             host_repo_root=repo_root,
             jail_repo_root=jail.repo_root,

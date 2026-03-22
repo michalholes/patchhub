@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+from badguys import bdg_suite_jail
 from badguys.bdg_suite_jail import prepare_suite_jail, teardown_suite_jail
 
 ISSUE_ID = "663"
@@ -76,6 +78,18 @@ def test_prepare_suite_jail_bootstraps_git_repo_without_runtime_baggage(
         remote_origin = _git(jail.repo_root, "config", "--get", "remote.origin.url")
         assert remote_origin == "./.git/suite_jail_origin.git"
         assert remote_origin != str(repo_root)
+        assert _git(jail.repo_root, "config", "--get", "user.name") == _git(
+            repo_root,
+            "config",
+            "--get",
+            "user.name",
+        )
+        assert _git(jail.repo_root, "config", "--get", "user.email") == _git(
+            repo_root,
+            "config",
+            "--get",
+            "user.email",
+        )
         _git(jail.repo_root, "fetch", "--prune")
         assert _git(jail.repo_root, "rev-parse", "HEAD") == _git(repo_root, "rev-parse", "HEAD")
         assert _git(jail.repo_root, "rev-parse", "--abbrev-ref", "HEAD") == _git(
@@ -100,3 +114,28 @@ def test_prepare_suite_jail_bootstraps_git_repo_without_runtime_baggage(
     assert quarantine_marker.exists()
     assert issue_patch.exists()
     assert issue_artifact.exists()
+
+
+def test_prepare_suite_jail_does_not_swallow_git_local_config_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True)
+    _init_repo(repo_root)
+
+    real_run = bdg_suite_jail.subprocess.run
+
+    def _fake_run(argv, **kwargs):
+        if list(argv)[:5] == ["git", "config", "--local", "--get", "user.name"]:
+            return subprocess.CompletedProcess(argv, 128, "", "config broke")
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(bdg_suite_jail.subprocess, "run", _fake_run)
+
+    with pytest.raises(SystemExit, match="git config --local --get user.name failed"):
+        prepare_suite_jail(
+            host_repo_root=repo_root,
+            issue_id=ISSUE_ID,
+            host_bind_paths=[],
+        )
