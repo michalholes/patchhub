@@ -141,6 +141,7 @@ Validácia musí zahŕňať:
 - Overenie, že FILES MANIFEST zodpovedá deklarovanému rozsahu.
 - Overenie, že navrhované zmeny nemenia systémový kontrakt.
 - Overenie, že návrh nevyužíva interpretačné medzery v špecifikácii.
+- Ak handoff meni alebo refaktoruje control-flow routing, terminal/finalization cestu, failure/exception mapping alebo state propagation do downstream finalizacnej/pipeline logiky, validacia MUSI overit uplnost a spravnost blokov SHARED CONTRACT INVENTORY, DOWNSTREAM STATE DEPENDENCY INVENTORY a EXCEPTION / STATE MATRIX podla sekcie 5A.
 
 Ak handoff nie je plne kompatibilný:
 
@@ -173,7 +174,42 @@ Pre kazde Pi MUSI handoff uviest vlastny blok SUCCESS CRITERIA s identifikatormi
 Kazda normativna poziadavka handoffu mimo PLAN FREEZE, ktora obmedzuje implementacny rozsah, FILES MANIFEST, zakazane zasahy, shape vystupu alebo gating, MUSI byt explicitne naviazana na aspon jedno Pi v PLAN COVERAGE MATRIX. Nenaviazana normativna poziadavka = handoff je neplatny.
 
 ---
+## 5A. POVINNE INVARIANTNE INVENTARE PRE CONTROL-FLOW A FINALIZATION REFAKTORY (HARD)
 
+Toto pravidlo plati, ak handoff uklada zmenu alebo refaktor:
+- control-flow routingu medzi vetvami alebo fazami,
+- terminal/finalization cesty,
+- failure/exception translation alebo result-summary mappingu,
+- state propagation do objektov alebo struktur citanych downstream finalizaciou, cleanup logikou, artifact pipeline alebo post-run pipeline.
+
+Ak plati aspon jedna odrazka vyssie, handoff MUSI obsahovat tieto tri sekcie. Absencia ktorejkolvek sekcie alebo vynechanie relevantnej polozky = handoff je neplatny.
+
+A. SHARED CONTRACT INVENTORY
+- Pre kazdy existujuci shared normalizer, encoder, summary builder, contract producer alebo iny autoritativny helper dotknuty zmenou MUSI handoff uviest:
+- source file + symbol
+- aku autoritativnu semantiku nesie
+- ci musi byt znovupouzity bez zmeny, wrapped, alebo je explicitne mimo scope
+- Lokalna reimplementacia existujucej autoritativnej semantiky je zakazana, ak uz existuje shared source of truth.
+
+B. DOWNSTREAM STATE DEPENDENCY INVENTORY
+- Pre kazdeho downstream consumera dotknuteho zmenou MUSI handoff uviest:
+- consumer file + symbol
+- ake polia alebo state channels cita
+- z akeho autoritativneho zdroja pochadzaju
+- ako sa prenesu v kazdej novej alebo zmenenej vetve
+- Inventar MUSI pokryt aj stavy citane z result/context objektov finalizaciou, cleanupom, artifact pipeline alebo post-run pipeline.
+
+C. EXCEPTION / STATE MATRIX
+- Riadky MUSIA pokryt kazdy relevantny failure/exception kind vratane generic fallback vetvy, ak nie je dokazane nemozna.
+- Stlpce MUSIA pokryt kazdy relevantny state variant v bode vetvenia, ktory meni terminalnu semantiku alebo povinne prenesene data.
+- Kazda bunka MUSI uviest:
+- ocakavanu terminalnu semantiku alebo vystup
+- povinne prenesene state inputs
+- odkaz na Pi a SC, ktore bunku pokryvaju, alebo explicitne dokazany no-op/impossible stav
+
+Pre handoffy spadajuce pod tuto sekciu plati, ze SUCCESS CRITERIA a testove pokrytie MUSIA pokryt kazdu ne-no-op bunku matice. Test overujuci iba to, ze sa zavola finalizacia alebo prebehne branch, bez overenia shared semantiky a state propagation, je nedostatocny.
+
+---
 ## 6. KONTROLA IMPLEMENTÁCIE (HARD)
 
 Ak používateľ po implementácii poskytne zip s repo tree:
