@@ -252,6 +252,16 @@ def maybe_create_initial_self_backup(
     logger.line(f"self_backup_mode={mode}")
     logger.line(f"self_backup_workspace_repo_dir={workspace_repo_dir}")
 
+    if bool(getattr(policy, "test_mode", False)):
+        logger.line("self_backup_skip_reason=test_mode")
+        logger.info_core("self_backup=SKIP reason=test_mode")
+        return InitialSelfBackupResult(
+            created=False,
+            skip_reason="test_mode",
+            zip_path=None,
+            archived_files=(),
+            self_target=self_target,
+        )
     if mode == "never":
         logger.line("self_backup_skip_reason=mode_never")
         logger.info_core("self_backup=SKIP reason=mode_never")

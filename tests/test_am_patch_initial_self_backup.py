@@ -131,6 +131,7 @@ def test_initial_self_backup_creates_zip_for_self_target_missing_workspace_repo(
 @pytest.mark.parametrize(
     ("live_root_name", "policy", "workspace_exists", "expected_reason"),
     [
+        ("runner", _policy(test_mode=True), False, "test_mode"),
         ("runner", _policy(), True, "workspace_exists"),
         ("live", _policy(), False, "not_self_target"),
         ("runner", _policy(self_backup_mode="never"), False, "mode_never"),
@@ -171,6 +172,8 @@ def test_initial_self_backup_skip_reasons(
 
         assert result.created is False
         assert result.skip_reason == expected_reason
+        assert result.zip_path is None
+        assert not any(artifacts_root.rglob("*.zip"))
         if expected_reason == "workspace_exists":
             assert not (artifacts_root / "quarantine").exists()
 
