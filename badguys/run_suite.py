@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from badguys import suite_jail_runtime
 from badguys.bdg_ops_ipc import runner_socket_name
 from badguys.bdg_suite_jail import (
     prepare_suite_jail,
@@ -743,10 +744,12 @@ def _outer_suite_run(
 
     require_bwrap()
     bind_paths = [cfg.logs_dir, central_log]
+    external_bind_paths = suite_jail_runtime.external_bind_paths(repo_root=repo_root)
     jail = prepare_suite_jail(
         host_repo_root=repo_root,
         issue_id=cfg.issue_id,
         host_bind_paths=bind_paths,
+        host_external_bind_paths=external_bind_paths,
     )
     try:
         env = os.environ.copy()
@@ -760,6 +763,7 @@ def _outer_suite_run(
             jail_repo_root=jail.repo_root,
             argv=inner_argv,
             host_bind_paths=bind_paths,
+            host_external_bind_paths=external_bind_paths,
             env=env,
         )
     finally:

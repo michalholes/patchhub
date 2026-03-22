@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from badguys import run_suite
+from badguys import bdg_suite_jail, run_suite
 
 ISSUE_ID = "664"
 
@@ -78,10 +78,12 @@ def test_outer_suite_run_propagates_jail_visible_python_for_inner_runner(
         jail_repo_root: Path,
         argv,
         host_bind_paths,
+        host_external_bind_paths,
         env,
     ) -> int:
         seen["argv"] = list(argv)
         seen["env"] = dict(env)
+        seen["host_external_bind_paths"] = list(host_external_bind_paths)
         return 0
 
     monkeypatch.setattr(run_suite, "run_in_suite_jail", _fake_run_in_suite_jail)
@@ -113,6 +115,7 @@ def test_outer_suite_run_propagates_jail_visible_python_for_inner_runner(
         "--suite-jail",
     ]
     assert seen["env"]["AM_PATCH_BADGUYS_RUNNER_PYTHON"] == jail_python
+    assert seen["host_external_bind_paths"] == []
 
     monkeypatch.setenv("AM_PATCH_BADGUYS_RUNNER_PYTHON", jail_python)
     inner_cfg = run_suite._make_cfg(
@@ -125,3 +128,110 @@ def test_outer_suite_run_propagates_jail_visible_python_for_inner_runner(
         None,
     )
     assert inner_cfg.runner_cmd[0] == jail_python
+
+
+def test_outer_suite_run_binds_existing_user_site_for_system_runner(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = _write_config(tmp_path, suite_jail=True)
+    cfg = run_suite._make_cfg(
+        tmp_path,
+        config_path.relative_to(tmp_path),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+
+    seen: dict[str, object] = {}
+    user_site = tmp_path.parent / "userbase" / "lib" / "python3.11" / "site-packages"
+    user_site.mkdir(parents=True)
+
+    monkeypatch.setattr(run_suite, "require_bwrap", lambda: "/usr/bin/bwrap")
+    monkeypatch.setattr(run_suite.sys, "executable", "/usr/bin/python3")
+    monkeypatch.setattr(
+        run_suite.suite_jail_runtime.site,
+        "getusersitepackages",
+        lambda: str(user_site),
+    )
+    monkeypatch.setattr(
+        run_suite,
+        "prepare_suite_jail",
+        lambda **kwargs: type(
+            "SuiteJail",
+            (),
+            {
+                "root": tmp_path / "patches" / "badguys_suite_jail" / f"issue_{ISSUE_ID}",
+                "repo_root": (
+                    tmp_path / "patches" / "badguys_suite_jail" / f"issue_{ISSUE_ID}" / "repo"
+                ),
+            },
+        )(),
+    )
+
+    def _fake_run_in_suite_jail(
+        *,
+        host_repo_root: Path,
+        jail_repo_root: Path,
+        argv,
+        host_bind_paths,
+        host_external_bind_paths,
+        env,
+    ) -> int:
+        seen["argv"] = list(argv)
+        seen["host_external_bind_paths"] = list(host_external_bind_paths)
+        seen["env"] = dict(env)
+        return 0
+
+    monkeypatch.setattr(run_suite, "run_in_suite_jail", _fake_run_in_suite_jail)
+    monkeypatch.setattr(run_suite, "teardown_suite_jail", lambda host_repo_root, issue_id: None)
+
+    args = type(
+        "Args",
+        (),
+        {
+            "config": str(config_path.relative_to(tmp_path)),
+            "commit_limit": None,
+            "runner_verbosity": None,
+            "console_verbosity": None,
+            "log_verbosity": None,
+            "per_run_logs_post_run": None,
+            "suite_jail": True,
+            "include": [],
+            "exclude": [],
+            "list_tests": False,
+        },
+    )()
+
+    assert run_suite._outer_suite_run(args, cfg, repo_root=tmp_path, run_id="testrun") == 0
+    assert seen["argv"][0] == "/usr/bin/python3"
+    assert seen["env"]["AM_PATCH_BADGUYS_RUNNER_PYTHON"] == "/usr/bin/python3"
+    assert seen["host_external_bind_paths"] == [user_site.resolve()]
+
+
+def test_build_bwrap_cmd_ro_binds_external_runtime_directory(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    jail_repo = tmp_path / "jail" / "repo"
+    repo_root.mkdir(parents=True)
+    jail_repo.mkdir(parents=True)
+    logs_dir = repo_root / "patches" / "badguys_logs"
+    logs_dir.mkdir(parents=True)
+    external = tmp_path.parent / "userbase" / "lib" / "python3.11" / "site-packages"
+    external.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(bdg_suite_jail, "require_bwrap", lambda: "/usr/bin/bwrap")
+
+    cmd = bdg_suite_jail.build_bwrap_cmd(
+        host_repo_root=repo_root,
+        jail_repo_root=jail_repo,
+        argv=["/usr/bin/python3", "badguys/badguys.py"],
+        host_bind_paths=[logs_dir],
+        host_external_bind_paths=[external],
+    )
+
+    joined = " ".join(cmd)
+    assert "--ro-bind" in cmd
+    assert f"--ro-bind {external.resolve()} {external.resolve()}" in joined
+    assert f"--dir {external.resolve().parent}" in joined

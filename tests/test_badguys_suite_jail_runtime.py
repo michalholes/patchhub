@@ -90,8 +90,19 @@ def test_jail_mode_tears_down_only_after_whole_run(
     events: list[tuple[str, str]] = []
 
     monkeypatch.setattr(run_suite, "require_bwrap", lambda: "/usr/bin/bwrap")
+    monkeypatch.setattr(
+        run_suite.suite_jail_runtime,
+        "external_bind_paths",
+        lambda *, repo_root: [],
+    )
 
-    def _fake_prepare_suite_jail(*, host_repo_root: Path, issue_id: str, host_bind_paths):
+    def _fake_prepare_suite_jail(
+        *,
+        host_repo_root: Path,
+        issue_id: str,
+        host_bind_paths,
+        host_external_bind_paths,
+    ):
         jail_root = host_repo_root / "patches" / "badguys_suite_jail" / f"issue_{issue_id}"
         repo_root = jail_root / "repo"
         repo_root.mkdir(parents=True, exist_ok=True)
@@ -103,8 +114,10 @@ def test_jail_mode_tears_down_only_after_whole_run(
         jail_repo_root: Path,
         argv,
         host_bind_paths,
+        host_external_bind_paths,
         env,
     ):
+        assert host_external_bind_paths == []
         events.append(("run_start", str(jail_repo_root.parent.exists())))
         _cleanup_issue_artifacts(_make_ctx(jail_repo_root), issue_id=ISSUE_ID, test_id="probe")
         events.append(("after_cleanup", str(jail_repo_root.parent.exists())))
@@ -160,8 +173,19 @@ def test_jail_mode_live_host_patches_keeps_only_logs(
     )
 
     monkeypatch.setattr(run_suite, "require_bwrap", lambda: "/usr/bin/bwrap")
+    monkeypatch.setattr(
+        run_suite.suite_jail_runtime,
+        "external_bind_paths",
+        lambda *, repo_root: [],
+    )
 
-    def _fake_prepare_suite_jail(*, host_repo_root: Path, issue_id: str, host_bind_paths):
+    def _fake_prepare_suite_jail(
+        *,
+        host_repo_root: Path,
+        issue_id: str,
+        host_bind_paths,
+        host_external_bind_paths,
+    ):
         jail_root = host_repo_root / "patches" / "badguys_suite_jail" / f"issue_{issue_id}"
         repo_root = jail_root / "repo"
         (repo_root / "patches").mkdir(parents=True, exist_ok=True)
@@ -173,12 +197,14 @@ def test_jail_mode_live_host_patches_keeps_only_logs(
         jail_repo_root: Path,
         argv,
         host_bind_paths,
+        host_external_bind_paths,
         env,
     ):
         assert host_bind_paths == [
             host_repo_root / "patches" / "badguys_logs",
             host_repo_root / "patches" / "badguys_testrun.log",
         ]
+        assert host_external_bind_paths == []
         _touch(
             jail_repo_root
             / "patches"
@@ -242,6 +268,11 @@ def test_jail_mode_uses_current_call_args_not_ambient_sys_argv(
 
     monkeypatch.setattr(run_suite, "require_bwrap", lambda: "/usr/bin/bwrap")
     monkeypatch.setattr(
+        run_suite.suite_jail_runtime,
+        "external_bind_paths",
+        lambda *, repo_root: [],
+    )
+    monkeypatch.setattr(
         run_suite,
         "prepare_suite_jail",
         lambda **kwargs: type(
@@ -262,8 +293,10 @@ def test_jail_mode_uses_current_call_args_not_ambient_sys_argv(
         jail_repo_root: Path,
         argv,
         host_bind_paths,
+        host_external_bind_paths,
         env,
     ):
+        assert host_external_bind_paths == []
         seen[:] = list(argv)
         return 0
 

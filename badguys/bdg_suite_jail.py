@@ -53,6 +53,7 @@ def prepare_suite_jail(
     host_repo_root: Path,
     issue_id: str,
     host_bind_paths: Iterable[Path],
+    host_external_bind_paths: Iterable[Path] = (),
 ) -> SuiteJail:
     root = suite_jail_root(host_repo_root, issue_id)
     repo_root = root / "repo"
@@ -65,6 +66,7 @@ def prepare_suite_jail(
         jail_repo_root=repo_root,
         host_bind_paths=host_bind_paths,
     )
+    _validate_external_bind_paths(host_external_bind_paths=host_external_bind_paths)
     return SuiteJail(root=root, repo_root=repo_root)
 
 
@@ -74,6 +76,7 @@ def build_bwrap_cmd(
     jail_repo_root: Path,
     argv: list[str],
     host_bind_paths: Iterable[Path],
+    host_external_bind_paths: Iterable[Path] = (),
 ) -> list[str]:
     bwrap = require_bwrap()
     cmd: list[str] = [bwrap, "--die-with-parent", "--new-session"]
@@ -88,6 +91,8 @@ def build_bwrap_cmd(
             host_path=host_path,
         )
         cmd += ["--bind", str(host_path), str(target)]
+    for host_path in host_external_bind_paths:
+        cmd += _bwrap_external_bind_args(host_path)
     cmd += ["--"] + list(argv)
     return cmd
 
@@ -98,13 +103,15 @@ def run_in_suite_jail(
     jail_repo_root: Path,
     argv: list[str],
     host_bind_paths: Iterable[Path],
-    env: dict[str, str],
+    host_external_bind_paths: Iterable[Path] = (),
+    env: dict[str, str] | None = None,
 ) -> int:
     cmd = build_bwrap_cmd(
         host_repo_root=host_repo_root,
         jail_repo_root=jail_repo_root,
         argv=argv,
         host_bind_paths=host_bind_paths,
+        host_external_bind_paths=host_external_bind_paths,
     )
     completed = subprocess.run(cmd, env=env, check=False)
     return int(completed.returncode)
@@ -220,6 +227,36 @@ def _git_stdout(*, cwd: Path, argv: list[str], label: str) -> str:
     if not detail:
         detail = "command failed"
     raise SystemExit(f"FAIL: suite jail: {label}: {detail}")
+
+
+def _validate_external_bind_paths(*, host_external_bind_paths: Iterable[Path]) -> None:
+    for host_path in host_external_bind_paths:
+        resolved = host_path.resolve()
+        if not resolved.is_absolute():
+            raise SystemExit(f"FAIL: suite jail external bind path must be absolute: {host_path}")
+        if not resolved.exists():
+            raise SystemExit(f"FAIL: suite jail external bind path missing: {host_path}")
+        if not resolved.is_dir():
+            raise SystemExit(f"FAIL: suite jail external bind path must be directory: {host_path}")
+
+
+def _bwrap_external_bind_args(host_path: Path) -> list[str]:
+    resolved = host_path.resolve()
+    cmd: list[str] = []
+    for parent in _external_bind_parent_dirs(resolved):
+        cmd += ["--dir", parent]
+    cmd += ["--ro-bind", str(resolved), str(resolved)]
+    return cmd
+
+
+def _external_bind_parent_dirs(path: Path) -> list[str]:
+    parents: list[str] = []
+    for parent in reversed(path.parents):
+        parent_str = str(parent)
+        if not parent_str or parent_str == "/":
+            continue
+        parents.append(parent_str)
+    return parents
 
 
 def _prepare_bind_targets(
