@@ -225,7 +225,8 @@ equals_step_index = 0
 [evaluation.tests.test_071_compile_exclude_respected.steps]
 [evaluation.tests.test_071_compile_exclude_respected.steps.0]
 rc_eq = 1
-value_contains = ["GATE: compile", "GATE: RUFF", "compile_exclude=['patches', 'scripts/badguys_batch1_excluded']"]
+value_contains = ["GATE: compile", "GATE: RUFF", "compile_exclude=['scripts/badguys_batch1_excluded'] (src=cli)"]
+value_not_contains = ["compile_exclude=['patches', 'scripts/badguys_batch1_excluded']"]
 
 [evaluation.tests.test_072_g_continues_after_gate_fail]
 [evaluation.tests.test_072_g_continues_after_gate_fail.steps]
@@ -310,9 +311,11 @@ rc_eq = 0
 value_contains = ["\"json_path\":", "\"ok\": true", "\"return_code\": 0"]
 value_not_contains = ["\"event\":\"connected\"", "\"kind\":\"HEARTBEAT\"", "\"msg\":\"RESULT: SUCCESS\"", "\"type\": \"result\"", "\"type\": \"log\""]
 
+
 [evaluation.tests.test_080_json_out_writes_ndjson_log.steps.2]
 rc_eq = 0
 value_contains = ["\"event\":\"connected\"", "\"kind\":\"HEARTBEAT\"", "\"type\":\"result\"", "\"msg\":\"RESULT: SUCCESS\""]
+
 
 [evaluation.tests.test_081_ipc_heartbeat_events_present]
 [evaluation.tests.test_081_ipc_heartbeat_events_present.steps]
