@@ -77,20 +77,6 @@ def test_prepare_suite_jail_bootstraps_git_repo_without_runtime_baggage(
         assert remote_origin == "./.git/suite_jail_origin.git"
         assert remote_origin != str(repo_root)
         _git(jail.repo_root, "fetch", "--prune")
-        assert _git(jail.repo_root, "config", "--local", "--get", "user.name") == _git(
-            repo_root,
-            "config",
-            "--local",
-            "--get",
-            "user.name",
-        )
-        assert _git(jail.repo_root, "config", "--local", "--get", "user.email") == _git(
-            repo_root,
-            "config",
-            "--local",
-            "--get",
-            "user.email",
-        )
         assert _git(jail.repo_root, "rev-parse", "HEAD") == _git(repo_root, "rev-parse", "HEAD")
         assert _git(jail.repo_root, "rev-parse", "--abbrev-ref", "HEAD") == _git(
             repo_root,

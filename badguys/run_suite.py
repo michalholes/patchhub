@@ -737,7 +737,6 @@ def _outer_suite_run(
         env = os.environ.copy()
         env["AM_BADGUYS_SUITE_JAIL_INNER"] = "1"
         env["AM_BADGUYS_RUN_ID"] = run_id
-        env["AM_PATCH_BADGUYS_RUNNER_PYTHON"] = sys.executable
         inner_argv = _suite_inner_argv(args)
         return run_in_suite_jail(
             host_repo_root=repo_root,

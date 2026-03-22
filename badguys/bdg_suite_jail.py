@@ -148,36 +148,10 @@ def _bootstrap_jail_repo(*, host_repo_root: Path, repo_root: Path) -> None:
         argv=["git", "reset", "--hard", base_sha],
         label=(f"git reset --hard failed while bootstrapping suite jail repo at {base_sha}"),
     )
-    _sync_local_git_identity(host_repo_root=host_repo_root, repo_root=repo_root)
 
 
 def _suite_jail_origin_repo_root(repo_root: Path) -> Path:
     return repo_root / ".git" / "suite_jail_origin.git"
-
-
-def _sync_local_git_identity(*, host_repo_root: Path, repo_root: Path) -> None:
-    for key in ("user.name", "user.email"):
-        value = _git_local_config(cwd=host_repo_root, key=key)
-        if value is None:
-            continue
-        _git_stdout(
-            cwd=repo_root,
-            argv=["git", "config", "--local", key, value],
-            label=f"git config failed while syncing suite jail {key}",
-        )
-
-
-def _git_local_config(*, cwd: Path, key: str) -> str | None:
-    proc = subprocess.run(
-        ["git", "config", "--local", "--get", key],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode == 0:
-        return (proc.stdout or "").strip()
-    return None
 
 
 def _git_stdout(*, cwd: Path, argv: list[str], label: str) -> str:
