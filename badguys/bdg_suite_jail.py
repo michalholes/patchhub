@@ -125,11 +125,33 @@ def _bootstrap_jail_repo(*, host_repo_root: Path, repo_root: Path) -> None:
         argv=["git", "clone", "--no-hardlinks", str(host_repo_root), str(repo_root)],
         label="git clone failed while bootstrapping suite jail repo",
     )
+    origin_repo_root = _suite_jail_origin_repo_root(repo_root)
+    _git_stdout(
+        cwd=host_repo_root,
+        argv=[
+            "git",
+            "clone",
+            "--bare",
+            "--no-hardlinks",
+            str(host_repo_root),
+            str(origin_repo_root),
+        ],
+        label="git clone --bare failed while bootstrapping suite jail origin",
+    )
     _git_stdout(
         cwd=repo_root,
-        argv=["git", "checkout", base_sha],
-        label=(f"git checkout failed while bootstrapping suite jail repo at {base_sha}"),
+        argv=["git", "remote", "set-url", "origin", "./.git/suite_jail_origin.git"],
+        label="git remote set-url failed while wiring suite jail origin",
     )
+    _git_stdout(
+        cwd=repo_root,
+        argv=["git", "reset", "--hard", base_sha],
+        label=(f"git reset --hard failed while bootstrapping suite jail repo at {base_sha}"),
+    )
+
+
+def _suite_jail_origin_repo_root(repo_root: Path) -> Path:
+    return repo_root / ".git" / "suite_jail_origin.git"
 
 
 def _git_stdout(*, cwd: Path, argv: list[str], label: str) -> str:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from badguys.bdg_suite_jail import prepare_suite_jail, teardown_suite_jail
 
-ISSUE_ID = "662"
+ISSUE_ID = "663"
 
 
 def _git(repo_root: Path, *argv: str) -> str:
@@ -72,6 +72,18 @@ def test_prepare_suite_jail_bootstraps_git_repo_without_runtime_baggage(
 
         assert (jail.repo_root / logs_dir.relative_to(repo_root)).is_dir()
         assert (jail.repo_root / central_log.relative_to(repo_root)).is_file()
+
+        remote_origin = _git(jail.repo_root, "config", "--get", "remote.origin.url")
+        assert remote_origin == "./.git/suite_jail_origin.git"
+        assert remote_origin != str(repo_root)
+        _git(jail.repo_root, "fetch", "--prune")
+        assert _git(jail.repo_root, "rev-parse", "HEAD") == _git(repo_root, "rev-parse", "HEAD")
+        assert _git(jail.repo_root, "rev-parse", "--abbrev-ref", "HEAD") == _git(
+            repo_root,
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+        )
 
         created_patches_entries = sorted(
             path.relative_to(jail.repo_root / "patches").as_posix()
