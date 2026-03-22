@@ -15,6 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from badguys.bdg_ops_ipc import runner_socket_name
+from badguys.bdg_suite_jail import (
+    prepare_suite_jail,
+    require_bwrap,
+    run_in_suite_jail,
+    teardown_suite_jail,
+)
 
 
 @dataclass(frozen=True)
@@ -35,6 +41,7 @@ class SuiteCfg:
     full_runner_tests: list[str]
     copy_runner_log: bool
     write_subprocess_stdio: bool
+    suite_jail: bool
 
     def central_log_path(self, run_id: str) -> Path:
         rel = self.central_log_pattern.format(run_id=run_id)
@@ -72,6 +79,16 @@ def _resolve_value(cli: str | None, cfg_val: str | None, default: str) -> str:
     return default
 
 
+def _resolve_bool(cli: bool | None, cfg_val: object, default: bool) -> bool:
+    if cli is not None:
+        return bool(cli)
+    if cfg_val is None:
+        return default
+    if not isinstance(cfg_val, bool):
+        raise SystemExit("FAIL: suite.suite_jail must be bool")
+    return cfg_val
+
+
 def _make_cfg(
     repo_root: Path,
     config_path: Path,
@@ -79,6 +96,7 @@ def _make_cfg(
     cli_console_verbosity: str | None,
     cli_log_verbosity: str | None,
     cli_per_run_logs_post_run: str | None,
+    cli_suite_jail: bool | None = None,
 ) -> SuiteCfg:
     raw = _load_config(repo_root, config_path)
     suite = raw.get("suite", {})
@@ -144,6 +162,8 @@ def _make_cfg(
             f"{per_run_logs_post_run!r} (expected delete_all|keep_all|delete_successful)"
         )
 
+    suite_jail = _resolve_bool(cli_suite_jail, suite.get("suite_jail"), True)
+
     patches_dir = repo_root / str(suite.get("patches_dir", "patches"))
     logs_dir = repo_root / str(suite.get("logs_dir", "patches/badguys_logs"))
     central_log_pattern = str(suite.get("central_log_pattern", "patches/badguys_{run_id}.log"))
@@ -177,6 +197,7 @@ def _make_cfg(
         full_runner_tests=full_runner_tests,
         copy_runner_log=bool(copy_runner_log),
         write_subprocess_stdio=bool(write_subprocess_stdio),
+        suite_jail=bool(suite_jail),
     )
 
 
@@ -292,6 +313,15 @@ def _cleanup_issue_artifacts(ctx: Ctx, *, issue_id: str, test_id: str | None) ->
             else:
                 with contextlib.suppress(FileNotFoundError):
                     p.unlink()
+
+    issue_artifacts_dir = repo_root / "patches" / "badguys_artifacts" / f"issue_{issue_id}"
+    _log(
+        ctx,
+        level="verbose",
+        test_id=test_id,
+        obj={"type": "cleanup", "path": str(issue_artifacts_dir)},
+    )
+    _rm_tree(issue_artifacts_dir)
 
     for pat in (
         str(repo_root / "patches" / "successful" / f"issue_{issue_id}*"),
@@ -493,6 +523,232 @@ def _run_test_plan(test, ctx: Ctx) -> bool:
     return ok
 
 
+def _run_suite_body(
+    *,
+    args: argparse.Namespace,
+    repo_root: Path,
+    cfg: SuiteCfg,
+    run_id: str,
+    central_log: Path,
+) -> int:
+    from badguys._util import fail_commit_limit, format_result_line
+    from badguys.discovery import discover_tests
+
+    tests = discover_tests(
+        repo_root=repo_root,
+        config_path=Path(args.config),
+        cli_commit_limit=args.commit_limit,
+        cli_include=list(args.include),
+        cli_exclude=list(args.exclude),
+    )
+
+    all_test_ids = {
+        t.name
+        for t in discover_tests(
+            repo_root=repo_root,
+            config_path=Path(args.config),
+            cli_commit_limit=args.commit_limit,
+            cli_include=[],
+            cli_exclude=[],
+        )
+    }
+    unknown = sorted(set(cfg.full_runner_tests).difference(all_test_ids))
+    if unknown:
+        joined = ", ".join(unknown)
+        raise SystemExit(f"FAIL: runner.full_runner_tests references unknown test_id(s): {joined}")
+
+    if args.list_tests:
+        for t in tests:
+            print(t.name)
+        return 0
+
+    ctx = Ctx(
+        repo_root=repo_root,
+        run_id=run_id,
+        central_log=central_log,
+        cfg=cfg,
+        console_verbosity=cfg.console_verbosity,
+        log_verbosity=cfg.log_verbosity,
+    )
+
+    if ctx.log_verbosity == "debug":
+        _log(
+            ctx,
+            level="debug",
+            test_id=None,
+            obj={
+                "type": "debug_config",
+                "config_path": args.config,
+                "console_verbosity": cfg.console_verbosity,
+                "log_verbosity": cfg.log_verbosity,
+                "runner_cmd": " ".join(cfg.runner_cmd),
+                "issue_id": cfg.issue_id,
+                "per_run_logs_post_run": cfg.per_run_logs_post_run,
+                "suite_jail": cfg.suite_jail,
+            },
+        )
+
+    commit_limit = int(getattr(tests, "commit_limit", 1))
+    commit_tests = [t for t in tests if bool(getattr(t, "makes_commit", False))]
+    if len(commit_tests) > commit_limit:
+        fail_commit_limit(central_log, commit_limit, commit_tests)
+
+    ok_all = True
+    interrupted = False
+    per_test_ok: dict[str, bool] = {}
+
+    for idx, t in enumerate(tests):
+        try:
+            _cleanup_issue_artifacts(
+                ctx,
+                issue_id=cfg.issue_id,
+                test_id=getattr(t, "name", None),
+            )
+
+            ok = False
+            try:
+                ok = _run_test_plan(t, ctx)
+            finally:
+                _cleanup_issue_artifacts(
+                    ctx,
+                    issue_id=cfg.issue_id,
+                    test_id=getattr(t, "name", None),
+                )
+
+            per_test_ok[t.name] = bool(ok)
+
+            if ctx.console_verbosity in {"normal", "verbose", "debug"}:
+                _console(ctx, level="normal", text=format_result_line(t.name, ok))
+
+            if not ok:
+                ok_all = False
+                if idx == 0 and bool(getattr(tests, "abort_on_guard_fail", False)):
+                    break
+
+        except KeyboardInterrupt:
+            interrupted = True
+            ok_all = False
+            break
+
+    status = "OK" if ok_all else "FAIL"
+    passed = sum(1 for ok in per_test_ok.values() if ok)
+    failed = sum(1 for ok in per_test_ok.values() if not ok)
+
+    if ctx.console_verbosity == "quiet":
+        summary = f"BadGuys summary: {status}\n"
+    else:
+        summary = f"BadGuys summary: {status} passed={passed} failed={failed}\n"
+    _console(ctx, level="quiet", text=summary)
+
+    _log(
+        ctx,
+        level="quiet",
+        test_id=None,
+        obj={
+            "type": "badguys_summary",
+            "status": status,
+            "passed": passed,
+            "failed": failed,
+        },
+    )
+
+    _post_run_cleanup_logs(cfg, per_test_ok)
+
+    if interrupted:
+        return 130
+    return 0 if ok_all else 1
+
+
+def _inner_suite_run(args: argparse.Namespace, cfg: SuiteCfg, *, run_id: str) -> int:
+    repo_root = Path(__file__).resolve().parents[1]
+    central_log = cfg.central_log_path(run_id)
+    return _run_suite_body(
+        args=args,
+        repo_root=repo_root,
+        cfg=cfg,
+        run_id=run_id,
+        central_log=central_log,
+    )
+
+
+def _suite_inner_argv(args: argparse.Namespace) -> list[str]:
+    argv = [sys.executable, "badguys/badguys.py"]
+    argv += ["--config", str(getattr(args, "config", "badguys/config.toml"))]
+    commit_limit = getattr(args, "commit_limit", None)
+    if commit_limit is not None:
+        argv += ["--commit-limit", str(commit_limit)]
+    runner_verbosity = getattr(args, "runner_verbosity", None)
+    if runner_verbosity is not None:
+        argv += ["--runner-verbosity", str(runner_verbosity)]
+    console_verbosity = getattr(args, "console_verbosity", None)
+    if console_verbosity == "quiet":
+        argv.append("-q")
+    elif console_verbosity == "normal":
+        argv.append("-n")
+    elif console_verbosity == "verbose":
+        argv.append("-v")
+    elif console_verbosity == "debug":
+        argv.append("-d")
+    log_verbosity = getattr(args, "log_verbosity", None)
+    if log_verbosity is not None:
+        argv += ["--log-verbosity", str(log_verbosity)]
+    per_run_logs_post_run = getattr(args, "per_run_logs_post_run", None)
+    if per_run_logs_post_run is not None:
+        argv += ["--per-run-logs-post-run", str(per_run_logs_post_run)]
+    suite_jail = getattr(args, "suite_jail", None)
+    if suite_jail is True:
+        argv.append("--suite-jail")
+    elif suite_jail is False:
+        argv.append("--no-suite-jail")
+    for test_id in getattr(args, "include", []):
+        argv += ["--include", str(test_id)]
+    for test_id in getattr(args, "exclude", []):
+        argv += ["--exclude", str(test_id)]
+    if bool(getattr(args, "list_tests", False)):
+        argv.append("--list-tests")
+    return argv
+
+
+def _outer_suite_run(
+    args: argparse.Namespace,
+    cfg: SuiteCfg,
+    *,
+    repo_root: Path,
+    run_id: str,
+) -> int:
+    central_log = _init_logs(cfg, run_id)
+    if not cfg.suite_jail:
+        return _run_suite_body(
+            args=args,
+            repo_root=repo_root,
+            cfg=cfg,
+            run_id=run_id,
+            central_log=central_log,
+        )
+
+    require_bwrap()
+    bind_paths = [cfg.logs_dir, central_log]
+    jail = prepare_suite_jail(
+        host_repo_root=repo_root,
+        issue_id=cfg.issue_id,
+        host_bind_paths=bind_paths,
+    )
+    try:
+        env = os.environ.copy()
+        env["AM_BADGUYS_SUITE_JAIL_INNER"] = "1"
+        env["AM_BADGUYS_RUN_ID"] = run_id
+        inner_argv = _suite_inner_argv(args)
+        return run_in_suite_jail(
+            host_repo_root=repo_root,
+            jail_repo_root=jail.repo_root,
+            argv=inner_argv,
+            host_bind_paths=bind_paths,
+            env=env,
+        )
+    finally:
+        teardown_suite_jail(repo_root, cfg.issue_id)
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="python3 badguys/badguys.py")
     ap.add_argument("--config", default="badguys/config.toml", help="Config path (repo-relative)")
@@ -525,6 +781,20 @@ def main(argv: list[str]) -> int:
         choices=["delete_all", "keep_all", "delete_successful"],
         help="Post-run per-test artifact cleanup policy",
     )
+    sg = ap.add_mutually_exclusive_group()
+    sg.add_argument(
+        "--suite-jail",
+        dest="suite_jail",
+        action="store_true",
+        default=None,
+        help="Force BadGuys suite jail on for this run",
+    )
+    sg.add_argument(
+        "--no-suite-jail",
+        dest="suite_jail",
+        action="store_false",
+        help="Force BadGuys suite jail off for this run",
+    )
     ap.add_argument(
         "--include",
         action="append",
@@ -545,16 +815,15 @@ def main(argv: list[str]) -> int:
         args.console_verbosity,
         args.log_verbosity,
         args.per_run_logs_post_run,
+        args.suite_jail,
     )
-    run_id = time.strftime("%Y%m%d_%H%M%S")
+    run_id = os.environ.get("AM_BADGUYS_RUN_ID") or time.strftime("%Y%m%d_%H%M%S")
+    jail_inner = os.environ.get("AM_BADGUYS_SUITE_JAIL_INNER") == "1"
 
-    from badguys._util import (
-        acquire_lock,
-        fail_commit_limit,
-        format_result_line,
-        release_lock,
-    )
-    from badguys.discovery import discover_tests
+    from badguys._util import acquire_lock, release_lock
+
+    if jail_inner:
+        return _inner_suite_run(args, cfg, run_id=run_id)
 
     acquire_lock(
         repo_root,
@@ -562,135 +831,8 @@ def main(argv: list[str]) -> int:
         ttl_seconds=cfg.lock_ttl_seconds,
         on_conflict=cfg.lock_on_conflict,
     )
-
     try:
-        central_log = _init_logs(cfg, run_id)
-
-        tests = discover_tests(
-            repo_root=repo_root,
-            config_path=Path(args.config),
-            cli_commit_limit=args.commit_limit,
-            cli_include=list(args.include),
-            cli_exclude=list(args.exclude),
-        )
-
-        all_test_ids = {
-            t.name
-            for t in discover_tests(
-                repo_root=repo_root,
-                config_path=Path(args.config),
-                cli_commit_limit=args.commit_limit,
-                cli_include=[],
-                cli_exclude=[],
-            )
-        }
-        unknown = sorted(set(cfg.full_runner_tests).difference(all_test_ids))
-        if unknown:
-            joined = ", ".join(unknown)
-            raise SystemExit(
-                f"FAIL: runner.full_runner_tests references unknown test_id(s): {joined}"
-            )
-
-        if args.list_tests:
-            for t in tests:
-                print(t.name)
-            return 0
-
-        ctx = Ctx(
-            repo_root=repo_root,
-            run_id=run_id,
-            central_log=central_log,
-            cfg=cfg,
-            console_verbosity=cfg.console_verbosity,
-            log_verbosity=cfg.log_verbosity,
-        )
-
-        if ctx.log_verbosity == "debug":
-            _log(
-                ctx,
-                level="debug",
-                test_id=None,
-                obj={
-                    "type": "debug_config",
-                    "config_path": args.config,
-                    "console_verbosity": cfg.console_verbosity,
-                    "log_verbosity": cfg.log_verbosity,
-                    "runner_cmd": " ".join(cfg.runner_cmd),
-                    "issue_id": cfg.issue_id,
-                    "per_run_logs_post_run": cfg.per_run_logs_post_run,
-                },
-            )
-
-        commit_limit = int(getattr(tests, "commit_limit", 1))
-        commit_tests = [t for t in tests if bool(getattr(t, "makes_commit", False))]
-        if len(commit_tests) > commit_limit:
-            fail_commit_limit(central_log, commit_limit, commit_tests)
-
-        ok_all = True
-        interrupted = False
-        per_test_ok: dict[str, bool] = {}
-
-        for idx, t in enumerate(tests):
-            try:
-                _cleanup_issue_artifacts(
-                    ctx,
-                    issue_id=cfg.issue_id,
-                    test_id=getattr(t, "name", None),
-                )
-
-                ok = False
-                try:
-                    ok = _run_test_plan(t, ctx)
-                finally:
-                    _cleanup_issue_artifacts(
-                        ctx,
-                        issue_id=cfg.issue_id,
-                        test_id=getattr(t, "name", None),
-                    )
-
-                per_test_ok[t.name] = bool(ok)
-
-                if ctx.console_verbosity in {"normal", "verbose", "debug"}:
-                    _console(ctx, level="normal", text=format_result_line(t.name, ok))
-
-                if not ok:
-                    ok_all = False
-                    if idx == 0 and bool(getattr(tests, "abort_on_guard_fail", False)):
-                        break
-
-            except KeyboardInterrupt:
-                interrupted = True
-                ok_all = False
-                break
-
-        status = "OK" if ok_all else "FAIL"
-        passed = sum(1 for ok in per_test_ok.values() if ok)
-        failed = sum(1 for ok in per_test_ok.values() if not ok)
-
-        if ctx.console_verbosity == "quiet":
-            summary = f"BadGuys summary: {status}\n"
-        else:
-            summary = f"BadGuys summary: {status} passed={passed} failed={failed}\n"
-        _console(ctx, level="quiet", text=summary)
-
-        _log(
-            ctx,
-            level="quiet",
-            test_id=None,
-            obj={
-                "type": "badguys_summary",
-                "status": status,
-                "passed": passed,
-                "failed": failed,
-            },
-        )
-
-        _post_run_cleanup_logs(cfg, per_test_ok)
-
-        if interrupted:
-            return 130
-        return 0 if ok_all else 1
-
+        return _outer_suite_run(args, cfg, repo_root=repo_root, run_id=run_id)
     finally:
         release_lock(repo_root)
 
