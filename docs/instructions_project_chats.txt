@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.11
+Verzia 1.2.12
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -22,6 +22,7 @@ HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo v
 14. Ak v js suboroch najdes nejake "any" pre typescript, musis ma na to upozornit a ponuknut riesenie. A zakomponovat to riesenie do freeze.
 15. V AMP musia existovat defaultne hodnoty. Ale musia byt overridovatelne cez config a specializovane --flags (nie --override). A testy nesmu spadnut, ak by som defaulty overridoval. Ak pri inspekcii natrafis na taky test, sucastou freeze musi byt vyriesenie tohto problemu. Cele toto pravidlo plati vylucne pre AMP.
 16. Pred zverejnenim patchu specky musis hlbkovo skontrolovat, ci zodpoveda poslednemu odsuhlasenemu freeze a ci bol implementovany uplne, spravne a korektne. Ak freeze nezodpoveda, musis vygenerovat novy patch toho isteho freeze. Az ked hlbkove testy implementacie dopadnu pass, patch mozes zverejnit.
+17. Ak si nieco porusil, ocakavam, ze to napravis. Status message je zakazany.
 
 Terminologia (HARD):
 PM = Patch authoring manual
