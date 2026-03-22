@@ -62,6 +62,7 @@ class RunContext:
     effective_target_repo_name: str | None = None
     patch_plan: PatchPlan | None = None
     preopened_workspace: Any | None = None
+    startup_failure: Exception | None = None
 
     def __post_init__(self) -> None:
         if self.live_target_root is None:
@@ -202,96 +203,14 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
     )
     logger = startup.logger
     ipc = startup.ipc
-
-    preopened_workspace: Any | None = None
-    active_repository_tree_root = live_target_root
-    if cli.mode == "workspace" and cli.issue_id is not None:
-        try:
-            live_base_sha = git_ops.head_sha(logger, live_target_root)
-            maybe_create_initial_self_backup(
-                logger=logger,
-                policy=policy,
-                issue_id=str(cli.issue_id),
-                runner_root=root_runner_root,
-                live_target_root=live_target_root,
-                artifacts_root=root_artifacts_root,
-                workspaces_dir=paths.workspaces_dir,
-                issue_dir_template=policy.workspace_issue_dir_template,
-                repo_dir_name=policy.workspace_repo_dir_name,
-            )
-            preopened_workspace = ensure_workspace(
-                logger=logger,
-                workspaces_dir=paths.workspaces_dir,
-                issue_id=cli.issue_id,
-                live_repo=live_target_root,
-                base_sha=live_base_sha,
-                update=policy.update_workspace,
-                soft_reset=policy.soft_reset_workspace,
-                message=getattr(cli, "message", None),
-                effective_target_repo_name=effective_target_repo_name,
-                runner_root=runner_root,
-                target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
-                timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
-                issue_dir_template=policy.workspace_issue_dir_template,
-                repo_dir_name=policy.workspace_repo_dir_name,
-                meta_filename=policy.workspace_meta_filename,
-                history_logs_dir=policy.workspace_history_logs_dir,
-                history_oldlogs_dir=policy.workspace_history_oldlogs_dir,
-                history_patches_dir=policy.workspace_history_patches_dir,
-                history_oldpatches_dir=policy.workspace_history_oldpatches_dir,
-            )
-        except (FileNotFoundError, NotADirectoryError):
-            preopened_workspace = None
-        else:
-            active_repository_tree_root = preopened_workspace.repo
-            _sync_repo_local_config_to_workspace_clone(
-                live_target_root=live_target_root,
-                workspace_repo_root=active_repository_tree_root,
-                target_repo_config_relpath=policy.target_repo_config_relpath,
-            )
-    elif cli.mode == "finalize_workspace" and cli.issue_id is not None:
-        preopened_workspace = open_existing_workspace(
-            logger,
-            paths.workspaces_dir,
-            str(cli.issue_id),
-            issue_dir_template=policy.workspace_issue_dir_template,
-            repo_dir_name=policy.workspace_repo_dir_name,
-            meta_filename=policy.workspace_meta_filename,
-            timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
-            runner_root=runner_root,
-            target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
-        )
-        active_repository_tree_root = preopened_workspace.repo
-
-    repo_cfg, _, _ = load_repo_local_config(
-        active_repository_tree_root=active_repository_tree_root,
-        target_repo_config_relpath=policy.target_repo_config_relpath,
-    )
-    repo_cfg = filter_policy_layer_cfg(repo_cfg, REPO_OWNED_KEYS)
-    if repo_cfg:
-        policy = build_policy(policy, repo_cfg, source_name="repo_config")
-        apply_cli_overrides(policy, build_cli_override_mapping(cli))
-        apply_cli_symmetry_helpers(policy, cli)
-
-    status.start()
-
-    runtime.status = status
-    runtime.logger = logger
-    runtime.policy = policy
-    runtime.repo_root = live_target_root
-    runtime.paths = paths
-    runtime.cli = cli
-    runtime.run_badguys = run_badguys
-    runtime.RunnerError = RunnerError
-
-    return RunContext(
+    ctx = RunContext(
         cli=cli,
         policy=policy,
         config_path=config_path,
         used_cfg=str(used_cfg),
         repo_root=live_target_root,
         live_target_root=live_target_root,
-        active_repository_tree_root=active_repository_tree_root,
+        active_repository_tree_root=live_target_root,
         patch_root=patch_root,
         patch_dir=patch_dir,
         isolated_work_patch_dir=isolated_work_patch_dir,
@@ -307,5 +226,97 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
         artifacts_root=root_artifacts_root,
         effective_target_repo_name=effective_target_repo_name,
         patch_plan=patch_plan,
-        preopened_workspace=preopened_workspace,
     )
+
+    try:
+        if cli.mode == "workspace" and cli.issue_id is not None:
+            try:
+                live_base_sha = git_ops.head_sha(logger, live_target_root)
+                maybe_create_initial_self_backup(
+                    logger=logger,
+                    policy=policy,
+                    issue_id=str(cli.issue_id),
+                    runner_root=root_runner_root,
+                    live_target_root=live_target_root,
+                    artifacts_root=root_artifacts_root,
+                    workspaces_dir=paths.workspaces_dir,
+                    issue_dir_template=policy.workspace_issue_dir_template,
+                    repo_dir_name=policy.workspace_repo_dir_name,
+                )
+                preopened_workspace = ensure_workspace(
+                    logger=logger,
+                    workspaces_dir=paths.workspaces_dir,
+                    issue_id=cli.issue_id,
+                    live_repo=live_target_root,
+                    base_sha=live_base_sha,
+                    update=policy.update_workspace,
+                    soft_reset=policy.soft_reset_workspace,
+                    message=getattr(cli, "message", None),
+                    effective_target_repo_name=effective_target_repo_name,
+                    runner_root=runner_root,
+                    target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
+                    timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
+                    issue_dir_template=policy.workspace_issue_dir_template,
+                    repo_dir_name=policy.workspace_repo_dir_name,
+                    meta_filename=policy.workspace_meta_filename,
+                    history_logs_dir=policy.workspace_history_logs_dir,
+                    history_oldlogs_dir=policy.workspace_history_oldlogs_dir,
+                    history_patches_dir=policy.workspace_history_patches_dir,
+                    history_oldpatches_dir=policy.workspace_history_oldpatches_dir,
+                )
+            except (FileNotFoundError, NotADirectoryError):
+                preopened_workspace = None
+            else:
+                if preopened_workspace is not None:
+                    ctx.preopened_workspace = preopened_workspace
+                    ctx.active_repository_tree_root = preopened_workspace.repo
+                    _sync_repo_local_config_to_workspace_clone(
+                        live_target_root=live_target_root,
+                        workspace_repo_root=ctx.active_repository_tree_root,
+                        target_repo_config_relpath=policy.target_repo_config_relpath,
+                    )
+        elif cli.mode == "finalize_workspace" and cli.issue_id is not None:
+            preopened_workspace = open_existing_workspace(
+                logger,
+                paths.workspaces_dir,
+                str(cli.issue_id),
+                issue_dir_template=policy.workspace_issue_dir_template,
+                repo_dir_name=policy.workspace_repo_dir_name,
+                meta_filename=policy.workspace_meta_filename,
+                timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
+                runner_root=runner_root,
+                target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
+            )
+            ctx.preopened_workspace = preopened_workspace
+            ctx.active_repository_tree_root = preopened_workspace.repo
+
+        active_repository_tree_root = ctx.active_repository_tree_root
+        if active_repository_tree_root is None:
+            active_repository_tree_root = ctx.repo_root
+            ctx.active_repository_tree_root = active_repository_tree_root
+
+        repo_cfg, _, _ = load_repo_local_config(
+            active_repository_tree_root=active_repository_tree_root,
+            target_repo_config_relpath=policy.target_repo_config_relpath,
+        )
+        repo_cfg = filter_policy_layer_cfg(repo_cfg, REPO_OWNED_KEYS)
+        if repo_cfg:
+            policy = build_policy(policy, repo_cfg, source_name="repo_config")
+            apply_cli_overrides(policy, build_cli_override_mapping(cli))
+            apply_cli_symmetry_helpers(policy, cli)
+            ctx.policy = policy
+
+        status.start()
+
+        runtime.status = status
+        runtime.logger = logger
+        runtime.policy = ctx.policy
+        runtime.repo_root = live_target_root
+        runtime.paths = paths
+        runtime.cli = cli
+        runtime.run_badguys = run_badguys
+        runtime.RunnerError = RunnerError
+    except Exception as exc:
+        ctx.startup_failure = exc
+
+    return ctx

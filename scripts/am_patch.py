@@ -122,17 +122,18 @@ from am_patch.engine import (
     finalize_and_report,
     run_mode,
 )
-from am_patch.errors import RunnerError
+from am_patch.errors import CANCEL_EXIT_CODE, RunnerCancelledError, RunnerError
 from am_patch.fs_junk import fs_junk_ignore_partition
 from am_patch.log import Logger
 from am_patch.patch_archive_select import select_latest_issue_patch
 from am_patch.post_success_audit import run_post_success_audit
 from am_patch.repo_root import is_under, resolve_repo_root
-from am_patch.run_result import RunResult
+from am_patch.run_result import RunResult, _normalize_failure_summary
 from am_patch.runner_failure_detail import (
     render_runner_error_detail,
     render_runner_error_fingerprint,
 )
+from am_patch.runtime import _parse_gate_list, _stage_rank
 
 # NOTE: Any change that alters runner behavior MUST bump RUNNER_VERSION and MUST update
 # the runner specification under scripts/ (e.g., scripts/am_patch_specification.md).
@@ -246,6 +247,43 @@ def _build_internal_failure_result(exc: Exception) -> RunResult:
     )
 
 
+def _attach_startup_workspace(ctx, result: RunResult) -> RunResult:
+    if getattr(ctx, "preopened_workspace", None) is not None:
+        result.ws_for_posthook = ctx.preopened_workspace
+    return result
+
+
+def _build_startup_failure_result(ctx, exc: Exception) -> RunResult:
+    if isinstance(exc, RunnerCancelledError):
+        return _attach_startup_workspace(
+            ctx,
+            RunResult(
+                exit_code=CANCEL_EXIT_CODE,
+                final_fail_stage=exc.stage,
+                final_fail_reason="cancel requested",
+            ),
+        )
+    if isinstance(exc, RunnerError):
+        final_fail_stage, final_fail_reason = _normalize_failure_summary(
+            error=exc,
+            primary_fail_stage=None,
+            secondary_failures=[],
+            parse_gate_list=_parse_gate_list,
+            stage_rank=_stage_rank,
+        )
+        return _attach_startup_workspace(
+            ctx,
+            RunResult(
+                exit_code=1,
+                final_fail_stage=final_fail_stage,
+                final_fail_reason=final_fail_reason,
+                final_fail_detail=render_runner_error_detail(exc),
+                final_fail_fingerprint=render_runner_error_fingerprint(exc),
+            ),
+        )
+    return _attach_startup_workspace(ctx, _build_internal_failure_result(exc))
+
+
 def main(argv: list[str]) -> int:
     res = build_effective_policy(argv)
     if isinstance(res, int):
@@ -255,10 +293,14 @@ def main(argv: list[str]) -> int:
     exit_code: int | None = None
     try:
         ctx = build_paths_and_logger(cli, policy, config_path, used_cfg)
-        try:
-            result = run_mode(ctx)
-        except Exception as exc:
-            result = _build_internal_failure_result(exc)
+        startup_failure = getattr(ctx, "startup_failure", None)
+        if startup_failure is None:
+            try:
+                result = run_mode(ctx)
+            except Exception as exc:
+                result = _build_internal_failure_result(exc)
+        else:
+            result = _build_startup_failure_result(ctx, startup_failure)
         exit_code = finalize_and_report(ctx, result)
         return exit_code
     finally:

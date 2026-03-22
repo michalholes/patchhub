@@ -11,6 +11,7 @@ import pytest
 class _FakeIpcController:
     wait_for_ready_result = True
     startup_handshake_completed_result = False
+    created_instances: list[_FakeIpcController] = []
 
     def __init__(
         self,
@@ -32,6 +33,7 @@ class _FakeIpcController:
         self.handshake_wait_s = handshake_wait_s
         self.events: list[dict[str, Any]] = []
         self.calls: list[str] = []
+        type(self).created_instances.append(self)
         logger.set_ipc_stream(self.events.append)
 
     def start(self) -> None:
@@ -64,13 +66,14 @@ def _import_am_patch():
     import am_patch.engine as engine_mod
     import am_patch.engine_startup_runtime as startup_mod
     import am_patch.runtime as runtime_mod
+    import am_patch.startup_context as startup_ctx_mod
     from am_patch.config import Policy as PolicyCls
 
-    return PolicyCls, engine_mod, startup_mod, runtime_mod
+    return PolicyCls, engine_mod, startup_mod, startup_ctx_mod, runtime_mod
 
 
 def test_ipc_receives_start_and_hello_before_runtime_work(tmp_path: Path) -> None:
-    policy_cls, engine_mod, startup_mod, runtime_mod = _import_am_patch()
+    policy_cls, engine_mod, startup_mod, startup_ctx_mod, runtime_mod = _import_am_patch()
 
     old = {
         "status": runtime_mod.status,
@@ -83,6 +86,7 @@ def test_ipc_receives_start_and_hello_before_runtime_work(tmp_path: Path) -> Non
         "RunnerError": runtime_mod.RunnerError,
         "resolve_socket_path": startup_mod.resolve_socket_path,
         "IpcController": startup_mod.IpcController,
+        "load_repo_local_config": startup_ctx_mod.load_repo_local_config,
     }
 
     ctx = None
@@ -136,7 +140,7 @@ def test_ipc_receives_start_and_hello_before_runtime_work(tmp_path: Path) -> Non
 
 
 def test_ipc_waits_for_ready_before_start_and_hello(tmp_path: Path) -> None:
-    policy_cls, engine_mod, startup_mod, runtime_mod = _import_am_patch()
+    policy_cls, engine_mod, startup_mod, startup_ctx_mod, runtime_mod = _import_am_patch()
 
     old = {
         "status": runtime_mod.status,
@@ -149,6 +153,7 @@ def test_ipc_waits_for_ready_before_start_and_hello(tmp_path: Path) -> None:
         "RunnerError": runtime_mod.RunnerError,
         "resolve_socket_path": startup_mod.resolve_socket_path,
         "IpcController": startup_mod.IpcController,
+        "load_repo_local_config": startup_ctx_mod.load_repo_local_config,
     }
 
     ctx = None
@@ -206,6 +211,86 @@ def test_ipc_waits_for_ready_before_start_and_hello(tmp_path: Path) -> None:
             setattr(runtime_mod, key, old[key])
 
 
+def test_build_paths_and_logger_returns_startup_failure_on_existing_stream(
+    tmp_path: Path,
+) -> None:
+    policy_cls, engine_mod, startup_mod, startup_ctx_mod, runtime_mod = _import_am_patch()
+
+    old = {
+        "status": runtime_mod.status,
+        "logger": runtime_mod.logger,
+        "policy": runtime_mod.policy,
+        "repo_root": runtime_mod.repo_root,
+        "paths": runtime_mod.paths,
+        "cli": runtime_mod.cli,
+        "run_badguys": runtime_mod.run_badguys,
+        "RunnerError": runtime_mod.RunnerError,
+        "resolve_socket_path": startup_mod.resolve_socket_path,
+        "IpcController": startup_mod.IpcController,
+        "load_repo_local_config": startup_ctx_mod.load_repo_local_config,
+    }
+
+    ctx = None
+    old_instances = list(_FakeIpcController.created_instances)
+    try:
+        _FakeIpcController.created_instances = []
+        startup_mod.resolve_socket_path = lambda *, policy, patch_dir, issue_id: (
+            patch_dir / "am_patch_issue_779.sock"
+        )
+        startup_mod.IpcController = _FakeIpcController
+
+        def _raise_repo_cfg(**_kwargs):
+            raise RuntimeError("startup boom")
+
+        startup_ctx_mod.load_repo_local_config = _raise_repo_cfg
+
+        policy = policy_cls()
+        policy.target_repo_roots = ["audiomason2=targets/audiomason2"]
+        policy.patch_dir = str(tmp_path / "patches")
+        policy.current_log_symlink_enabled = False
+        policy.verbosity = "quiet"
+        policy.log_level = "quiet"
+        policy.json_out = False
+
+        cli = SimpleNamespace(issue_id="779", mode="apply")
+        cfg = tmp_path / "am_patch_test.toml"
+        cfg.write_text("", encoding="utf-8")
+
+        ctx = engine_mod.build_paths_and_logger(cli, policy, cfg, "test")
+
+        assert ctx.startup_failure is not None
+        assert isinstance(ctx.startup_failure, RuntimeError)
+        assert str(ctx.startup_failure) == "startup boom"
+        assert ctx.ipc is not None
+        assert ctx.ipc.logger is ctx.logger
+        assert len(_FakeIpcController.created_instances) == 1
+        assert ctx.ipc is _FakeIpcController.created_instances[0]
+        assert [event["type"] for event in ctx.ipc.events[:2]] == ["log", "hello"]
+        assert ctx.ipc.events[0]["kind"] == "START"
+        assert ctx.ipc.events[1]["runner_mode"] == "apply"
+    finally:
+        _FakeIpcController.created_instances = old_instances
+        if ctx is not None:
+            if ctx.ipc is not None:
+                ctx.ipc.stop()
+            ctx.status.stop()
+            ctx.logger.close()
+        startup_mod.resolve_socket_path = old["resolve_socket_path"]
+        startup_mod.IpcController = old["IpcController"]
+        startup_ctx_mod.load_repo_local_config = old["load_repo_local_config"]
+        for key in (
+            "status",
+            "logger",
+            "policy",
+            "repo_root",
+            "paths",
+            "cli",
+            "run_badguys",
+            "RunnerError",
+        ):
+            setattr(runtime_mod, key, old[key])
+
+
 @pytest.mark.parametrize(
     ("verbosity", "log_level", "expect_human_debug"),
     [
@@ -220,7 +305,7 @@ def test_ipc_handshake_timeout_is_fail_open_and_human_debug_only(
     log_level: str,
     expect_human_debug: bool,
 ) -> None:
-    policy_cls, engine_mod, startup_mod, runtime_mod = _import_am_patch()
+    policy_cls, engine_mod, startup_mod, startup_ctx_mod, runtime_mod = _import_am_patch()
 
     old = {
         "status": runtime_mod.status,
@@ -233,6 +318,7 @@ def test_ipc_handshake_timeout_is_fail_open_and_human_debug_only(
         "RunnerError": runtime_mod.RunnerError,
         "resolve_socket_path": startup_mod.resolve_socket_path,
         "IpcController": startup_mod.IpcController,
+        "load_repo_local_config": startup_ctx_mod.load_repo_local_config,
     }
 
     ctx = None
