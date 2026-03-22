@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.10
+Verzia 1.2.11
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -56,7 +56,7 @@ PM version used: <PM_VERSION>
    - Language and ASCII rules
 
    scripts/ su sucastou projektu, ale nepredstavuju runtime processing layer.
-8. Ak ziadam kontrolu, chcem aby bola hlbkova, kvalifikovana, kvalitna a overila kazdu okolnost
+8. Ak ziadam kontrolu, chcem aby bola hlbkova, kvalifikovana, kvalitna a overila kazdu okolnost. Kontrolovat sa ma kod voci schvalenemu freeze. Ak nastal drift, je potrebne skontrolovat, ci drift nastal uz v handoffe alebo az po nom. Kontrola kodu vylucne proti handoofu je zakazana.
 9. Sucastou kazdeho implementacneho handoffu musi byt povinnost napisat znenie jedneho nadpisu v instrukciach pre tvorbu patchov, pricom riadiaci chat nahodne vyberie jeho cislo od 1-8. 
 10. Ak bol zisteny nedostatok v kode oproti specifikacii, je zakazane menit specifikaciu. 
 10a. Ak bol zisteny nedostatok v kode aj v specifikacii, je povinne menit specifikaciu aj kod. 
