@@ -171,7 +171,7 @@ def test_record_ipc_stream_copies_result_artifact_before_source_disappears(
     assert not result_src.exists()
 
 
-def test_record_ipc_stream_falls_back_to_ipc_stream_when_result_artifact_disappears_during_copy(
+def test_record_ipc_stream_fails_when_result_artifact_disappears_during_copy(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -189,17 +189,16 @@ def test_record_ipc_stream_falls_back_to_ipc_stream_when_result_artifact_disappe
 
     def _copy2_with_missing_source(src, dst, *args, **kwargs):
         src_path = Path(src)
+        dst_path = Path(dst)
         if src_path == result_src and not copy_attempted["value"]:
             copy_attempted["value"] = True
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            dst_path.write_text("partial", encoding="utf-8")
             src_path.unlink()
             raise FileNotFoundError(2, "No such file or directory", str(src_path))
         return real_copy2(src, dst, *args, **kwargs)
 
-    monkeypatch.setattr(
-        ipc_stream_recorder.shutil,
-        "copy2",
-        _copy2_with_missing_source,
-    )
+    monkeypatch.setattr(ipc_stream_recorder.shutil, "copy2", _copy2_with_missing_source)
 
     def _target() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as srv:
@@ -236,12 +235,10 @@ def test_record_ipc_stream_falls_back_to_ipc_stream_when_result_artifact_disappe
     assert copy_attempted["value"] is True
     assert result == {"ok": True, "return_code": 0, "json_path": str(result_src)}
     assert value_text == ""
-    assert artifact_copy == {"ok": True, "error": None}
+    assert artifact_copy == {"ok": False, "error": f"missing runner json_path: {result_src}"}
     assert json.loads(result_path.read_text(encoding="utf-8")) == result
-    copied_text = log_path.read_text(encoding="utf-8")
-    assert copied_text == out_path.read_text(encoding="utf-8")
-    assert copied_text != result_path.read_text(encoding="utf-8")
-    assert _read_ndjson_lines(log_path) == [
+    assert not log_path.exists()
+    assert _read_ndjson_lines(out_path) == [
         {
             "type": "result",
             "ok": True,
@@ -252,9 +249,7 @@ def test_record_ipc_stream_falls_back_to_ipc_stream_when_result_artifact_disappe
     assert not result_src.exists()
 
 
-def test_record_ipc_stream_falls_back_to_ipc_stream_when_result_artifact_is_missing(
-    tmp_path: Path,
-) -> None:
+def test_record_ipc_stream_fails_when_result_artifact_is_missing(tmp_path: Path) -> None:
     from badguys.ipc_stream_recorder import record_ipc_stream
 
     socket_path = tmp_path / "ipc.sock"
@@ -293,16 +288,100 @@ def test_record_ipc_stream_falls_back_to_ipc_stream_when_result_artifact_is_miss
     server.join(timeout=3.0)
 
     assert result == {"ok": True, "return_code": 0, "json_path": str(missing_src)}
-    assert artifact_copy == {"ok": True, "error": None}
+    assert artifact_copy == {"ok": False, "error": f"missing runner json_path: {missing_src}"}
     assert json.loads(result_path.read_text(encoding="utf-8")) == result
-    copied_text = log_path.read_text(encoding="utf-8")
-    assert copied_text == out_path.read_text(encoding="utf-8")
-    assert copied_text != result_path.read_text(encoding="utf-8")
-    assert _read_ndjson_lines(log_path) == [
+    assert not log_path.exists()
+    assert _read_ndjson_lines(out_path) == [
         {
             "type": "result",
             "ok": True,
             "return_code": 0,
             "json_path": str(missing_src),
+        }
+    ]
+
+
+def test_record_ipc_stream_fails_when_runner_log_copy_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from badguys import ipc_stream_recorder
+
+    socket_path = tmp_path / "ipc.sock"
+    result_src = tmp_path / "result.jsonl"
+    result_src.write_text(RAW_NDJSON_TEXT, encoding="utf-8")
+    runner_log_src = tmp_path / "runner.log.txt"
+    runner_log_src.write_text("runner log\n", encoding="utf-8")
+    out_path = tmp_path / "runner.ipc.jsonl"
+    result_path = tmp_path / "artifacts" / "runner.result.json"
+    jsonl_path = tmp_path / "artifacts" / "runner.log.jsonl"
+    log_copy_path = tmp_path / "artifacts" / "runner.log.txt"
+
+    real_copy2 = ipc_stream_recorder.shutil.copy2
+
+    def _copy2_with_log_failure(src, dst, *args, **kwargs):
+        src_path = Path(src)
+        dst_path = Path(dst)
+        if src_path == runner_log_src:
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            dst_path.write_text("partial log", encoding="utf-8")
+            raise OSError("forced log copy failure")
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(ipc_stream_recorder.shutil, "copy2", _copy2_with_log_failure)
+
+    def _target() -> None:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as srv:
+            srv.bind(str(socket_path))
+            srv.listen(1)
+            conn, _ = srv.accept()
+            with conn:
+                fp = conn.makefile("rwb", buffering=0)
+                result = {
+                    "type": "result",
+                    "ok": True,
+                    "return_code": 0,
+                    "json_path": str(result_src),
+                    "log_path": str(runner_log_src),
+                }
+                fp.write((json.dumps(result) + "\n").encode("utf-8"))
+
+    server = threading.Thread(target=_target, name="ipc_log_copy_failure_server", daemon=True)
+    server.start()
+
+    result, _, artifact_copy = ipc_stream_recorder.record_ipc_stream(
+        socket_path,
+        out_path=out_path,
+        connect_timeout_s=3.0,
+        total_timeout_s=3.0,
+        result_json_copy_path=result_path,
+        runner_jsonl_copy_path=jsonl_path,
+        runner_log_copy_path=log_copy_path,
+    )
+    server.join(timeout=3.0)
+
+    assert result == {
+        "ok": True,
+        "return_code": 0,
+        "json_path": str(result_src),
+        "log_path": str(runner_log_src),
+    }
+    assert artifact_copy == {
+        "ok": False,
+        "error": (
+            f"copy runner log_path failed: {runner_log_src} -> {log_copy_path}: "
+            "forced log copy failure"
+        ),
+    }
+    assert json.loads(result_path.read_text(encoding="utf-8")) == result
+    assert jsonl_path.read_text(encoding="utf-8") == RAW_NDJSON_TEXT
+    assert not log_copy_path.exists()
+    assert _read_ndjson_lines(out_path) == [
+        {
+            "type": "result",
+            "ok": True,
+            "return_code": 0,
+            "json_path": str(result_src),
+            "log_path": str(runner_log_src),
         }
     ]

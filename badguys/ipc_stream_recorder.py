@@ -16,36 +16,38 @@ def _copy_result_artifact(
     result_json_copy_path: Path | None,
     runner_jsonl_copy_path: Path | None,
     runner_log_copy_path: Path | None,
-) -> tuple[str | None, bool]:
-    runner_jsonl_missing = False
-
+) -> str | None:
     if result_json_copy_path is not None:
         try:
             _write_json(result_json_copy_path, result)
         except OSError as exc:
-            return f"write runner result failed: {result_json_copy_path}: {exc}", False
+            return f"write runner result failed: {result_json_copy_path}: {exc}"
 
     json_path = result.get("json_path")
     if runner_jsonl_copy_path is not None and isinstance(json_path, str) and json_path:
-        err, missing_source = _copy_result_artifact_path(
+        err = _copy_result_artifact_path(
             src_path=json_path,
             dst_path=runner_jsonl_copy_path,
             label="json_path",
         )
-        runner_jsonl_missing = missing_source
         if err is not None:
-            return err, runner_jsonl_missing
+            return err
 
     log_path = result.get("log_path")
     if runner_log_copy_path is not None and isinstance(log_path, str) and log_path:
-        err, _ = _copy_result_artifact_path(
+        err = _copy_result_artifact_path(
             src_path=log_path,
             dst_path=runner_log_copy_path,
             label="log_path",
         )
         if err is not None:
-            return err, runner_jsonl_missing
-    return None, runner_jsonl_missing
+            return err
+    return None
+
+
+def _remove_partial_artifact(dst_path: Path) -> None:
+    with contextlib.suppress(FileNotFoundError):
+        dst_path.unlink()
 
 
 def _copy_result_artifact_path(
@@ -53,33 +55,24 @@ def _copy_result_artifact_path(
     src_path: str,
     dst_path: Path,
     label: str,
-) -> tuple[str | None, bool]:
+) -> str | None:
     src = Path(src_path)
     if not src.exists():
-        return f"missing runner {label}: {src}", True
+        return f"missing runner {label}: {src}"
     dst_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         shutil.copy2(src, dst_path)
     except FileNotFoundError:
-        return f"missing runner {label}: {src}", True
+        _remove_partial_artifact(dst_path)
+        return f"missing runner {label}: {src}"
     except OSError as exc:
-        return f"copy runner {label} failed: {src} -> {dst_path}: {exc}", False
-    return None, False
+        _remove_partial_artifact(dst_path)
+        return f"copy runner {label} failed: {src} -> {dst_path}: {exc}"
+    return None
 
 
 def _result_artifact_copy_status(*, error: str | None) -> dict[str, Any]:
     return {"ok": error is None, "error": error}
-
-
-def _copy_ipc_stream_fallback(*, out_path: Path, dst_path: Path) -> str | None:
-    if not out_path.exists():
-        return f"missing ipc stream for runner json_path fallback: {out_path}"
-    dst_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.copy2(out_path, dst_path)
-    except OSError as exc:
-        return f"copy runner json_path fallback failed: {out_path} -> {dst_path}: {exc}"
-    return None
 
 
 def _validate_result(obj: Any) -> dict[str, Any] | None:
@@ -185,10 +178,9 @@ def record_ipc_stream(
     connected_at = time.monotonic()
 
     artifact_copy_error: str | None = None
-    runner_jsonl_missing = False
 
     def _handle_obj(obj: dict[str, Any]) -> None:
-        nonlocal artifact_copy_error, result, runner_jsonl_missing
+        nonlocal artifact_copy_error, result
         if obj.get("type") == "log":
             msg = obj.get("msg")
             if isinstance(msg, str):
@@ -198,7 +190,7 @@ def record_ipc_stream(
             if valid is not None:
                 result = valid
                 if artifact_copy_error is None:
-                    artifact_copy_error, runner_jsonl_missing = _copy_result_artifact(
+                    artifact_copy_error = _copy_result_artifact(
                         valid,
                         result_json_copy_path=result_json_copy_path,
                         runner_jsonl_copy_path=runner_jsonl_copy_path,
@@ -316,15 +308,6 @@ def record_ipc_stream(
                 s.close()
 
     _finalize_unresolved_plans(plans, code="EOF", message="ipc connection closed before reply")
-    if (
-        runner_jsonl_missing
-        and artifact_copy_error is not None
-        and runner_jsonl_copy_path is not None
-    ):
-        artifact_copy_error = _copy_ipc_stream_fallback(
-            out_path=out_path,
-            dst_path=runner_jsonl_copy_path,
-        )
     value_text = "\n".join(value_msgs)
     return result, value_text, _result_artifact_copy_status(error=artifact_copy_error)
 
