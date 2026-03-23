@@ -65,22 +65,25 @@ jobs:
         run: |
           ./.venv/bin/python badguys/badguys.py \
             --no-suite-jail \
+            --per-run-logs-post-run keep_all \
             --exclude=test_064_a_allows_undeclared \
             --exclude=test_900_commit_push_timestamp
 
-
-      - name: Collect am_patch logs (always)
+      - name: Collect CI logs (always)
         if: always()
         run: |
           mkdir -p ci_artifacts
           cp -a patches/logs/*.log ci_artifacts/ || true
-          cp -a .badguys_live_repo/patches/logs/*.log ci_artifacts/ || true
-          ls -la ci_artifacts || true
+          cp -a patches/badguys_*.log ci_artifacts/ || true
+          if [ -d patches/badguys_logs ]; then
+            mkdir -p ci_artifacts/badguys_logs
+            cp -a patches/badguys_logs/. ci_artifacts/badguys_logs/
+          fi
+          find ci_artifacts -maxdepth 4 -type f | sort || true
 
       - name: Upload artifacts (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: am-patch-logs
+          name: ci-logs
           path: ci_artifacts
-
