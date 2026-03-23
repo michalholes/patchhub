@@ -293,7 +293,7 @@ class Policy(PolicyMonolithMixin):
 
     live_repo_guard_scope: str = "patch"
 
-    audit_rubric_guard: bool = False
+    audit_rubric_guard: bool = True
 
     patch_jail: bool = True
     patch_jail_unshare_net: bool = True
