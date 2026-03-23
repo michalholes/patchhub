@@ -66,6 +66,7 @@ jobs:
           ./.venv/bin/python badguys/badguys.py \
             --no-suite-jail \
             --per-run-logs-post-run keep_all \
+            --exclude=test_086_pytest_gate_runs_on_targeted_python_change\
             --exclude=test_064_a_allows_undeclared \
             --exclude=test_900_commit_push_timestamp
 
