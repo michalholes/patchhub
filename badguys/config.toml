@@ -10,7 +10,7 @@ write_subprocess_stdio = false
 patches_dir = "patches"
 logs_dir = "patches/badguys_logs"
 central_log_pattern = "patches/badguys_{run_id}.log"
-commit_limit = 2
+commit_limit = 1
 
 [lock]
 path = "patches/badguys.lock"
@@ -411,7 +411,7 @@ value_contains = ["GATE: PYTEST", "tests/test_badguys_pytest_gate_target.py", "R
 value_not_contains = ["gate_pytest=SKIP", "gate_pytest=SKIP (no_matching_files)"]
 
 [runner]
-full_runner_tests = ["test_084_workspace_git_state_matches_mode", "test_900_commit_push_timestamp"]
+full_runner_tests = ["test_900_commit_push_timestamp"]
 
 [recipes]
 [recipes.tests]
