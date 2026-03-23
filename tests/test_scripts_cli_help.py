@@ -37,3 +37,17 @@ def test_full_help_mentions_self_backup_flags() -> None:
     assert "--self-backup-dir RELPATH" in text
     assert "--self-backup-template TEMPLATE" in text
     assert "--self-backup-include-relpaths CSV" in text
+
+
+def test_help_mentions_new_badguys_flags_and_hides_legacy_surface() -> None:
+    fmt_full_help, fmt_short_help = _import_help_text()
+    full_text = fmt_full_help("test")
+    short_text = fmt_short_help("test")
+
+    for text in (full_text, short_text):
+        assert "--skip-badguys" in text
+        assert "--badguys-mode" in text
+        assert "--badguys-command" in text
+        assert "--gate-badguys-runner" not in text
+        assert "--gate-badguys-command" not in text
+        assert "--gate-badguys-cwd" not in text

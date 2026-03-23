@@ -110,7 +110,6 @@ def complete_workspace_promotion_pipeline(
     policy: Any,
     issue_id: str | None,
     promotion_plan: WorkspacePromotionPlan,
-    badguys_runner: Any,
     live_gates_runner: Any | None,
     delete_workspace_after_archive: bool,
 ) -> WorkspacePromotionSummary:
@@ -127,7 +126,6 @@ def complete_workspace_promotion_pipeline(
     decision_paths_live = list(promotion_plan.files_to_promote)
     if live_gates_runner is not None:
         live_gates_runner(decision_paths_live)
-    badguys_runner(cwd=repo_root, decision_paths=decision_paths_live)
 
     commit_sha: str | None = None
     push_ok: bool | None = None

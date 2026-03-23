@@ -69,6 +69,7 @@ gates_order = [
   "mypy",
   "monolith",
   "docs",
+  "badguys",
 ]
 
 [paths]

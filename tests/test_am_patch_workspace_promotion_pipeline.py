@@ -74,12 +74,11 @@ def test_workspace_promotion_pipeline_cleans_failure_zips_once(tmp_path: Path) -
         policy=policy,
         issue_id="999",
         promotion_plan=plan,
-        badguys_runner=lambda **kwargs: events.append("badguys"),
         live_gates_runner=lambda decision_paths: events.append("live_gates"),
         delete_workspace_after_archive=True,
     )
 
-    assert events == ["promote", "live_gates", "badguys", "cleanup"]
+    assert events == ["promote", "live_gates", "cleanup"]
     assert summary.final_commit_sha == "deadbeef"
     assert summary.push_ok_for_posthook is True
     assert summary.final_pushed_files == ["M scripts/am_patch/engine.py"]

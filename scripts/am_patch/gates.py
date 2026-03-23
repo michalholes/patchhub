@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .errors import RunnerError
+from .gate_badguys import run_badguys_gate
 from .gate_docs import check_docs_gate
 from .gate_step_capture import GateStepCallback, run_logged_gate_step
 from .gates_wiring_guard import assert_single_run_gates_callsite
@@ -479,31 +480,22 @@ def run_pytest(
     return r.returncode == 0
 
 
-def run_badguys(
-    logger: Logger,
-    cwd: Path,
-    *,
-    repo_root: Path,
-    command: list[str],
-) -> bool:
+def run_badguys(logger: Logger, cwd: Path, *, repo_root: Path, command: list[str]) -> bool:
+    del repo_root
     logger.section("GATE: BADGUYS")
     logger.line(f"badguys_python={sys.executable}")
+    logger.line(f"badguys_cmd={command}")
     env = dict(os.environ)
     env["AM_PATCH_BADGUYS_GATE"] = "1"
-    # Ensure BadGuys uses the same Python as the runner for nested am_patch invocations.
-    env["AM_PATCH_BADGUYS_RUNNER_PYTHON"] = sys.executable
-    # If we are running from a venv, propagate PATH/VIRTUAL_ENV so nested processes
-    # can find the same toolchain even inside workspace/clone repos.
+    env.setdefault("AM_PATCH_BADGUYS_RUNNER_PYTHON", sys.executable)
     venv_root = _infer_venv_root(sys.executable)
     if venv_root is not None:
         venv_bin = venv_root / "bin"
         old_path = env.get("PATH", "")
         env["PATH"] = f"{venv_bin}:{old_path}" if old_path else str(venv_bin)
         env["VIRTUAL_ENV"] = str(venv_root)
-    logger.line(f"badguys_cmd={command}")
-    cmd = [sys.executable, "-u", *command]
-    r = logger.run_logged(cmd, cwd=cwd, env=env)
-    return r.returncode == 0
+    result = logger.run_logged([sys.executable, "-u", *command], cwd=cwd, env=env)
+    return result.returncode == 0
 
 
 def run_mypy(
@@ -576,6 +568,7 @@ def _norm_gates_order(order: list[str] | None) -> list[str]:
         "mypy",
         "docs",
         "monolith",
+        "badguys",
     }
     out: list[str] = []
     for item in order:
@@ -605,6 +598,7 @@ def run_gates(
     skip_mypy: bool,
     skip_docs: bool,
     skip_monolith: bool,
+    skip_badguys: bool = False,
     gate_monolith_enabled: bool,
     gate_monolith_mode: str,
     gate_monolith_scan_scope: str,
@@ -663,6 +657,10 @@ def run_gates(
     pytest_routing_policy: dict[str, object] | None = None,
     gates_order: list[str] | None,
     pytest_use_venv: bool,
+    gate_badguys_mode: str = "auto",
+    gate_badguys_trigger_prefixes: list[str] | None = None,
+    gate_badguys_trigger_files: list[str] | None = None,
+    gate_badguys_command: list[str] | None = None,
     active_repository_tree_root: Path | None = None,
     python_gate_mode: str = "auto",
     python_gate_python: str = ".venv/bin/python",
@@ -703,6 +701,9 @@ def run_gates(
     _norm_decision_paths = [p.replace("\\", "/").lstrip("./") for p in decision_paths]
     gate_pytest_py_prefixes = gate_pytest_py_prefixes or []
     gate_pytest_js_prefixes = gate_pytest_js_prefixes or []
+    badguys_prefixes = gate_badguys_trigger_prefixes or []
+    badguys_files = gate_badguys_trigger_files or []
+    badguys_command = gate_badguys_command or ["badguys/badguys.py", "-q"]
 
     def _has_changed_basename(names: tuple[str, ...]) -> bool:
         return any(pth in names for pth in _norm_decision_paths)
@@ -940,6 +941,19 @@ def run_gates(
                 gate_monolith_catchall_allowlist=gate_monolith_catchall_allowlist,
             )
 
+        if name == "badguys":
+            return run_badguys_gate(
+                logger,
+                cwd,
+                repo_root=repo_root,
+                decision_paths=decision_paths,
+                skip_badguys=skip_badguys,
+                gate_badguys_mode=gate_badguys_mode,
+                gate_badguys_trigger_prefixes=badguys_prefixes,
+                gate_badguys_trigger_files=badguys_files,
+                gate_badguys_command=badguys_command,
+            )
+
         if name == "docs":
             if skip_docs:
                 skipped.append("docs")
@@ -974,6 +988,7 @@ def run_gates(
         "mypy",
         "docs",
         "monolith",
+        "badguys",
     ):
         if gate not in order:
             skipped.append(gate)

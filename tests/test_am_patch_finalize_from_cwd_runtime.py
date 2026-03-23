@@ -29,7 +29,6 @@ def _runtime_state():
         "repo_root": runtime_mod.repo_root,
         "paths": runtime_mod.paths,
         "cli": runtime_mod.cli,
-        "run_badguys": runtime_mod.run_badguys,
         "RunnerError": runtime_mod.RunnerError,
     }
     return runtime_mod, old
@@ -156,3 +155,13 @@ def test_duplicate_binding_registry_entries_fail_config_invalid(
     assert excinfo.value.stage == "CONFIG"
     assert excinfo.value.category == "INVALID"
     assert "duplicate target_repo_roots" in excinfo.value.message
+
+
+def test_runtime_module_has_no_special_badguys_hook() -> None:
+    scripts_dir = Path(__file__).parent.parent / "scripts"
+    sys.path.insert(0, str(scripts_dir))
+    import am_patch.runtime as runtime_mod
+
+    assert not hasattr(runtime_mod, "_is_runner_path")
+    assert not hasattr(runtime_mod, "_runner_touched")
+    assert not hasattr(runtime_mod, "_maybe_run_badguys")

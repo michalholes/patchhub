@@ -107,9 +107,11 @@ _SECTION_BY_KEY: dict[str, str] = {
     "gate_docs_exclude": "",
     "gate_docs_required_files": "",
     "gates_order": "",
-    "gate_badguys_runner": "",
+    "gates_skip_badguys": "",
+    "gate_badguys_mode": "",
+    "gate_badguys_trigger_prefixes": "",
+    "gate_badguys_trigger_files": "",
     "gate_badguys_command": "",
-    "gate_badguys_cwd": "",
     "ruff_targets": "",
     "pytest_targets": "",
     "mypy_targets": "",
@@ -221,6 +223,7 @@ _LABEL_BY_KEY: dict[str, str] = {
     "gates_skip_mypy": "Gates: skip mypy",
     "gates_skip_pytest": "Gates: skip pytest",
     "gates_skip_ruff": "Gates: skip ruff",
+    "gates_skip_badguys": "Gates: skip badguys",
     "mypy_targets": "Mypy: targets",
     "pytest_targets": "Pytest: targets",
     "gate_pytest_py_prefixes": "Pytest: Python trigger prefixes",
@@ -232,6 +235,10 @@ _LABEL_BY_KEY: dict[str, str] = {
     "pytest_external_dependencies": "Pytest: external dependencies",
     "pytest_full_suite_prefixes": "Pytest: full-suite prefixes",
     "pytest_use_venv": "Pytest: use venv",
+    "gate_badguys_mode": "BadGuys: mode",
+    "gate_badguys_trigger_prefixes": "BadGuys: trigger prefixes",
+    "gate_badguys_trigger_files": "BadGuys: trigger files",
+    "gate_badguys_command": "BadGuys: command",
     "python_gate_mode": "Python gate: mode",
     "python_gate_python": "Python gate: interpreter relpath",
     "run_all_tests": "Workflow: run all gates",
@@ -303,6 +310,25 @@ _HELP_BY_KEY: dict[str, str] = {
     ),
     "gates_skip_ruff": (
         "Skip the ruff gate. See: scripts/am_patch_policy_glossary.md## Key: gates_skip_ruff"
+    ),
+    "gates_skip_badguys": (
+        "Skip the badguys gate. See: scripts/am_patch_policy_glossary.md## Key: gates_skip_badguys"
+    ),
+    "gate_badguys_mode": (
+        "Control badguys auto or always mode. "
+        "See: scripts/am_patch_policy_glossary.md## Key: gate_badguys_mode"
+    ),
+    "gate_badguys_trigger_prefixes": (
+        "Repo-relative prefixes that trigger badguys in auto mode. "
+        "See: scripts/am_patch_policy_glossary.md## Key: gate_badguys_trigger_prefixes"
+    ),
+    "gate_badguys_trigger_files": (
+        "Exact repo-relative files that trigger badguys in auto mode. "
+        "See: scripts/am_patch_policy_glossary.md## Key: gate_badguys_trigger_files"
+    ),
+    "gate_badguys_command": (
+        "Command argv used for the badguys gate. "
+        "See: scripts/am_patch_policy_glossary.md## Key: gate_badguys_command"
     ),
     "biome_autofix": (
         "Run biome in autofix mode when the initial check fails. "

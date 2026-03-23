@@ -93,3 +93,15 @@ def test_gates_pytest_bucket_routing_callsite_passes_repo_root() -> None:
     value = keywords.get("repo_root")
     assert isinstance(value, ast.Name), "missing repo_root keyword binding"
     assert value.id == "repo_root", "expected repo_root=repo_root"
+
+
+def test_badguys_is_allowed_ordinary_gate() -> None:
+    scripts_dir = Path(__file__).parent.parent / "scripts"
+    import sys
+
+    sys.path.insert(0, str(scripts_dir))
+    from am_patch.config import Policy
+    from am_patch.gates import _norm_gates_order
+
+    assert _norm_gates_order(["badguys", "badguys"]) == ["badguys"]
+    assert Policy().gates_order[-1] == "badguys"

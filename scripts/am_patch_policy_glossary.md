@@ -10,7 +10,7 @@ Related: gates_order, gates_skip_ruff, gates_skip_pytest, gates_skip_mypy
 ## Key: gates_order
 Key: gates_order
 Type: list[str]
-Default: ["compile", "js", "ruff", "pytest", "mypy", "monolith", "docs"]
+Default: ["dont-touch", "compile", "js", "biome", "typescript", "ruff", "pytest", "mypy", "monolith", "docs", "badguys"]
 Meaning: Ordered list of gate names to run when gating is enabled.
 Notes:
 - Unknown gate names are rejected by the runner.
@@ -663,3 +663,39 @@ Notes:
 - After target selection resolves, the effective metadata value remains the selected token.
 - See: scripts/am_patch_specification.md section 3.1.1
 Related: active_target_repo_root, target_repo_roots
+
+
+## Key: gates_skip_badguys
+Key: gates_skip_badguys
+Type: bool
+Default: false
+Meaning: If true, skip the ordinary badguys gate.
+Related: gates_order, gate_badguys_mode
+
+## Key: gate_badguys_mode
+Key: gate_badguys_mode
+Type: str
+Default: "auto"
+Meaning: Control whether badguys runs only on matching trigger paths or always when present in gates_order.
+Related: gates_skip_badguys, gate_badguys_trigger_prefixes, gate_badguys_trigger_files
+
+## Key: gate_badguys_trigger_prefixes
+Key: gate_badguys_trigger_prefixes
+Type: list[str]
+Default: ["scripts/am_patch"]
+Meaning: Repo-relative prefixes that trigger badguys when gate_badguys_mode is auto.
+Related: gate_badguys_mode, gate_badguys_trigger_files
+
+## Key: gate_badguys_trigger_files
+Key: gate_badguys_trigger_files
+Type: list[str]
+Default: ["scripts/am_patch.py", "scripts/am_patch.md", "scripts/am_patch_specification.md", "scripts/am_patch_instructions.md"]
+Meaning: Exact repo-relative files that trigger badguys when gate_badguys_mode is auto.
+Related: gate_badguys_mode, gate_badguys_trigger_prefixes
+
+## Key: gate_badguys_command
+Key: gate_badguys_command
+Type: list[str]
+Default: ["badguys/badguys.py", "-q"]
+Meaning: Command argv used for the ordinary badguys gate before AMP appends --no-suite-jail.
+Related: gates_order, gate_badguys_mode

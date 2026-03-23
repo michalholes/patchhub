@@ -513,7 +513,10 @@ Diff scope rules:
 - In `finalize`, the diff set is limited to the union of decision paths before gates and changed paths after gates (so ruff changes are included without pulling in unrelated tracked files).
 
 
-- --gate-badguys-runner {auto,on,off}: runner-only badguys gate (default auto)
+- --skip-badguys / --no-skip-badguys: skip or enable the ordinary badguys gate
+- --badguys-mode {auto,always}: auto uses configured trigger files/prefixes; always runs whenever badguys is in gates_order
+- --badguys-trigger-prefixes CSV / --badguys-trigger-files CSV: configure the badguys auto trigger surface
+- --badguys-command CMD: override the badguys argv string
 
 ## Console color output
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from am_patch import git_ops, runtime
+from am_patch.cli_badguys import apply_badguys_cli_overrides
 from am_patch.cli_override_normalization import (
     apply_cli_symmetry_helpers,
     build_cli_override_mapping,
@@ -19,7 +20,7 @@ from am_patch.config import (
 from am_patch.config_file import load_repo_local_config
 from am_patch.engine_startup_runtime import build_startup_logger_and_ipc
 from am_patch.errors import RunnerError
-from am_patch.gates import run_badguys
+from am_patch.gate_badguys import configure_badguys_runtime
 from am_patch.initial_self_backup import maybe_create_initial_self_backup
 from am_patch.ipc_socket import IpcController
 from am_patch.lock import FileLock
@@ -302,9 +303,10 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
         repo_cfg = filter_policy_layer_cfg(repo_cfg, REPO_OWNED_KEYS)
         if repo_cfg:
             policy = build_policy(policy, repo_cfg, source_name="repo_config")
-            apply_cli_overrides(policy, build_cli_override_mapping(cli))
-            apply_cli_symmetry_helpers(policy, cli)
-            ctx.policy = policy
+        apply_cli_overrides(policy, build_cli_override_mapping(cli))
+        apply_badguys_cli_overrides(policy, cli)
+        apply_cli_symmetry_helpers(policy, cli)
+        ctx.policy = policy
 
         status.start()
 
@@ -314,8 +316,12 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
         runtime.repo_root = live_target_root
         runtime.paths = paths
         runtime.cli = cli
-        runtime.run_badguys = run_badguys
         runtime.RunnerError = RunnerError
+        configure_badguys_runtime(
+            workspaces_dir=paths.workspaces_dir,
+            cli_mode=cli.mode,
+            issue_id=cli.issue_id,
+        )
     except Exception as exc:
         ctx.startup_failure = exc
 
