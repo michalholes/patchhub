@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.13
+Verzia 1.2.14
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -23,6 +23,8 @@ HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo v
 15. V AMP musia existovat defaultne hodnoty. Ale musia byt overridovatelne cez config a specializovane --flags (nie --override). A testy nesmu spadnut, ak by som defaulty overridoval. Ak pri inspekcii natrafis na taky test, sucastou freeze musi byt vyriesenie tohto problemu. Cele toto pravidlo plati vylucne pre AMP.
 16. Pred zverejnenim patchu specky musis hlbkovo skontrolovat, ci zodpoveda poslednemu odsuhlasenemu freeze a ci bol implementovany uplne, spravne a korektne. Ak freeze nezodpoveda, musis vygenerovat novy patch toho isteho freeze. Az ked hlbkove testy implementacie dopadnu pass, patch mozes zverejnit.
 17. Ak si nieco porusil, ocakavam, ze to napravis. Status message je zakazany.
+18. docs/specification.jsonl je specka vylucne pre AM2. Repo patchhub sa netyka.
+19. vsetky instrukcie v RC su zavazne a ziadne nie je mozne opomenut a/alebo implicitne a/alebo explicitne vyvodzovat zavery, ze nie je potrebne ich dodrziavat. vseky ich teda MUSIS dodrziavat a nedodrzanie = HARD FAIL = neplatny vystup
 
 Terminologia (HARD):
 PM = Patch authoring manual
