@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.14
+Verzia 1.2.15
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -143,7 +143,7 @@ Validácia musí zahŕňať:
 - Overenie, že FILES MANIFEST zodpovedá deklarovanému rozsahu.
 - Overenie, že navrhované zmeny nemenia systémový kontrakt.
 - Overenie, že návrh nevyužíva interpretačné medzery v špecifikácii.
-- Ak handoff meni alebo refaktoruje control-flow routing, terminal/finalization cestu, failure/exception mapping alebo state propagation do downstream finalizacnej/pipeline logiky, validacia MUSI overit uplnost a spravnost blokov SHARED CONTRACT INVENTORY, DOWNSTREAM STATE DEPENDENCY INVENTORY a EXCEPTION / STATE MATRIX podla sekcie 5A.
+- Validacia MUSI overit uplnost a spravnost blokov SHARED CONTRACT INVENTORY, DOWNSTREAM STATE DEPENDENCY INVENTORY a EXCEPTION / STATE MATRIX podla sekcie 5A.
 
 Ak handoff nie je plne kompatibilný:
 
@@ -176,15 +176,9 @@ Pre kazde Pi MUSI handoff uviest vlastny blok SUCCESS CRITERIA s identifikatormi
 Kazda normativna poziadavka handoffu mimo PLAN FREEZE, ktora obmedzuje implementacny rozsah, FILES MANIFEST, zakazane zasahy, shape vystupu alebo gating, MUSI byt explicitne naviazana na aspon jedno Pi v PLAN COVERAGE MATRIX. Nenaviazana normativna poziadavka = handoff je neplatny.
 
 ---
-## 5A. POVINNE INVARIANTNE INVENTARE PRE CONTROL-FLOW A FINALIZATION REFAKTORY (HARD)
+## 5A. POVINNE INVARIANTNE INVENTARE (HARD)
 
-Toto pravidlo plati, ak handoff uklada zmenu alebo refaktor:
-- control-flow routingu medzi vetvami alebo fazami,
-- terminal/finalization cesty,
-- failure/exception translation alebo result-summary mappingu,
-- state propagation do objektov alebo struktur citanych downstream finalizaciou, cleanup logikou, artifact pipeline alebo post-run pipeline.
-
-Ak plati aspon jedna odrazka vyssie, handoff MUSI obsahovat tieto tri sekcie. Absencia ktorejkolvek sekcie alebo vynechanie relevantnej polozky = handoff je neplatny.
+Handoff MUSI obsahovat aj nasledujuce tri sekcie. Absencia ktorejkolvek sekcie alebo vynechanie relevantnej polozky = handoff je neplatny.
 
 A. SHARED CONTRACT INVENTORY
 - Pre kazdy existujuci shared normalizer, encoder, summary builder, contract producer alebo iny autoritativny helper dotknuty zmenou MUSI handoff uviest:
@@ -209,7 +203,7 @@ C. EXCEPTION / STATE MATRIX
 - povinne prenesene state inputs
 - odkaz na Pi a SC, ktore bunku pokryvaju, alebo explicitne dokazany no-op/impossible stav
 
-Pre handoffy spadajuce pod tuto sekciu plati, ze SUCCESS CRITERIA a testove pokrytie MUSIA pokryt kazdu ne-no-op bunku matice. Test overujuci iba to, ze sa zavola finalizacia alebo prebehne branch, bez overenia shared semantiky a state propagation, je nedostatocny.
+SUCCESS CRITERIA a testove pokrytie MUSIA pokryt kazdu ne-no-op bunku matice. Test overujuci iba to, ze sa zavola finalizacia alebo prebehne branch, bez overenia shared semantiky a state propagation, je nedostatocny.
 
 ---
 ## 6. KONTROLA IMPLEMENTÁCIE (HARD)
