@@ -59,12 +59,15 @@ jobs:
             scripts:
               - 'scripts/**'
 
+
       - name: Badguys
         if: steps.changes.outputs.scripts == 'true'
         run: |
-          python3 badguys/badguys.py \
-           --exclude=test_064_a_allows_undeclared \
-           --exclude=test_900_commit_push_timestamp
+          ./.venv/bin/python badguys/badguys.py \
+            --no-suite-jail \
+            --exclude=test_064_a_allows_undeclared \
+            --exclude=test_900_commit_push_timestamp
+
 
       - name: Collect am_patch logs (always)
         if: always()
