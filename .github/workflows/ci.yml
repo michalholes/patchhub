@@ -62,7 +62,6 @@ jobs:
       - name: Badguys
         if: steps.changes.outputs.scripts == 'true'
         run: |
-          . .venv/bin/activate
           python3 badguys/badguys.py \
            --exclude=test_064_a_allows_undeclared \
            --exclude=test_900_commit_push_timestamp
