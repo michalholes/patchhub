@@ -421,18 +421,32 @@ def _run_test_plan(test, ctx: Ctx) -> bool:
     }
 
     for idx, step in enumerate(bdg.steps):
-        r = execute_bdg_step(
-            repo_root=ctx.repo_root,
-            config_path=Path(ctx.cfg.config_path),
-            cfg_runner_cmd=list(ctx.cfg.runner_cmd),
-            subst=subst,
-            full_runner_tests=set(ctx.cfg.full_runner_tests),
-            step=step,
-            mats=mats,
-            test_id=bdg.test_id,
-            step_index=int(idx),
-            step_runner_cfg=step_runner_cfg,
-        )
+        try:
+            r = execute_bdg_step(
+                repo_root=ctx.repo_root,
+                config_path=Path(ctx.cfg.config_path),
+                cfg_runner_cmd=list(ctx.cfg.runner_cmd),
+                subst=subst,
+                full_runner_tests=set(ctx.cfg.full_runner_tests),
+                step=step,
+                mats=mats,
+                test_id=bdg.test_id,
+                step_index=int(idx),
+                step_runner_cfg=step_runner_cfg,
+            )
+        except SystemExit as e:
+            ok = False
+            _log(
+                ctx,
+                level="quiet",
+                test_id=bdg.test_id,
+                obj={
+                    "type": "step_fail",
+                    "step_index": int(idx),
+                    "msg": str(e),
+                },
+            )
+            break
 
         rules = _rules_for_step(evaluation, test_id=bdg.test_id, step_index=idx)
         if strict and not rules:

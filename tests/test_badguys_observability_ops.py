@@ -1,30 +1,41 @@
 from __future__ import annotations
 
+import argparse
+import json
 import subprocess
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from badguys import run_suite
 from badguys.bdg_executor import execute_bdg_step
-from badguys.bdg_loader import BdgStep
+from badguys.bdg_loader import BdgStep, BdgTest
 from badguys.bdg_materializer import MaterializedAssets
 from badguys.bdg_subst import SubstCtx
 
 
-def _write_config(repo_root: Path) -> Path:
+def _write_config(
+    repo_root: Path,
+    *,
+    console_verbosity: str = "quiet",
+    log_verbosity: str = "quiet",
+) -> Path:
     cfg_path = repo_root / "badguys" / "config_ops.toml"
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg_path.write_text(
-        """
+        f"""
 [suite]
 issue_id = "777"
 runner_cmd = ["python3", "scripts/am_patch.py"]
 runner_verbosity = "quiet"
-console_verbosity = "quiet"
-log_verbosity = "quiet"
+console_verbosity = "{console_verbosity}"
+log_verbosity = "{log_verbosity}"
 patches_dir = "patches"
 logs_dir = "patches/badguys_logs"
 commit_limit = 0
+per_run_logs_post_run = "keep_all"
+suite_jail = false
 
 [lock]
 path = "patches/badguys.lock"
@@ -47,6 +58,46 @@ full_runner_tests = []
         encoding="utf-8",
     )
     return cfg_path
+
+
+@dataclass(frozen=True)
+class _SuiteTestDef:
+    name: str
+    bdg: BdgTest
+    makes_commit: bool = False
+    is_guard: bool = False
+
+    def run(self, _ctx) -> BdgTest:
+        return self.bdg
+
+
+class _SuiteTestList(list[_SuiteTestDef]):
+    abort_on_guard_fail: bool
+    commit_limit: int
+
+
+def _suite_test_list(
+    *tests: _SuiteTestDef,
+    abort_on_guard_fail: bool = True,
+) -> _SuiteTestList:
+    out = _SuiteTestList(tests)
+    out.abort_on_guard_fail = abort_on_guard_fail
+    out.commit_limit = 0
+    return out
+
+
+def _suite_args(config_path: Path) -> argparse.Namespace:
+    return argparse.Namespace(
+        config=config_path.relative_to(config_path.parent.parent).as_posix(),
+        commit_limit=None,
+        include=[],
+        exclude=[],
+        list_tests=False,
+    )
+
+
+def _read_jsonl(path: Path) -> list[dict[str, object]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def _step_runner_cfg(repo_root: Path, *, artifacts_dir: Path) -> dict[str, object]:
@@ -284,3 +335,188 @@ def test_delete_subject_fails_for_directory_target(tmp_path: Path) -> None:
     assert result.stderr == "DELETE_SUBJECT target is directory"
     assert result.value == str(target)
     assert target.exists()
+
+
+def test_run_suite_continues_after_step_system_exit_and_logs_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path
+    cfg_path = _write_config(repo_root, console_verbosity="normal")
+    args = _suite_args(cfg_path)
+    cfg = run_suite._make_cfg(
+        repo_root,
+        Path(args.config),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    central_log = run_suite._init_logs(cfg, "testrun")
+
+    tests = _suite_test_list(
+        _SuiteTestDef(
+            name="test_001_step_local_fail",
+            bdg=BdgTest(
+                test_id="test_001_step_local_fail",
+                makes_commit=False,
+                is_guard=False,
+                assets={},
+                steps=[BdgStep(op="READ_TEXT_FILE", params={"scope": "repo", "relpath": "docs/a"})],
+            ),
+        ),
+        _SuiteTestDef(
+            name="test_002_still_runs",
+            bdg=BdgTest(
+                test_id="test_002_still_runs",
+                makes_commit=False,
+                is_guard=False,
+                assets={},
+                steps=[],
+            ),
+        ),
+        abort_on_guard_fail=False,
+    )
+
+    def _fake_discover_tests(**_kwargs) -> _SuiteTestList:
+        return tests
+
+    step_calls: list[tuple[str, int]] = []
+
+    def _fake_execute_bdg_step(**kwargs):
+        test_id = str(kwargs["test_id"])
+        step_index = int(kwargs["step_index"])
+        step_calls.append((test_id, step_index))
+        if test_id == "test_001_step_local_fail":
+            raise SystemExit("FAIL: bdg: missing runner json_path: /tmp/runner_missing.jsonl")
+        raise AssertionError(f"unexpected step execution for {test_id}")
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("badguys.discovery.discover_tests", _fake_discover_tests)
+    monkeypatch.setattr("badguys.bdg_executor.execute_bdg_step", _fake_execute_bdg_step)
+    monkeypatch.setattr(
+        run_suite,
+        "_load_eval_rules",
+        lambda *_args, **_kwargs: {"strict_coverage": False},
+    )
+
+    rc = run_suite._run_suite_body(
+        args=args,
+        repo_root=repo_root,
+        cfg=cfg,
+        run_id="testrun",
+        central_log=central_log,
+    )
+
+    assert rc == 1
+    assert step_calls == [("test_001_step_local_fail", 0)]
+
+    out = capsys.readouterr().out
+    assert "BadGuys summary: FAIL passed=1 failed=1" in out
+    assert "test_001_step_local_fail ... FAILED" in out
+    assert "test_002_still_runs ... PASSED" in out
+
+    fail_log = _read_jsonl(cfg.logs_dir / "test_001_step_local_fail" / "badguys.test.jsonl")
+    assert {
+        "type": "step_fail",
+        "step_index": 0,
+        "msg": "FAIL: bdg: missing runner json_path: /tmp/runner_missing.jsonl",
+    } in fail_log
+
+    pass_log = _read_jsonl(cfg.logs_dir / "test_002_still_runs" / "badguys.test.jsonl")
+    assert pass_log[-1] == {
+        "type": "test_end",
+        "test_id": "test_002_still_runs",
+        "ok": True,
+    }
+
+
+def test_run_suite_keeps_guard_fail_fast_for_step_system_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path
+    cfg_path = _write_config(repo_root, console_verbosity="normal")
+    args = _suite_args(cfg_path)
+    cfg = run_suite._make_cfg(
+        repo_root,
+        Path(args.config),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    central_log = run_suite._init_logs(cfg, "testrun")
+
+    tests = _suite_test_list(
+        _SuiteTestDef(
+            name="test_000_test_mode_smoke",
+            bdg=BdgTest(
+                test_id="test_000_test_mode_smoke",
+                makes_commit=False,
+                is_guard=True,
+                assets={},
+                steps=[BdgStep(op="READ_TEXT_FILE", params={"scope": "repo", "relpath": "docs/a"})],
+            ),
+            is_guard=True,
+        ),
+        _SuiteTestDef(
+            name="test_001_not_reached",
+            bdg=BdgTest(
+                test_id="test_001_not_reached",
+                makes_commit=False,
+                is_guard=False,
+                assets={},
+                steps=[],
+            ),
+        ),
+    )
+
+    def _fake_discover_tests(**_kwargs) -> _SuiteTestList:
+        return tests
+
+    step_calls: list[tuple[str, int]] = []
+
+    def _fake_execute_bdg_step(**kwargs):
+        test_id = str(kwargs["test_id"])
+        step_index = int(kwargs["step_index"])
+        step_calls.append((test_id, step_index))
+        raise SystemExit("FAIL: bdg: generic step failure")
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("badguys.discovery.discover_tests", _fake_discover_tests)
+    monkeypatch.setattr("badguys.bdg_executor.execute_bdg_step", _fake_execute_bdg_step)
+    monkeypatch.setattr(
+        run_suite,
+        "_load_eval_rules",
+        lambda *_args, **_kwargs: {"strict_coverage": False},
+    )
+
+    rc = run_suite._run_suite_body(
+        args=args,
+        repo_root=repo_root,
+        cfg=cfg,
+        run_id="testrun",
+        central_log=central_log,
+    )
+
+    assert rc == 1
+    assert step_calls == [("test_000_test_mode_smoke", 0)]
+
+    out = capsys.readouterr().out
+    assert "BadGuys summary: FAIL passed=0 failed=1" in out
+    assert "test_000_test_mode_smoke ... FAILED" in out
+    assert "test_001_not_reached" not in out
+
+    assert not (cfg.logs_dir / "test_001_not_reached").exists()
+    summary_log = _read_jsonl(central_log)
+    assert summary_log[-1] == {
+        "type": "badguys_summary",
+        "status": "FAIL",
+        "passed": 0,
+        "failed": 1,
+    }
