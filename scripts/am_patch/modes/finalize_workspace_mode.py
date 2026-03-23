@@ -12,6 +12,7 @@ from am_patch.runner_failure_detail import (
 )
 from am_patch.runtime import (
     _gate_progress,
+    _maybe_run_badguys,
     _parse_gate_list,
     _stage_rank,
 )
@@ -113,6 +114,8 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
         changed_after_ws_gates = changed_paths(logger, ws.repo)
         files_for_fail_zip = sorted(set(files_for_fail_zip) | set(changed_after_ws_gates))
 
+        _maybe_run_badguys(cwd=ws.repo, decision_paths=decision_paths_ws)
+
         promotion_plan = build_workspace_delta_promotion_plan(
             logger=logger,
             workspace_base_sha=ws.base_sha,
@@ -133,6 +136,7 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
             policy=policy,
             issue_id=str(cli.issue_id) if cli.issue_id is not None else None,
             promotion_plan=promotion_plan,
+            badguys_runner=_maybe_run_badguys,
             live_gates_runner=lambda decision_paths: run_policy_gates(
                 logger=logger,
                 cwd=repo_root,

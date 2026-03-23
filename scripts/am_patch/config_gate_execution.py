@@ -287,8 +287,15 @@ def apply_gate_execution_cfg(
 
     p.gates_order = as_list_str(cfg, "gates_order", p.gates_order)
     mark_cfg(p, cfg, "gates_order")
-    p.gates_skip_badguys = as_bool(cfg, "gates_skip_badguys", p.gates_skip_badguys)
-    mark_cfg(p, cfg, "gates_skip_badguys")
+
+    p.gate_badguys_runner = str(cfg.get("gate_badguys_runner", p.gate_badguys_runner))
+    mark_cfg(p, cfg, "gate_badguys_runner")
+    if p.gate_badguys_runner not in ("auto", "on", "off"):
+        raise RunnerError(
+            "CONFIG",
+            "INVALID",
+            f"invalid gate_badguys_runner={p.gate_badguys_runner!r}; allowed: auto|on|off",
+        )
 
     if "gate_badguys_command" in cfg:
         raw_cmd = cfg["gate_badguys_command"]
@@ -306,6 +313,19 @@ def apply_gate_execution_cfg(
             raise RunnerError("CONFIG", "INVALID", "gate_badguys_command must be non-empty")
         p.gate_badguys_command = cmd_list
         mark_cfg(p, cfg, "gate_badguys_command")
+
+    if "gate_badguys_cwd" in cfg:
+        p.gate_badguys_cwd = str(cfg["gate_badguys_cwd"]).strip().lower()
+        mark_cfg(p, cfg, "gate_badguys_cwd")
+        if p.gate_badguys_cwd not in ("auto", "workspace", "clone", "live"):
+            raise RunnerError(
+                "CONFIG",
+                "INVALID",
+                (
+                    f"invalid gate_badguys_cwd={p.gate_badguys_cwd!r}; allowed: "
+                    "auto|workspace|clone|live"
+                ),
+            )
 
     p.compile_targets = as_list_str(cfg, "compile_targets", p.compile_targets)
     mark_cfg(p, cfg, "compile_targets")

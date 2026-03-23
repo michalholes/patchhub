@@ -48,6 +48,7 @@ from am_patch.runner_failure_detail import (
 )
 from am_patch.runtime import (
     _gate_progress,
+    _maybe_run_badguys,
     _parse_gate_list,
     _stage_do,
     _stage_fail,
@@ -328,6 +329,7 @@ def run_mode(ctx: RunContext) -> RunResult:
             changed_after_finalize_gates = changed_paths(logger, repo_root)
             issue_diff_paths = sorted(set(issue_diff_paths) | set(changed_after_finalize_gates))
 
+            _maybe_run_badguys(cwd=repo_root, decision_paths=decision_paths_finalize)
             if policy.commit_and_push:
                 commit_sha = git_ops.commit(logger, repo_root, cli.message or "finalize")
                 push_ok = git_ops.push(
@@ -612,9 +614,13 @@ def run_mode(ctx: RunContext) -> RunResult:
             logger=logger,
             repo_root=repo_root,
             cwd=ws.repo,
+            paths=paths,
             policy=policy,
+            cli_mode=cli.mode,
+            issue_id=cli.issue_id,
             decision_paths=touched,
             progress=_gate_progress,
+            run_badguys_gate=True,
             gate_step_callback=_capture_sink,
         )
 
@@ -676,6 +682,7 @@ def run_mode(ctx: RunContext) -> RunResult:
             policy=policy,
             issue_id=str(issue_id),
             promotion_plan=promotion_plan,
+            badguys_runner=_maybe_run_badguys,
             live_gates_runner=None,
             delete_workspace_after_archive=bool(policy.delete_workspace_on_success),
         )

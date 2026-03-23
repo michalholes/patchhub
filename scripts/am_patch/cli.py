@@ -7,11 +7,6 @@ from typing import Any
 
 from am_patch.version import RUNNER_VERSION
 
-from .cli_badguys import (
-    add_badguys_cli_args,
-    apply_badguys_cli_namespace_to_dataclass_kwargs,
-    apply_badguys_cli_namespace_to_return_kwargs,
-)
 from .cli_help_text import fmt_full_help, fmt_short_help
 from .cli_ipc_surface import add_ipc_override_args
 from .cli_override_normalization import apply_explicit_gate_flag_overrides
@@ -95,11 +90,10 @@ class CliArgs:
     ruff_format: bool | None
     pytest_use_venv: bool | None
 
-    skip_badguys: bool | None
-    badguys_mode: str | None
-    badguys_trigger_prefixes: str | None
-    badguys_trigger_files: str | None
-    badguys_command: str | None
+    gate_badguys_runner: str | None
+
+    gate_badguys_command: str | None
+    gate_badguys_cwd: str | None
     overrides: list[str] | None
     require_push_success: bool | None
     allow_outside_files: bool | None
@@ -777,7 +771,30 @@ def parse_args(argv: list[str]) -> CliArgs:
         default=None,
     )
 
-    add_badguys_cli_args(p)
+    p.add_argument(
+        "--gate-badguys-runner",
+        dest="gate_badguys_runner",
+        choices=["auto", "on", "off"],
+        default=None,
+        help="Runner-only extra gate: badguys/badguys.py -q (auto=only on runner changes).",
+    )
+
+    p.add_argument(
+        "--gate-badguys-command",
+        dest="gate_badguys_command",
+        default=None,
+        help=(
+            "BADGUYS gate command (argv string; parsed like shell). "
+            "Default: 'badguys/badguys.py -q'."
+        ),
+    )
+    p.add_argument(
+        "--gate-badguys-cwd",
+        dest="gate_badguys_cwd",
+        choices=["auto", "workspace", "clone", "live"],
+        default=None,
+        help="Where to run BADGUYS gate: auto|workspace|clone|live.",
+    )
 
     p.add_argument(
         "--post-success-audit",
@@ -856,7 +873,9 @@ def parse_args(argv: list[str]) -> CliArgs:
             patch_jail_unshare_net=ns.patch_jail_unshare_net,
             ruff_format=ns.ruff_format,
             pytest_use_venv=ns.pytest_use_venv,
-            **apply_badguys_cli_namespace_to_dataclass_kwargs(ns),
+            gate_badguys_runner=getattr(ns, "gate_badguys_runner", None),
+            gate_badguys_command=getattr(ns, "gate_badguys_command", None),
+            gate_badguys_cwd=getattr(ns, "gate_badguys_cwd", None),
             overrides=ns.overrides,
             require_push_success=ns.require_push_success,
             allow_outside_files=ns.allow_outside_files,
@@ -953,7 +972,9 @@ def parse_args(argv: list[str]) -> CliArgs:
         patch_jail_unshare_net=ns.patch_jail_unshare_net,
         ruff_format=ns.ruff_format,
         pytest_use_venv=ns.pytest_use_venv,
-        **apply_badguys_cli_namespace_to_return_kwargs(ns),
+        gate_badguys_runner=ns.gate_badguys_runner,
+        gate_badguys_command=getattr(ns, "gate_badguys_command", None),
+        gate_badguys_cwd=getattr(ns, "gate_badguys_cwd", None),
         overrides=ns.overrides,
         require_push_success=ns.require_push_success,
         allow_outside_files=ns.allow_outside_files,

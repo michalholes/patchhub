@@ -239,21 +239,14 @@ class Policy(PolicyMonolithMixin):
             "mypy",
             "monolith",
             "docs",
-            "badguys",
         ]
     )
-    gates_skip_badguys: bool = False
-    gate_badguys_mode: str = "auto"
-    gate_badguys_trigger_prefixes: list[str] = field(default_factory=lambda: ["scripts/am_patch"])
-    gate_badguys_trigger_files: list[str] = field(
-        default_factory=lambda: [
-            "scripts/am_patch.py",
-            "scripts/am_patch.md",
-            "scripts/am_patch_specification.md",
-            "scripts/am_patch_instructions.md",
-        ]
-    )
+
+    gate_badguys_runner: str = "auto"
+
     gate_badguys_command: list[str] = field(default_factory=lambda: ["badguys/badguys.py", "-q"])
+
+    gate_badguys_cwd: str = "auto"
     ruff_targets: list[str] = field(default_factory=lambda: ["src", "tests"])
     pytest_targets: list[str] = field(default_factory=lambda: ["tests"])
     mypy_targets: list[str] = field(default_factory=lambda: ["src"])
@@ -319,9 +312,8 @@ REPO_OWNED_KEY_GROUPS: tuple[tuple[str, ...], ...] = (
     ("blessed_gate_outputs", "commit_and_push", "compile_check", "compile_exclude"),
     ("compile_targets", "declared_untouched_fail", "default_branch", "dont_touch_paths"),
     ("enforce_allowed_files", "enforce_main_branch", "fail_if_live_files_changed"),
-    ("gate_badguys_command", "gate_badguys_mode", "gate_badguys_trigger_files"),
-    ("gate_badguys_trigger_prefixes", "gates_skip_badguys", "gate_biome_command"),
-    ("gate_biome_extensions", "gate_biome_fix_command", "gate_biome_format_command"),
+    ("gate_badguys_command", "gate_badguys_cwd", "gate_badguys_runner"),
+    ("gate_biome_command", "gate_biome_extensions", "gate_biome_fix_command"),
     ("gate_biome_format_command", "gate_docs_exclude", "gate_docs_include"),
     ("gate_docs_required_files", "gate_js_command", "gate_js_extensions"),
     ("gate_monolith_areas_dynamic", "gate_monolith_areas_names"),
