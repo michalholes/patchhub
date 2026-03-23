@@ -18,13 +18,16 @@ def run_policy_gates(
     decision_paths: list[str],
     progress: Callable[[str], None] | None,
     gate_step_callback: Callable[..., None] | None = None,
+    workspaces_dir: Path | None = None,
+    cli_mode: str = "finalize",
+    issue_id: str | int | None = None,
 ) -> None:
     """Run gates using a single canonical Policy->run_gates wiring.
 
     All runner modes MUST call this entry point to avoid divergent gate wiring.
     """
 
-    docs_status_entries = changed_path_entries(logger, cwd)
+    changed_entries = changed_path_entries(logger, cwd)
 
     gates_mod.run_gates(
         logger,
@@ -45,6 +48,7 @@ def run_policy_gates(
         skip_mypy=policy.gates_skip_mypy,
         skip_docs=policy.gates_skip_docs,
         skip_monolith=policy.gates_skip_monolith,
+        skip_badguys=policy.gates_skip_badguys,
         gate_monolith_enabled=policy.gate_monolith_enabled,
         gate_monolith_mode=policy.gate_monolith_mode,
         gate_monolith_scan_scope=policy.gate_monolith_scan_scope,
@@ -78,7 +82,8 @@ def run_policy_gates(
         docs_include=policy.gate_docs_include,
         docs_exclude=policy.gate_docs_exclude,
         docs_required_files=policy.gate_docs_required_files,
-        docs_status_entries=docs_status_entries,
+        docs_status_entries=changed_entries,
+        badguys_changed_entries=changed_entries,
         js_extensions=policy.gate_js_extensions,
         js_command=policy.gate_js_command,
         biome_extensions=policy.gate_biome_extensions,
@@ -102,6 +107,10 @@ def run_policy_gates(
         gate_pytest_mode=policy.gate_pytest_mode,
         gate_pytest_py_prefixes=policy.gate_pytest_py_prefixes,
         gate_pytest_js_prefixes=policy.gate_pytest_js_prefixes,
+        gate_badguys_mode=policy.gate_badguys_mode,
+        gate_badguys_trigger_prefixes=policy.gate_badguys_trigger_prefixes,
+        gate_badguys_trigger_files=policy.gate_badguys_trigger_files,
+        gate_badguys_command=policy.gate_badguys_command,
         pytest_routing_policy={
             "pytest_routing_mode": policy.pytest_routing_mode,
             "pytest_roots": policy.pytest_roots,
@@ -112,6 +121,9 @@ def run_policy_gates(
         gates_order=policy.gates_order,
         pytest_use_venv=policy.pytest_use_venv,
         active_repository_tree_root=cwd,
+        workspaces_dir=workspaces_dir,
+        cli_mode=cli_mode,
+        issue_id=issue_id,
         python_gate_mode=policy.python_gate_mode,
         python_gate_python=policy.python_gate_python,
         decision_paths=decision_paths,

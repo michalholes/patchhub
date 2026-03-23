@@ -8,13 +8,18 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .errors import RunnerError
+from .gate_badguys import (
+    DEFAULT_BADGUYS_COMMAND,
+    resolve_badguys_workspaces_dir,
+    run_amp_owned_badguys_gate,
+    should_run_badguys,
+)
 from .gate_docs import check_docs_gate
 from .gate_step_capture import GateStepCallback, run_logged_gate_step
 from .gates_wiring_guard import assert_single_run_gates_callsite
 from .log import Logger
 from .monolith_gate import run_monolith_gate
 from .pytest_bucket_routing import select_pytest_targets
-from .python_gate_runtime import _infer_venv_root_from_python as _infer_venv_root
 from .python_gate_runtime import build_python_gate_env, resolve_python_gate_interpreter
 
 _RUN_GATES_WIRING_CHECKED = False
@@ -479,33 +484,6 @@ def run_pytest(
     return r.returncode == 0
 
 
-def run_badguys(
-    logger: Logger,
-    cwd: Path,
-    *,
-    repo_root: Path,
-    command: list[str],
-) -> bool:
-    logger.section("GATE: BADGUYS")
-    logger.line(f"badguys_python={sys.executable}")
-    env = dict(os.environ)
-    env["AM_PATCH_BADGUYS_GATE"] = "1"
-    # Ensure BadGuys uses the same Python as the runner for nested am_patch invocations.
-    env["AM_PATCH_BADGUYS_RUNNER_PYTHON"] = sys.executable
-    # If we are running from a venv, propagate PATH/VIRTUAL_ENV so nested processes
-    # can find the same toolchain even inside workspace/clone repos.
-    venv_root = _infer_venv_root(sys.executable)
-    if venv_root is not None:
-        venv_bin = venv_root / "bin"
-        old_path = env.get("PATH", "")
-        env["PATH"] = f"{venv_bin}:{old_path}" if old_path else str(venv_bin)
-        env["VIRTUAL_ENV"] = str(venv_root)
-    logger.line(f"badguys_cmd={command}")
-    cmd = [sys.executable, "-u", *command]
-    r = logger.run_logged(cmd, cwd=cwd, env=env)
-    return r.returncode == 0
-
-
 def run_mypy(
     logger: Logger,
     cwd: Path,
@@ -576,6 +554,7 @@ def _norm_gates_order(order: list[str] | None) -> list[str]:
         "mypy",
         "docs",
         "monolith",
+        "badguys",
     }
     out: list[str] = []
     for item in order:
@@ -605,6 +584,7 @@ def run_gates(
     skip_mypy: bool,
     skip_docs: bool,
     skip_monolith: bool,
+    skip_badguys: bool = False,
     gate_monolith_enabled: bool,
     gate_monolith_mode: str,
     gate_monolith_scan_scope: str,
@@ -660,10 +640,18 @@ def run_gates(
     gate_pytest_mode: str = "auto",
     gate_pytest_py_prefixes: list[str] | None = None,
     gate_pytest_js_prefixes: list[str] | None = None,
+    gate_badguys_mode: str = "auto",
+    gate_badguys_trigger_prefixes: list[str] | None = None,
+    gate_badguys_trigger_files: list[str] | None = None,
+    gate_badguys_command: list[str] | None = None,
+    badguys_changed_entries: list[tuple[str, str]] | None = None,
     pytest_routing_policy: dict[str, object] | None = None,
     gates_order: list[str] | None,
     pytest_use_venv: bool,
     active_repository_tree_root: Path | None = None,
+    workspaces_dir: Path | None = None,
+    cli_mode: str = "finalize",
+    issue_id: str | int | None = None,
     python_gate_mode: str = "auto",
     python_gate_python: str = ".venv/bin/python",
     decision_paths: list[str],
@@ -961,6 +949,34 @@ def run_gates(
             logger.error_core("gate_docs_missing=" + ",".join(missing))
             return False
 
+        if name == "badguys":
+            if skip_badguys:
+                skipped.append("badguys")
+                logger.warning_core("gate_badguys=SKIP (skipped_by_user)")
+                return True
+            triggered, reason = should_run_badguys(
+                decision_paths=decision_paths,
+                mode=gate_badguys_mode,
+                trigger_prefixes=gate_badguys_trigger_prefixes or [],
+                trigger_files=gate_badguys_trigger_files or [],
+            )
+            if not triggered:
+                skipped.append("badguys")
+                logger.warning_core(f"gate_badguys=SKIP ({reason})")
+                return True
+            return run_amp_owned_badguys_gate(
+                logger,
+                cwd,
+                repo_root=repo_root,
+                command=list(gate_badguys_command or DEFAULT_BADGUYS_COMMAND),
+                changed_entries=list(badguys_changed_entries or []),
+                workspaces_dir=resolve_badguys_workspaces_dir(
+                    repo_root=repo_root, workspaces_dir=workspaces_dir
+                ),
+                cli_mode=cli_mode,
+                issue_id=issue_id,
+            )
+
         return True
 
     for gate in (
@@ -974,6 +990,7 @@ def run_gates(
         "mypy",
         "docs",
         "monolith",
+        "badguys",
     ):
         if gate not in order:
             skipped.append(gate)

@@ -66,9 +66,20 @@ Options:
   -g, --allow-gates-fail
       Allow gate failures and still promote; intended for bug bounty.
 
-  --gate-badguys-runner {{auto, on, off}}
-      Runner-only extra gate: run badguys/badguys.py -q.
-      auto=only when runner files changed. [default: auto]
+  --skip-badguys / --no-skip-badguys
+      Skip or enable the ordinary badguys gate. [default: enabled]
+
+  --badguys-mode {{auto,always}}
+      auto uses trigger files/prefixes; always runs whenever badguys is in gates_order.
+
+  --badguys-trigger-prefixes CSV
+      Configure repo-relative prefixes that trigger badguys in auto mode.
+
+  --badguys-trigger-files CSV
+      Configure repo-relative exact-file triggers for badguys in auto mode.
+
+  --badguys-command CMD
+      Override badguys command. Default: 'badguys/badguys.py -q'.
 
   -f, --finalize-live MESSAGE
       Finalize live repo using MESSAGE as commit message.
@@ -304,14 +315,20 @@ FORMAT / TOOLS
       Run pytest using venv python.
 
 BADGUYS
-  --gate-badguys-runner {{auto, on, off}}
-      Control badguys runner gate.
+  --skip-badguys / --no-skip-badguys
+      Skip or enable the ordinary badguys gate.
 
-  --gate-badguys-command CMD
+  --badguys-mode {{auto,always}}
+      Control whether badguys runs on matching triggers or always.
+
+  --badguys-trigger-prefixes CSV
+      Override badguys auto-trigger prefixes.
+
+  --badguys-trigger-files CSV
+      Override badguys auto-trigger exact-file matches.
+
+  --badguys-command CMD
       Override badguys command.
-
-  --gate-badguys-cwd PATH
-      Override badguys cwd.
 
 OVERRIDES
   --override KEY=VALUE (repeatable)

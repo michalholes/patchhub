@@ -42,6 +42,7 @@ def apply_gate_modes(
         ("gate_mypy_mode", "INVALID_GATE_MYPY_MODE"),
         ("gate_pytest_mode", "INVALID_GATE_PYTEST_MODE"),
         ("gate_typescript_mode", "INVALID_GATE_TYPESCRIPT_MODE"),
+        ("gate_badguys_mode", "INVALID_GATE_BADGUYS_MODE"),
     ):
         v = str(cfg.get(k, getattr(p, k))).strip()
         setattr(p, k, v)
@@ -63,4 +64,20 @@ def apply_gate_modes(
         raw,
         code="INVALID_GATE_PYTEST_JS_PREFIXES",
         key="gate_pytest_js_prefixes",
+    )
+
+    raw = cfg.get("gate_badguys_trigger_prefixes", p.gate_badguys_trigger_prefixes)
+    mark_cfg(p, cfg, "gate_badguys_trigger_prefixes")
+    p.gate_badguys_trigger_prefixes = _normalize_prefixes(
+        raw,
+        code="INVALID_GATE_BADGUYS_TRIGGER_PREFIXES",
+        key="gate_badguys_trigger_prefixes",
+    )
+
+    raw = cfg.get("gate_badguys_trigger_files", p.gate_badguys_trigger_files)
+    mark_cfg(p, cfg, "gate_badguys_trigger_files")
+    p.gate_badguys_trigger_files = _normalize_prefixes(
+        raw,
+        code="INVALID_GATE_BADGUYS_TRIGGER_FILES",
+        key="gate_badguys_trigger_files",
     )

@@ -12,7 +12,6 @@ from am_patch.runner_failure_detail import (
 )
 from am_patch.runtime import (
     _gate_progress,
-    _maybe_run_badguys,
     _parse_gate_list,
     _stage_rank,
 )
@@ -107,14 +106,15 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
             policy=policy,
             decision_paths=decision_paths_ws,
             progress=_gate_progress,
+            workspaces_dir=paths.workspaces_dir,
+            cli_mode=cli.mode,
+            issue_id=cli.issue_id,
         )
 
         # Gates can modify files (e.g. ruff format/autofix). Refresh the failure
         # archive subset after workspace gates.
         changed_after_ws_gates = changed_paths(logger, ws.repo)
         files_for_fail_zip = sorted(set(files_for_fail_zip) | set(changed_after_ws_gates))
-
-        _maybe_run_badguys(cwd=ws.repo, decision_paths=decision_paths_ws)
 
         promotion_plan = build_workspace_delta_promotion_plan(
             logger=logger,
@@ -136,7 +136,6 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
             policy=policy,
             issue_id=str(cli.issue_id) if cli.issue_id is not None else None,
             promotion_plan=promotion_plan,
-            badguys_runner=_maybe_run_badguys,
             live_gates_runner=lambda decision_paths: run_policy_gates(
                 logger=logger,
                 cwd=repo_root,
@@ -144,6 +143,9 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
                 policy=policy,
                 decision_paths=decision_paths,
                 progress=_gate_progress,
+                workspaces_dir=paths.workspaces_dir,
+                cli_mode=cli.mode,
+                issue_id=cli.issue_id,
             ),
             delete_workspace_after_archive=bool(
                 policy.delete_workspace_on_success and policy.commit_and_push

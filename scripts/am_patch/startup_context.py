@@ -19,7 +19,6 @@ from am_patch.config import (
 from am_patch.config_file import load_repo_local_config
 from am_patch.engine_startup_runtime import build_startup_logger_and_ipc
 from am_patch.errors import RunnerError
-from am_patch.gates import run_badguys
 from am_patch.initial_self_backup import maybe_create_initial_self_backup
 from am_patch.ipc_socket import IpcController
 from am_patch.lock import FileLock
@@ -314,7 +313,6 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
         runtime.repo_root = live_target_root
         runtime.paths = paths
         runtime.cli = cli
-        runtime.run_badguys = run_badguys
         runtime.RunnerError = RunnerError
     except Exception as exc:
         ctx.startup_failure = exc

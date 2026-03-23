@@ -31,6 +31,8 @@ __all__ = [
     "_flatten_sections",
 ]
 
+DEFAULT_BADGUYS_COMMAND = ["badguys/badguys.py", "-q"]
+
 
 @dataclass
 class Policy(PolicyMonolithMixin):
@@ -239,14 +241,14 @@ class Policy(PolicyMonolithMixin):
             "mypy",
             "monolith",
             "docs",
+            "badguys",
         ]
     )
-
-    gate_badguys_runner: str = "auto"
-
-    gate_badguys_command: list[str] = field(default_factory=lambda: ["badguys/badguys.py", "-q"])
-
-    gate_badguys_cwd: str = "auto"
+    gates_skip_badguys: bool = False
+    gate_badguys_mode: str = "auto"
+    gate_badguys_trigger_prefixes: list[str] = field(default_factory=list)
+    gate_badguys_trigger_files: list[str] = field(default_factory=list)
+    gate_badguys_command: list[str] = field(default_factory=lambda: list(DEFAULT_BADGUYS_COMMAND))
     ruff_targets: list[str] = field(default_factory=lambda: ["src", "tests"])
     pytest_targets: list[str] = field(default_factory=lambda: ["tests"])
     mypy_targets: list[str] = field(default_factory=lambda: ["src"])
@@ -312,7 +314,7 @@ REPO_OWNED_KEY_GROUPS: tuple[tuple[str, ...], ...] = (
     ("blessed_gate_outputs", "commit_and_push", "compile_check", "compile_exclude"),
     ("compile_targets", "declared_untouched_fail", "default_branch", "dont_touch_paths"),
     ("enforce_allowed_files", "enforce_main_branch", "fail_if_live_files_changed"),
-    ("gate_badguys_command", "gate_badguys_cwd", "gate_badguys_runner"),
+    ("gate_badguys_command", "gate_badguys_mode", "gate_badguys_trigger_files"),
     ("gate_biome_command", "gate_biome_extensions", "gate_biome_fix_command"),
     ("gate_biome_format_command", "gate_docs_exclude", "gate_docs_include"),
     ("gate_docs_required_files", "gate_js_command", "gate_js_extensions"),
@@ -333,16 +335,16 @@ REPO_OWNED_KEY_GROUPS: tuple[tuple[str, ...], ...] = (
     ("gate_pytest_js_prefixes", "gate_pytest_py_prefixes", "gate_pytest_mode"),
     ("gate_ruff_mode", "gate_typescript_base_tsconfig", "gate_typescript_command"),
     ("gate_typescript_extensions", "gate_typescript_mode", "gates_allow_fail"),
-    ("gates_skip_biome", "gates_skip_docs", "gates_skip_dont_touch", "gates_skip_js"),
-    ("gates_skip_monolith", "gates_skip_mypy", "gates_skip_pytest", "gates_skip_ruff"),
-    ("gates_skip_typescript", "live_changed_resolution", "mypy_targets", "no_op_fail"),
+    ("gates_skip_badguys", "gates_skip_biome", "gates_skip_docs", "gates_skip_dont_touch"),
+    ("gates_skip_js", "gates_skip_monolith", "gates_skip_mypy", "gates_skip_pytest"),
+    ("gates_skip_ruff", "gates_skip_typescript", "live_changed_resolution", "mypy_targets"),
     ("no_rollback", "post_success_audit", "pytest_dependencies"),
     ("pytest_external_dependencies", "pytest_full_suite_prefixes"),
     ("pytest_namespace_modules", "pytest_roots", "pytest_routing_mode", "pytest_targets"),
     ("pytest_tree", "pytest_use_venv", "python_gate_mode", "python_gate_python"),
     ("require_up_to_date", "ruff_autofix", "ruff_autofix_legalize_outside", "ruff_format"),
-    ("ruff_targets", "scope_ignore_contains", "scope_ignore_prefixes"),
-    ("scope_ignore_suffixes", "typescript_targets"),
+    ("no_op_fail", "ruff_targets", "scope_ignore_contains", "scope_ignore_prefixes"),
+    ("gate_badguys_trigger_prefixes", "scope_ignore_suffixes", "typescript_targets"),
 )
 
 
