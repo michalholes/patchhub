@@ -66,8 +66,8 @@ gate_docs_include = [""]
 gate_docs_exclude = ["patches", "quarantine"]
 gate_docs_required_files = [""]
 
-gate_badguys_runner = "off"
-gate_badguys_command = ["badguys/badguys.py", "-q", "--exclude=test_900_commit_push_timestamp"]
+gate_badguys_runner = "auto"
+gate_badguys_command = ["badguys/badguys.py"]
 gate_badguys_cwd = "auto"
 
 gates_skip_monolith = false
