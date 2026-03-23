@@ -1394,6 +1394,8 @@ Quick action rules:
     JobRecord.effective_runner_target_repo when non-empty, else clear targetRepo
   - clear rawCommand
   - refresh preview/validation
+  - MUST NOT apply filesystem-stat retention veto or clearing when the resolved
+    patchPath is outside inventory-monitored patchPath scope
   - MUST NOT enqueue a job and MUST NOT start processing before explicit Start
 - If the detail fetch fails or returns no JobRecord, the UI MUST leave the Start
   form unchanged and MUST show an explicit operator-visible status.
@@ -1408,6 +1410,18 @@ for selectable patch artifacts.
 
 Terminology rule:
 - The UI label for this card MUST be "Patches".
+
+Inventory-monitored patchPath scope:
+- A patchPath is inventory-monitored only when its normalized patches-root-relative value resolves to:
+  - a direct child file of patches_root
+  - a direct child file of upload_dir when upload_dir resolves under patches_root
+- The following paths are outside inventory-monitored scope and MUST NOT be treated as Patch Inventory monitored files:
+  - successful/<...>
+  - unsuccessful/<...>
+  - artifacts/<...>
+  - logs/<...>
+  - workspaces/<...>
+  - any other nested subtree outside the two direct-child scopes above
 
 Inventory scope:
 - The inventory MUST scan only:
@@ -1499,6 +1513,13 @@ Single source of truth:
 - The client MUST NOT apply any second eligibility pass based on commit_message
   presence, patch path resolution, patch path existence, filesystem stat, or any
   other detail-only field before mutating the Start form.
+- After candidate selection and successful detail fetch, the client MUST retain
+  the authoritative JobRecord-derived Start-form values when the resolved
+  patchPath is outside inventory-monitored patchPath scope.
+- Paths under successful/ and unsuccessful/ are valid rerun_latest Start-form
+  patchPath values.
+- The client MUST NOT trigger filesystem-stat retention veto or clearing for a
+  rerun_latest Start-form patchPath outside inventory-monitored patchPath scope.
 
 Global mode-switch behavior:
 - When the operator changes the mode dropdown to rerun_latest, the UI MUST:
@@ -1626,16 +1647,20 @@ Authority chain for load-time PM validation:
 7.1.7 Missing patchPath Clears Run Fields (UI) (HARD)
 
 Rule:
-- The UI MUST enforce the following invariant:
-- If the file referenced by the current Run patchPath does not exist on disk,
-  the UI MUST set:
+- The UI MUST enforce the following invariant for inventory-monitored patchPath
+  only.
+- If the file referenced by the current Run patchPath is inventory-monitored and
+  does not exist on disk, the UI MUST set:
   - issueId = ""
   - commitMsg = ""
   - patchPath = ""
+- If the current Run patchPath is outside inventory-monitored patchPath scope,
+  this rule MUST NOT call filesystem stat and MUST NOT clear issueId, commitMsg,
+  or patchPath.
 
 Notes:
-- This clearing is unconditional with respect to user edits, autofill, dirty flags,
-  and overwrite policies.
+- For inventory-monitored patchPath, this clearing is unconditional with respect
+  to user edits, autofill, dirty flags, and overwrite policies.
 
 7.1.8 Mode Reset After Terminal Job (UI) (HARD)
 
