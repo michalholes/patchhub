@@ -986,62 +986,52 @@ Repo-config discovery semantics are defined only in section 3.1.
 
 These flags override the effective value of their mapped keys according to sections 0.1, 3.1, 3.1.1, and 3.2.5.
 
-### 6.1.5 BADGUYS gate
+### 6.1.5 BADGUYS gate (runner-only)
 
--   Purpose: protect the runner itself by running the badguys suite
-    through the normal AMP gate pipeline.
+-   Purpose: protect the runner itself by running the badguys suite when
+    the runner is modified.
 -   Default command argv: `["badguys/badguys.py", "-q"]`
--   Execution: the runner invokes `python -u <argv...> --no-suite-jail`
-    inside an AMP-owned issue-scoped jail (no shell).
+-   Execution: the runner invokes: `python -u <argv...>` (no shell).
 -   Success criteria: exit code == 0
 -   Controls (precedence per section 0.1):
-    -   `gates_skip_badguys = true | false` (default: `false`)
-        -   If `true`, skip the BADGUYS gate like any other skipped
-            gate.
-    -   `gate_badguys_mode = "auto" | "always"` (default: `"auto"`)
-        -   `auto`: run only when `decision_paths` match the configured
-            BADGUYS trigger surface.
-        -   `always`: run whenever `badguys` is present in
-            `gates_order`.
-    -   `gate_badguys_trigger_prefixes = list[str] | CSV string`
-        (default: `["scripts/am_patch"]`)
-        -   Repo-relative prefixes.
-        -   A changed path matches when it is equal to a configured
-            prefix or is nested under `<prefix>/`.
-    -   `gate_badguys_trigger_files = list[str] | CSV string`
-        (default: `["scripts/am_patch.py", "scripts/am_patch.md", "scripts/am_patch_specification.md", "scripts/am_patch_instructions.md"]`)
-        -   Repo-relative exact file matches.
+    -   `gate_badguys_runner = "auto" | "on" | "off"` (default:
+        `"auto"`)
+        -   `auto`: run only when the current run touches runner files:
+            -   Legacy embedded layout:
+                -   `scripts/am_patch.py`
+                -   `scripts/am_patch/**`
+                -   `scripts/am_patch*.md` (runner docs)
+            -   Root layout:
+                -   `am_patch.py`
+                -   `am_patch/**`
+                -   `am_patch*.md` (runner docs)
+        -   `on`: always run
+        -   `off`: never run
     -   `gate_badguys_command = list[str] | str` (default:
         `["badguys/badguys.py", "-q"]`)
         -   If a string is used (cfg or CLI), it is parsed using
             shell-like splitting (shlex).
         -   The value must be non-empty and is treated as argv without
             the python prefix.
+    -   `gate_badguys_cwd = "auto" | "workspace" | "clone" | "live"`
+        (default: `"auto"`)
+        -   `workspace`: run in the current workspace repo (tests the
+            patched runner).
+        -   `clone`: if invoked from live repo, clone live repo into an
+            isolated workspace dir and run there.
+        -   `live`: run in live repo root (debug; may conflict with
+            runner lock when nested am_patch is spawned).
+        -   `auto`: if invoked from a workspace repo, use it; otherwise
+            use clone to avoid lock conflicts.
     -   CLI:
-        -   `--skip-badguys`
-        -   `--badguys-mode {auto,always}`
-        -   `--badguys-trigger-prefixes CSV`
-        -   `--badguys-trigger-files CSV`
-        -   `--badguys-command "badguys/badguys.py -q"`
+        -   `--gate-badguys-runner {auto,on,off}`
+        -   `--gate-badguys-command "badguys/badguys.py -q"`
+        -   `--gate-badguys-cwd {auto,workspace,clone,live}`
 
--   Jail contract:
-    -   AMP creates the jail; BadGuys are invoked with
-        `--no-suite-jail`.
-    -   AMP materializes only changed paths against `HEAD` into the
-        jailed repo; full host worktree sync is forbidden.
-    -   Modified, added, and untracked paths are copied into the jailed
-        repo.
-    -   Deleted paths are removed from the jailed repo.
-    -   Renames are applied from AMP-owned changed-path entries.
-    -   AMP must not import or reuse helpers from `badguys/`.
-
--   Execution model:
-    -   `badguys` is an ordinary gate selected only through
-        `gates_order`.
-    -   The legacy controls `gate_badguys_runner` and
-        `gate_badguys_cwd` do not exist.
-    -   There are no extra BADGUYS call sites outside the normal gate
-        pipeline.
+Execution points: - workspace mode: after workspace gates, and again
+after promotion (before commit/push) if the runner was touched -
+finalize-workspace: after workspace gates and after live gates -
+finalize: after live gates
 
 ### 6.2 Enforcement
 
