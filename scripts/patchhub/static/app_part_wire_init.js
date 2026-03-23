@@ -432,7 +432,7 @@ function init() {
 							return;
 						}
 						if (activeMode) {
-							tickMissingPatchClear({ mode: "active" });
+							phCall("tickMissingPatchClear", { mode: "active" });
 							phCall("stopSnapshotEvents");
 							phCall("refreshJobs", { mode: "periodic" });
 							if (patchesVisible) {
@@ -442,7 +442,7 @@ function init() {
 								phCall("refreshWorkspaces", { mode: "periodic" });
 							}
 						} else {
-							tickMissingPatchClear({ mode: "idle" });
+							phCall("tickMissingPatchClear", { mode: "idle" });
 							phCall("ensureSnapshotEvents");
 							if (
 								!wireInitRuntime.has("snapshotEventsNeedPolling") ||

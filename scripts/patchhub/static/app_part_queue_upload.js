@@ -1,6 +1,15 @@
-/** @type {any} */
-var __ph_w = /** @type {any} */ (window);
-var PH = /** @type {any} */ (window).PH;
+/**
+ * @typedef {{
+ *   call?: function(string, ...*): *,
+ *   has?: function(string): boolean,
+ *   register?: function(string, Object): void,
+ * }} QueueUploadRuntime
+ * @typedef {Window & typeof globalThis & {
+ *   PH?: QueueUploadRuntime | null,
+ * }} QueueUploadWindow
+ */
+var queueUploadWindow = /** @type {QueueUploadWindow} */ (window);
+var PH = queueUploadWindow.PH || null;
 
 function phCall(name, ...args) {
 	if (!PH || typeof PH.call !== "function") return undefined;
@@ -29,7 +38,7 @@ function validateAndPreview() {
 	el("patchPath").value = patchPath;
 
 	var raw = getRawCommand();
-	PH.call("syncZipSubsetUiFromInputs");
+	phCall("syncZipSubsetUiFromInputs");
 
 	var modeRules = null;
 	if (mode === "patch") {
@@ -111,9 +120,9 @@ function validateAndPreview() {
 			canonical_argv: canonical,
 		};
 	}
-	preview = PH.call("applyZipSubsetPreview", preview) || preview;
-	preview = PH.call("applyGatePreview", preview) || preview;
-	var subsetState = PH.call("getZipSubsetValidationState") || {
+	preview = phCall("applyZipSubsetPreview", preview) || preview;
+	preview = phCall("applyGatePreview", preview) || preview;
+	var subsetState = phCall("getZipSubsetValidationState") || {
 		ok: true,
 		hint: "",
 	};
@@ -140,9 +149,8 @@ function validateAndPreview() {
 		}
 	}
 	setInfoPoolHint("enqueue", enqueueHint);
-	tickMissingPatchClear({
-		mode:
-			document.hidden || !PH.call("hasTrackedActiveJob") ? "idle" : "active",
+	phCall("tickMissingPatchClear", {
+		mode: document.hidden || !phCall("hasTrackedActiveJob") ? "idle" : "active",
 	});
 }
 
@@ -179,7 +187,7 @@ function enqueue() {
 		body.patch_path = normalizePatchPath(
 			String(el("patchPath").value || "").trim(),
 		);
-		subsetPayload = PH.call("getZipSubsetEnqueuePayload") || {};
+		subsetPayload = phCall("getZipSubsetEnqueuePayload") || {};
 		if (subsetPayload.error) {
 			setUiError(String(subsetPayload.error || "invalid zip subset state"));
 			return;
@@ -199,7 +207,7 @@ function enqueue() {
 			String(el("patchPath").value || "").trim(),
 		);
 	}
-	var gatePayload = PH.call("getGateOptionsEnqueuePayload", mode) || {};
+	var gatePayload = phCall("getGateOptionsEnqueuePayload", mode) || {};
 	if (gatePayload.error) {
 		setUiError(String(gatePayload.error || "invalid gate options state"));
 		return;
@@ -215,7 +223,7 @@ function enqueue() {
 		pushApiStatus(r);
 		setPre("previewRight", r);
 		if (r && r.ok !== false && r.job_id) {
-			PH.call("clearGateOverrides");
+			phCall("clearGateOverrides");
 			setUiStatus("enqueue: ok job_id=" + String(r.job_id));
 			selectedJobId = String(r.job_id);
 			try {
@@ -224,7 +232,7 @@ function enqueue() {
 			} catch (_) {}
 			AMP_UI.saveLiveJobId(selectedJobId);
 			suppressIdleOutput = false;
-			PH.call("openLiveStream", selectedJobId);
+			phCall("openLiveStream", selectedJobId);
 		} else if (!(r && r.ok === false && r.error)) {
 			setUiError("enqueue failed");
 		}

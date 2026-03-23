@@ -1,6 +1,19 @@
-/** @type {any} */
-var __ph_w = /** @type {any} */ (window);
-var PH = /** @type {any} */ (window).PH;
+/**
+ * @typedef {{
+ *   call?: function(string, ...*): *,
+ *   has?: function(string): boolean,
+ *   register?: function(string, Object): void,
+ * }} JobsRuntime
+ * @typedef {Window & typeof globalThis & {
+ *   AMP_PATCHHUB_UI?: {
+ *     updateProgressPanelFromEvents?: function({ jobs: Array<Object> }): void,
+ *   },
+ *   PH?: JobsRuntime | null,
+ * }} JobsWindow
+ */
+var jobsWindow = /** @type {JobsWindow} */ (window);
+var __ph_w = jobsWindow;
+var PH = jobsWindow.PH || null;
 var jobsCache = [];
 var rerunPrepareSeq = 0;
 var trackedJobDurationClock = null;

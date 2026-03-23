@@ -105,17 +105,23 @@ def test_missing_patch_check_has_no_separate_watchdog_timer() -> None:
     wire_src = _read("scripts/patchhub/static/app_part_wire_init.js")
     assert "patchStatTimer" not in wire_src
     assert "setInterval(tickMissingPatchClear, 1000)" not in wire_src
-    assert 'tickMissingPatchClear({ mode: "idle" });' in wire_src
-    assert 'tickMissingPatchClear({ mode: "active" });' in wire_src
+    assert 'phCall("tickMissingPatchClear", { mode: "idle" });' in wire_src
+    assert 'phCall("tickMissingPatchClear", { mode: "active" });' in wire_src
 
 
-def test_missing_patch_check_uses_empty_path_guard_and_backoff_state() -> None:
+def test_missing_patch_check_uses_module_runtime_surface_and_scope_state() -> None:
     app_src = _read("scripts/patchhub/static/app.js")
-    assert "function getMissingPatchRel()" in app_src
-    assert "if (!rel) {" in app_src
-    assert "patchStatNextDueMs" in app_src
-    assert "patchStatIdleBackoffIdx" in app_src
-    assert "PATCH_STAT_ACTIVE_MS = 5000" in app_src
+    watchdog_src = _read("scripts/patchhub/static/app_part_patch_watchdog.js")
+    queue_src = _read("scripts/patchhub/static/app_part_queue_upload.js")
+    assert '"/static/app_part_patch_watchdog.js"' in app_src
+    assert "function tickMissingPatchClear(" not in app_src
+    assert 'PH.register("app_part_patch_watchdog"' in watchdog_src
+    assert "function getMissingPatchRel()" in watchdog_src
+    assert "patchStatNextDueMs" in watchdog_src
+    assert "patchStatIdleBackoffIdx" in watchdog_src
+    assert "PATCH_STAT_ACTIVE_MS = 5000" in watchdog_src
+    assert "function isInventoryMonitoredPatchRel(rel)" in watchdog_src
+    assert 'phCall("tickMissingPatchClear", {' in queue_src
 
 
 def test_cleanup_refresh_reuses_snapshot_resync_path_without_new_timer() -> None:
