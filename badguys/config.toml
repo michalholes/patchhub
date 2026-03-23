@@ -418,12 +418,8 @@ full_runner_tests = ["test_084_workspace_git_state_matches_mode", "test_900_comm
 [recipes.tests.test_000_test_mode_smoke]
 [recipes.tests.test_000_test_mode_smoke.steps]
 [recipes.tests.test_000_test_mode_smoke.steps.0]
-args = [
-  "--target-repo-config-relpath",
-  ".am_patch/test_mode_smoke.repo.toml",
-  "${issue_id}",
-  "badguys: test-mode smoke",
-]
+args = ["${issue_id}", "badguys: test-mode smoke"]
+
 [recipes.tests.test_010_help_short]
 [recipes.tests.test_010_help_short.steps]
 [recipes.tests.test_010_help_short.steps.0]
