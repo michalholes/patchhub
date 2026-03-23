@@ -3,7 +3,7 @@ Status: AUTHORITATIVE SPECIFICATION
 Applies to: scripts/patchhub/*
 Language: ENGLISH (ASCII ONLY)
 
-Specification Version: 1.14.1-spec
+Specification Version: 1.15.0-spec
 Code Baseline: audiomason2-main.zip (as provided in this chat)
 
 -------------------------------------------------------------------------------
@@ -323,23 +323,56 @@ Payload
   - patches list (thin, see 2.11),
   - workspaces list (thin, see 2.11),
   - header/status summary for stable overview rendering.
+- The response MUST also include operator_info.
+- snapshot.operator_info MUST be separate from snapshot.header.
+- Cleanup recent-status data MUST NOT be mirrored into snapshot.header.
 - The snapshot header payload MUST contain only stable overview fields.
 - Volatile host or telemetry diagnostics MUST NOT be included in
   snapshot.header.
 
+Operator info payload:
+- snapshot.operator_info MUST include:
+  - cleanup_recent_status: [<CleanupRecentStatusItem>, ...]
+- CleanupRecentStatusItem schema:
+  {
+    "job_id": "<string>",
+    "issue_id": "<string>",
+    "created_utc": "<UTC ISO Z string>",
+    "deleted_count": <int>,
+    "rules": [
+      {
+        "filename_pattern": "<string>",
+        "keep_count": <int>,
+        "matched_count": <int>,
+        "deleted_count": <int>
+      },
+      ...
+    ],
+    "summary_text": "<string>"
+  }
+
 Tokens and caching
 - The server MUST compute and expose a stable sig for each sub-payload:
-  - jobs_sig, runs_sig, patches_sig, workspaces_sig, header_sig.
+  - jobs_sig, runs_sig, patches_sig, workspaces_sig, header_sig, operator_info_sig.
 - header_sig MUST cover all user-visible state present in snapshot.header.
 - Volatile diagnostics fields exposed by /api/debug/diagnostics MUST NOT be
   included in header_sig and MUST NOT invalidate the overview snapshot.
 - The server MUST compute a snapshot_sig that changes if any sub-payload changes.
+- snapshot_sig MUST change when operator_info changes.
 - The full snapshot response MUST include the authoritative current overview seq.
 - The response MUST include:
   { ok: true, seq: <int>,
-    snapshot: { jobs: [...], runs: [...], patches: [...], workspaces: [...], header: {...} },
+    snapshot: {
+      jobs: [...],
+      runs: [...],
+      patches: [...],
+      workspaces: [...],
+      header: {...},
+      operator_info: {...}
+    },
     sigs: { jobs: <jobs_sig>, runs: <runs_sig>, patches: <patches_sig>,
-      workspaces: <workspaces_sig>, header: <header_sig>, snapshot: <snapshot_sig> } }
+      workspaces: <workspaces_sig>, header: <header_sig>,
+      operator_info: <operator_info_sig>, snapshot: <snapshot_sig> } }
 - The snapshot endpoint MUST support ETag/304 using snapshot_sig.
 
 Client behavior
@@ -426,6 +459,9 @@ Delta payload
 Failure and resync rules
 - If since_seq is outside the retained delta window, the server MUST return an
   explicit resync-needed response.
+- If operator_info changed since since_seq, the server MUST return:
+  { "ok": true, "resync_needed": true, "seq": <int> }
+  instead of attempting a partial operator_info delta.
 - The client MUST send the last locally applied overview seq as since_seq.
 - The client MUST advance its locally applied overview seq only after a delta
   apply succeeds or after a full /api/ui_snapshot apply succeeds.
@@ -685,6 +721,26 @@ Default behavior is backend="asgi".
 - [targeting] default_target_repo (string, default "patchhub")
 - [targeting] zip_target_prefill_enabled (bool, default true)
 
+5.2.4 Optional keys (repo_snapshot_cleanup)
+
+- [repo_snapshot_cleanup]
+  - Optional table controlling PHB-only cleanup of top-level repo snapshot zip files
+    under patches_root.
+  - If the table is absent or contains zero rules, cleanup performs no deletions.
+- [[repo_snapshot_cleanup.rules]]
+  - filename_pattern (string, required)
+    - basename-only glob evaluated only against direct child .zip basenames under
+      patches_root
+    - MUST be non-empty, ASCII-only, single-line
+    - MUST NOT contain "/" or "\"
+  - keep_count (int, required)
+    - MUST be an integer >= 0
+
+Validation rules:
+- Invalid filename_pattern, path separator in filename_pattern, negative keep_count,
+  or non-integer keep_count MUST fail during PatchHub config load.
+- Invalid cleanup config MUST NOT be silently ignored.
+
 5.3 Key semantics used by API
 - cfg.meta.version: shown in UI and /api/config
 - cfg.runner.command: runner prefix argv (default ["python3","scripts/am_patch.py"])
@@ -882,6 +938,25 @@ Explicitly excluded from the shared pool:
 - Runs item result surfaces
 - Workspaces per-item state badges and meta
 - /debug status and diagnostic surfaces
+
+Cleanup recent-status source:
+- PatchHub cleanup summaries are a PHB-owned source consumed only by
+  Operator info -> Recent status.
+- Cleanup summaries MUST NOT participate in the strip summary priority.
+- Cleanup summaries MUST NOT render in:
+  - hdrMeta
+  - snapshot.header
+  - uiDegradedBanner
+  - any separate panel
+  - any debug-only surface
+
+Recent status rendering:
+- Operator info -> Recent status MAY merge:
+  - existing frontend pooled recent status lines
+  - PHB-owned cleanup summaries
+- Cleanup summaries MUST originate only from the PHB-owned source.
+- Frontend local status buffers MUST NOT become a second source of truth for
+  cleanup state.
 
 Behavior (static/app.js plus pool-specific UI module):
 - The frontend keeps a ring buffer of recent pooled status lines (default: 20).
@@ -1841,6 +1916,54 @@ Rules:
 - derived_target_repo MUST use the same authoritative target derivation used by
   PatchHub patch intake; for non-zip items it MUST be null.
 
+7.2.5d Post-success repo snapshot cleanup (HARD)
+
+Scope:
+- PatchHub MAY delete top-level repo snapshot zip files under patches_root.
+- This cleanup is PHB-only.
+- AM Patch MUST NOT execute this cleanup.
+- Frontend refresh flows MUST NOT execute this cleanup.
+
+Trigger:
+- Cleanup MUST run exactly once after a PatchHub patch job reaches terminal status
+  success in patch mode.
+- No new timer, scheduler, or periodic cleanup scan is allowed.
+
+Candidate set:
+- Only direct child regular .zip files under patches_root are eligible.
+- Matching is basename-only.
+- Cleanup is strictly non-recursive.
+- incoming/, artifacts/, logs/, successful/, unsuccessful/, and workspaces/
+  are outside cleanup scope.
+
+Matching and retention:
+- Rules are evaluated in TOML order.
+- A candidate zip belongs to at most the first matching rule.
+- Retention is evaluated independently per rule.
+- For each rule, keep the newest keep_count matched zips and delete the rest.
+- Ordering MUST be deterministic:
+  1. mtime_ns descending
+  2. basename ascending for ties
+
+Result:
+- PatchHub MUST produce exactly one authoritative cleanup summary result per
+  successful patch job in patch mode.
+- The summary MUST include at least:
+  - deleted_count
+  - ordered rule-level overview
+- The summary belongs exclusively to PatchHub and MUST NOT be delegated to
+  AM Patch.
+
+Refresh:
+- After cleanup completes, PatchHub MUST invoke the existing overview refresh /
+  inventory rebuild mechanism without adding a new timer so that filesystem state
+  and Patches inventory converge to the post-cleanup result.
+
+Failure handling:
+- Cleanup MUST NOT be silently skipped because of runtime execution errors.
+- Cleanup execution failure MUST be surfaced by the PatchHub cleanup summary.
+- Cleanup execution failure MUST NOT reclassify the already successful patch job.
+
 7.2.6 GET /api/runs?issue_id=<int>&result=<string>&limit=<int>
 Inputs:
 - issue_id (optional): filters to that issue
@@ -2163,6 +2286,9 @@ Output (resync needed):
 Rules:
 - removed arrays MUST contain stable item identities only.
 - header MUST be present only when header_changed is true.
+- If operator_info changed since since_seq, the server MUST return:
+  { "ok": true, "resync_needed": true, "seq": <int> }
+  instead of attempting a partial operator_info delta.
 - If header_changed is false, the header field MUST be omitted, not null.
 - The endpoint MUST operate on the single overview seq defined in 2.10.2.
 
