@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -284,6 +285,19 @@ def _build_startup_failure_result(ctx, exc: Exception) -> RunResult:
     return _attach_startup_workspace(ctx, _build_internal_failure_result(exc))
 
 
+def _cleanup_isolated_test_mode_patch_dir(ctx) -> None:
+    policy = getattr(ctx, "policy", None)
+    if policy is None or not bool(getattr(policy, "test_mode", False)):
+        return
+    isolated_work_patch_dir = getattr(ctx, "isolated_work_patch_dir", None)
+    if isolated_work_patch_dir is None:
+        return
+    if "_test_mode" not in isolated_work_patch_dir.parts:
+        return
+    with contextlib.suppress(Exception):
+        shutil.rmtree(isolated_work_patch_dir, ignore_errors=True)
+
+
 def main(argv: list[str]) -> int:
     res = build_effective_policy(argv)
     if isinstance(res, int):
@@ -338,6 +352,7 @@ def main(argv: list[str]) -> int:
             with contextlib.suppress(Exception):
                 ctx.ipc.stop()
         if ctx is not None:
+            _cleanup_isolated_test_mode_patch_dir(ctx)
             with contextlib.suppress(Exception):
                 ctx.logger.close()
 

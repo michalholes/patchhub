@@ -204,3 +204,62 @@ def test_finalize_and_report_emits_success_result_fields(
     assert result_evt["push_status"] == "OK"
     assert result_evt["effective_target_repo_name"] == "patchhub"
     assert result_evt["json_path"] == str(json_path)
+
+
+def test_finalize_and_report_keeps_isolated_test_mode_artifacts_until_caller_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, run_result_cls, _, _, _, _, finalize_and_report = _import_am_patch()
+    from am_patch.log import Logger
+
+    isolated_root = tmp_path / "_test_mode" / "issue_662_pid_1"
+    logs_dir = isolated_root / "logs"
+    json_dir = isolated_root / "json"
+    logs_dir.mkdir(parents=True)
+    json_dir.mkdir(parents=True)
+    log_path = logs_dir / "am_patch.log"
+    json_path = json_dir / "am_patch_issue_662.jsonl"
+    logger = Logger(
+        log_path=log_path,
+        symlink_path=isolated_root / "am_patch.symlink",
+        screen_level="quiet",
+        log_level="normal",
+        symlink_enabled=False,
+        json_enabled=True,
+        json_path=json_path,
+    )
+    ctx = SimpleNamespace(
+        policy=SimpleNamespace(test_mode=True, commit_and_push=False),
+        log_path=log_path,
+        logger=logger,
+        status=SimpleNamespace(stop=lambda: None),
+        verbosity="quiet",
+        log_level="normal",
+        json_path=json_path,
+        isolated_work_patch_dir=isolated_root,
+        effective_target_repo_name="patchhub",
+    )
+    result = run_result_cls(
+        exit_code=0,
+        final_commit_sha="deadbeef",
+        final_pushed_files=["alpha.py"],
+        push_ok_for_posthook=True,
+    )
+
+    import am_patch.engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "run_post_run_pipeline", lambda ctx, result: 0)
+    try:
+        rc = finalize_and_report(ctx, result)
+    finally:
+        logger.close()
+
+    result_evt = _read_result_event(json_path)
+
+    assert rc == 0
+    assert isolated_root.exists()
+    assert log_path.exists()
+    assert json_path.exists()
+    assert result_evt["log_path"] == str(log_path)
+    assert result_evt["json_path"] == str(json_path)

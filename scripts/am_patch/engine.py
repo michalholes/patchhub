@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -725,7 +724,6 @@ def finalize_and_report(ctx: RunContext, result: RunResult) -> int:
     verbosity = ctx.verbosity
     log_level = ctx.log_level
     json_path = ctx.json_path
-    isolated_work_patch_dir = ctx.isolated_work_patch_dir
 
     lock = result.lock
     exit_code = run_post_run_pipeline(ctx=ctx, result=result)
@@ -763,9 +761,5 @@ def finalize_and_report(ctx: RunContext, result: RunResult) -> int:
         screen_quiet=screen_quiet,
         log_quiet=log_quiet,
     )
-
-    if policy.test_mode and isolated_work_patch_dir is not None:
-        with suppress(Exception):
-            shutil.rmtree(isolated_work_patch_dir, ignore_errors=True)
 
     return exit_code
