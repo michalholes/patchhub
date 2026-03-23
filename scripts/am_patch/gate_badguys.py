@@ -6,6 +6,7 @@ import site
 import sys
 import time
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,13 @@ DEFAULT_BADGUYS_COMMAND = ["badguys/badguys.py", "-q"]
 _FALLBACK_GIT_USER_NAME = "BadGuys Suite Jail"
 _FALLBACK_GIT_USER_EMAIL = "badguys-suite-jail@example.invalid"
 _BWRAP_ERROR = "FAIL: bwrap not found (install bubblewrap or use --skip-badguys)"
+
+
+@dataclass(frozen=True)
+class _BindSpec:
+    host_path: Path
+    target_rel: Path
+    kind: str
 
 
 def _normalize_path(value: str) -> str:
@@ -100,8 +108,8 @@ def run_amp_owned_badguys_gate(
         jail_root.mkdir(parents=True, exist_ok=True)
         created = True
         _bootstrap_jail_repo(logger=logger, source_repo=cwd, jail_repo=jail_repo)
-        host_bind_paths = _resolve_bind_paths(source_repo=cwd, command=command, run_id=run_id)
-        _prepare_binds(source_repo=cwd, jail_repo=jail_repo, host_bind_paths=host_bind_paths)
+        bind_specs = _resolve_bind_specs(source_repo=cwd, command=command, run_id=run_id)
+        _prepare_binds(jail_repo=jail_repo, bind_specs=bind_specs)
         _materialize_changed_paths(
             source_repo=cwd,
             jail_repo=jail_repo,
@@ -120,10 +128,9 @@ def run_amp_owned_badguys_gate(
         logger.line(f"badguys_python={jail_python}")
         logger.line(f"badguys_cmd={inner_argv[2:]}")
         bwrap_cmd = _build_bwrap_cmd(
-            source_repo=cwd,
             jail_repo=jail_repo,
             argv=inner_argv,
-            host_bind_paths=host_bind_paths,
+            bind_specs=bind_specs,
             external_bind_paths=external_bind_paths,
         )
         proc_env = dict(os.environ)
@@ -153,10 +160,9 @@ def find_bwrap() -> str | None:
 
 def _build_bwrap_cmd(
     *,
-    source_repo: Path,
     jail_repo: Path,
     argv: list[str],
-    host_bind_paths: list[Path],
+    bind_specs: list[_BindSpec],
     external_bind_paths: list[Path],
 ) -> list[str]:
     bwrap = find_bwrap()
@@ -168,9 +174,9 @@ def _build_bwrap_cmd(
         if Path(path).exists():
             cmd += ["--ro-bind", path, path]
     cmd += ["--bind", str(jail_repo), "/repo", "--chdir", "/repo"]
-    for host_path in host_bind_paths:
-        target = Path("/repo") / _repo_relative_path(repo_root=source_repo, host_path=host_path)
-        cmd += ["--bind", str(host_path), str(target)]
+    for spec in bind_specs:
+        target = Path("/repo") / spec.target_rel
+        cmd += ["--bind", str(spec.host_path), str(target)]
     for host_path in external_bind_paths:
         cmd += _external_bind_args(host_path)
     cmd += ["--", *argv]
@@ -252,27 +258,40 @@ def _git_local_config(*, logger: Any, cwd: Path, key: str) -> str | None:
     raise RunnerError("GATES", "GATES", f"git config --local --get {key} failed: {detail}")
 
 
-def _resolve_bind_paths(*, source_repo: Path, command: list[str], run_id: str) -> list[Path]:
+def _resolve_bind_specs(*, source_repo: Path, command: list[str], run_id: str) -> list[_BindSpec]:
     config_path = _resolve_badguys_config_path(source_repo=source_repo, command=command)
     suite = _load_badguys_suite_config(config_path)
-    logs_dir = suite.get("logs_dir", "patches/badguys_logs")
-    central_pattern = suite.get("central_log_pattern", "patches/badguys_{run_id}.log")
-    bind_paths = [
-        _config_path_to_host_path(source_repo=source_repo, value=str(logs_dir)),
-        _config_path_to_host_path(
+    logs_dir = str(suite.get("logs_dir", "patches/badguys_logs"))
+    central_pattern = str(suite.get("central_log_pattern", "patches/badguys_{run_id}.log"))
+    specs = [
+        _make_bind_spec(source_repo=source_repo, value=logs_dir, kind="dir"),
+        _make_bind_spec(
             source_repo=source_repo,
-            value=str(central_pattern).replace("{run_id}", run_id),
+            value=central_pattern.replace("{run_id}", run_id),
+            kind="file",
         ),
     ]
-    seen: set[Path] = set()
-    out: list[Path] = []
-    for path in bind_paths:
-        resolved = path.resolve() if path.exists() else path
-        if resolved in seen:
+    deduped: dict[Path, _BindSpec] = {}
+    for spec in specs:
+        prev = deduped.get(spec.target_rel)
+        if prev is None:
+            deduped[spec.target_rel] = spec
             continue
-        seen.add(resolved)
-        out.append(path)
-    return out
+        if prev.kind != spec.kind:
+            target = spec.target_rel.as_posix()
+            raise RunnerError("GATES", "GATES", f"conflicting bind kinds for target: {target}")
+    return list(deduped.values())
+
+
+def _make_bind_spec(*, source_repo: Path, value: str, kind: str) -> _BindSpec:
+    category = "logs_dir" if kind == "dir" else "central_log_pattern"
+    host_path = _config_path_to_host_path(
+        source_repo=source_repo,
+        value=value,
+        category=category,
+    )
+    target_rel = _repo_relative_path(repo_root=source_repo, host_path=host_path)
+    return _BindSpec(host_path=host_path, target_rel=target_rel, kind=kind)
 
 
 def _resolve_badguys_config_path(*, source_repo: Path, command: list[str]) -> Path:
@@ -282,7 +301,11 @@ def _resolve_badguys_config_path(*, source_repo: Path, command: list[str]) -> Pa
             continue
         if idx + 1 >= len(argv):
             break
-        return _config_path_to_host_path(source_repo=source_repo, value=argv[idx + 1])
+        return _config_path_to_host_path(
+            source_repo=source_repo,
+            value=argv[idx + 1],
+            category="config",
+        )
     return source_repo / "badguys" / "config.toml"
 
 
@@ -295,21 +318,45 @@ def _load_badguys_suite_config(config_path: Path) -> dict[str, Any]:
     return suite if isinstance(suite, dict) else {}
 
 
-def _config_path_to_host_path(*, source_repo: Path, value: str) -> Path:
+def _config_path_to_host_path(*, source_repo: Path, value: str, category: str) -> Path:
     candidate = Path(str(value))
+    error = f"{category} path must be repo-relative: {candidate}"
     if candidate.is_absolute():
-        return candidate
-    return source_repo / candidate
+        raise RunnerError("GATES", "GATES", error)
+    resolved_root = source_repo.resolve()
+    resolved_host = (source_repo / candidate).resolve(strict=False)
+    try:
+        resolved_host.relative_to(resolved_root)
+    except ValueError as exc:
+        raise RunnerError("GATES", "GATES", error) from exc
+    return resolved_host
 
 
-def _prepare_binds(*, source_repo: Path, jail_repo: Path, host_bind_paths: list[Path]) -> None:
-    for host_path in host_bind_paths:
-        target = jail_repo / _repo_relative_path(repo_root=source_repo, host_path=host_path)
-        if host_path.is_dir():
+def _prepare_binds(*, jail_repo: Path, bind_specs: list[_BindSpec]) -> None:
+    for spec in bind_specs:
+        _prepare_host_bind_source(spec)
+        target = jail_repo / spec.target_rel
+        if spec.kind == "dir":
             target.mkdir(parents=True, exist_ok=True)
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         target.touch(exist_ok=True)
+
+
+def _prepare_host_bind_source(spec: _BindSpec) -> None:
+    try:
+        if spec.kind == "dir":
+            spec.host_path.mkdir(parents=True, exist_ok=True)
+            return
+        spec.host_path.parent.mkdir(parents=True, exist_ok=True)
+        spec.host_path.touch(exist_ok=True)
+    except OSError as exc:
+        target = spec.target_rel.as_posix()
+        raise RunnerError(
+            "GATES",
+            "GATES",
+            f"unable to prepare bind source for {target}: {exc}",
+        ) from exc
 
 
 def _repo_relative_path(*, repo_root: Path, host_path: Path) -> Path:

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
+
+if TYPE_CHECKING:
+    from am_patch.log import Logger as _GateLogger
+
+
+class _RunGatesFn(Protocol):
+    def __call__(self, logger: _GateLogger, cwd: Path, **kwargs: object) -> None: ...
 
 
 class _Logger:
@@ -48,12 +57,12 @@ def _import_gate_badguys():
     return mod
 
 
-def _import_run_gates():
+def _import_run_gates() -> _RunGatesFn:
     scripts_dir = Path(__file__).parent.parent / "scripts"
     sys.path.insert(0, str(scripts_dir))
     from am_patch.gates import run_gates
 
-    return run_gates
+    return cast(_RunGatesFn, run_gates)
 
 
 def _init_repo(tmp_path: Path) -> Path:
@@ -92,17 +101,63 @@ def _write_fake_bwrap(tmp_path: Path, *, exit_code: int) -> Path:
 import json
 import os
 import sys
+import tomllib
 from pathlib import Path
 
+
+def fail(message: str) -> None:
+    print(message, file=sys.stderr)
+    raise SystemExit(97)
+
+
 args = sys.argv[1:]
-repo_arg = None
+bind_pairs = []
 for idx, item in enumerate(args):
-    if item == '/repo' and idx >= 1:
-        repo_arg = args[idx - 1]
-        break
+    if item != '--bind':
+        continue
+    if idx + 2 >= len(args):
+        fail('malformed --bind argument list')
+    bind_pairs.append((args[idx + 1], args[idx + 2]))
+if not bind_pairs:
+    fail('missing --bind arguments')
+bind_sources = {}
+for source_text, target in bind_pairs:
+    source = Path(source_text)
+    if not source.exists():
+        fail(f'missing bind source for {target}: {source}')
+    bind_sources[target] = source_text
+repo_arg = bind_sources.get('/repo')
+if repo_arg is None:
+    fail('missing /repo bind')
 repo = Path(repo_arg)
+suite = {}
+config_path = repo / 'badguys' / 'config.toml'
+if config_path.is_file():
+    with config_path.open('rb') as fh:
+        data = tomllib.load(fh)
+    raw_suite = data.get('suite')
+    if isinstance(raw_suite, dict):
+        suite = raw_suite
+run_id = os.environ.get('AM_BADGUYS_RUN_ID') or ''
+logs_dir = str(suite.get('logs_dir', 'patches/badguys_logs')).strip().strip('/')
+central_pattern = str(suite.get('central_log_pattern', 'patches/badguys_{run_id}.log'))
+central_log = central_pattern.replace('{run_id}', run_id).strip().strip('/')
+expected = {
+    f'/repo/{logs_dir}': 'dir',
+    f'/repo/{central_log}': 'file',
+}
+for target, kind in expected.items():
+    source_text = bind_sources.get(target)
+    if source_text is None:
+        fail(f'missing bind target: {target}')
+    source = Path(source_text)
+    if kind == 'dir' and not source.is_dir():
+        fail(f'expected directory bind source for {target}: {source}')
+    if kind == 'file' and not source.is_file():
+        fail(f'expected file bind source for {target}: {source}')
 payload = {
     'argv': args,
+    'bind_sources': bind_sources,
     'env': {
         'AM_BADGUYS_RUN_ID': os.environ.get('AM_BADGUYS_RUN_ID'),
         'AM_PATCH_BADGUYS_RUNNER_PYTHON': os.environ.get('AM_PATCH_BADGUYS_RUNNER_PYTHON'),
@@ -125,6 +180,59 @@ raise SystemExit(int(os.environ['BWRAP_EXIT']))
     )
     script.chmod(0o755)
     return script
+
+
+def _invoke_fake_bwrap(
+    fake_bwrap: Path,
+    *,
+    repo: Path,
+    capture_file: Path,
+    bind_pairs: list[tuple[Path, str]],
+    run_id: str,
+) -> subprocess.CompletedProcess[str]:
+    argv = [str(fake_bwrap)]
+    argv += ["--bind", str(repo), "/repo"]
+    for source, target in bind_pairs:
+        argv += ["--bind", str(source), target]
+    argv += ["--", "/bin/true"]
+    env = dict(os.environ)
+    env.update(
+        {
+            "AM_BADGUYS_RUN_ID": run_id,
+            "BWRAP_EXIT": "0",
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    return subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+
+def _default_log_bind_pairs(
+    repo: Path,
+    *,
+    run_id: str,
+    missing_central: bool = False,
+    wrong_logs_dir: bool = False,
+) -> list[tuple[Path, str]]:
+    logs_dir = repo / "patches" / "badguys_logs"
+    logs_dir.parent.mkdir(parents=True, exist_ok=True)
+    if wrong_logs_dir:
+        logs_dir.write_text("wrong kind\n", encoding="utf-8")
+    else:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+    central = repo / "patches" / f"badguys_{run_id}.log"
+    central.parent.mkdir(parents=True, exist_ok=True)
+    if not missing_central:
+        central.touch()
+    return [
+        (logs_dir, "/repo/patches/badguys_logs"),
+        (central, f"/repo/patches/badguys_{run_id}.log"),
+    ]
 
 
 def test_should_run_badguys_uses_mode_and_trigger_surface() -> None:
@@ -236,6 +344,10 @@ def test_amp_owned_badguys_gate_materializes_delta_env_and_cleans_jail(
     assert payload["env"]["AM_BADGUYS_RUN_ID"]
     assert payload["env"]["AM_BADGUYS_SUITE_JAIL_INNER"] == "1"
     assert payload["env"]["AM_PATCH_BADGUYS_RUNNER_PYTHON"] == "/repo/.venv/bin/python"
+    assert payload["bind_sources"]["/repo/patches/badguys_logs"]
+    assert payload["bind_sources"][
+        f"/repo/patches/badguys_{payload['env']['AM_BADGUYS_RUN_ID']}.log"
+    ]
     assert payload["files"]["keep"] == "live keep\n"
     assert payload["files"]["delete_exists"] is False
     assert payload["files"]["rename_old_exists"] is False
@@ -243,6 +355,115 @@ def test_amp_owned_badguys_gate_materializes_delta_env_and_cleans_jail(
     assert payload["files"]["untracked"] == "live untracked\n"
     assert payload["files"]["untouched"] == "base untouched\n"
     assert not (workspaces_dir / "_badguys_gate" / "workspace_372").exists()
+
+
+@pytest.mark.parametrize(
+    ("bind_pairs", "expected_error"),
+    [
+        (
+            lambda repo, run_id: _default_log_bind_pairs(
+                repo,
+                run_id=run_id,
+                missing_central=True,
+            ),
+            "missing bind source",
+        ),
+        (
+            lambda repo, run_id: _default_log_bind_pairs(
+                repo,
+                run_id=run_id,
+                wrong_logs_dir=True,
+            ),
+            "expected directory bind source",
+        ),
+    ],
+)
+def test_fake_bwrap_rejects_missing_or_wrong_kind_bind_sources(
+    tmp_path: Path,
+    bind_pairs,
+    expected_error: str,
+) -> None:
+    repo = _init_repo(tmp_path)
+    fake_bwrap = _write_fake_bwrap(tmp_path, exit_code=0)
+    capture_file = tmp_path / "capture.json"
+    run_id = "20260323_140246"
+
+    result = _invoke_fake_bwrap(
+        fake_bwrap,
+        repo=repo,
+        capture_file=capture_file,
+        bind_pairs=bind_pairs(repo, run_id),
+        run_id=run_id,
+    )
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+    assert not capture_file.exists()
+
+
+def test_amp_owned_badguys_gate_honors_configured_log_bind_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod = _import_gate_badguys()
+    repo = _init_repo(tmp_path)
+    logger = _Logger()
+    workspaces_dir = tmp_path / "patches" / "workspaces"
+    capture_file = tmp_path / "capture.json"
+    fake_bwrap = _write_fake_bwrap(tmp_path, exit_code=0)
+
+    (repo / "badguys" / "config.toml").write_text(
+        """[suite]
+logs_dir = "artifacts/custom_logs"
+central_log_pattern = "artifacts/central/{run_id}.jsonl"
+""",
+        encoding="utf-8",
+    )
+    (repo / ".venv" / "bin").mkdir(parents=True)
+    fake_python = repo / ".venv" / "bin" / "python"
+    fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+
+    (repo / "keep.txt").write_text("live keep\n", encoding="utf-8")
+    (repo / "delete_me.txt").unlink()
+    (repo / "rename_old.txt").rename(repo / "rename_new.txt")
+    (repo / "rename_new.txt").write_text("live rename new\n", encoding="utf-8")
+    (repo / "untracked.txt").write_text("live untracked\n", encoding="utf-8")
+
+    monkeypatch.setattr(mod, "find_bwrap", lambda: str(fake_bwrap))
+    monkeypatch.setattr(mod.sys, "executable", str(fake_python))
+    monkeypatch.setenv("CAPTURE_FILE", str(capture_file))
+    monkeypatch.setenv("BWRAP_EXIT", "0")
+
+    ok = mod.run_amp_owned_badguys_gate(
+        logger,
+        repo,
+        repo_root=repo,
+        command=["badguys/badguys.py", "-q"],
+        changed_entries=[
+            (" M", "badguys/config.toml"),
+            (" M", "keep.txt"),
+            (" D", "delete_me.txt"),
+            (" R", "rename_old.txt"),
+            (" R", "rename_new.txt"),
+            ("??", "untracked.txt"),
+        ],
+        workspaces_dir=workspaces_dir,
+        cli_mode="workspace",
+        issue_id="373",
+    )
+
+    payload = json.loads(capture_file.read_text(encoding="utf-8"))
+    inner = payload["argv"][payload["argv"].index("--") + 1 :]
+    assert ok is True
+    assert inner.count("--no-suite-jail") == 1
+    assert payload["bind_sources"]["/repo/artifacts/custom_logs"]
+    assert payload["bind_sources"][
+        f"/repo/artifacts/central/{payload['env']['AM_BADGUYS_RUN_ID']}.jsonl"
+    ]
+    assert payload["files"]["keep"] == "live keep\n"
+    assert payload["files"]["untracked"] == "live untracked\n"
+    assert payload["files"]["untouched"] == "base untouched\n"
+    assert not (workspaces_dir / "_badguys_gate" / "workspace_373").exists()
 
 
 def test_run_gates_api_keeps_skip_badguys_backward_compat(tmp_path: Path) -> None:
@@ -340,3 +561,146 @@ def test_run_gates_api_keeps_skip_badguys_backward_compat(tmp_path: Path) -> Non
         decision_paths=[],
         progress=None,
     )
+
+
+def test_amp_owned_badguys_gate_rejects_config_path_traversal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod = _import_gate_badguys()
+    repo = _init_repo(tmp_path)
+    logger = _Logger()
+    workspaces_dir = tmp_path / "patches" / "workspaces"
+    outside_config = tmp_path / "outside.toml"
+    outside_config.write_text(
+        '[suite]\nlogs_dir = "outside/logs"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        mod,
+        "_load_badguys_suite_config",
+        lambda _path: (_ for _ in ()).throw(AssertionError("config load must stay blocked")),
+    )
+    monkeypatch.setattr(
+        mod,
+        "_prepare_binds",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("bind prep must stay blocked")),
+    )
+
+    with pytest.raises(mod.RunnerError, match="config path must be repo-relative"):
+        mod.run_amp_owned_badguys_gate(
+            logger,
+            repo,
+            repo_root=repo,
+            command=["badguys/badguys.py", "-q", "--config", "../outside.toml"],
+            changed_entries=[],
+            workspaces_dir=workspaces_dir,
+            cli_mode="workspace",
+            issue_id="373",
+        )
+
+    assert outside_config.is_file()
+    assert not (tmp_path / "outside").exists()
+    assert not (workspaces_dir / "_badguys_gate" / "workspace_373").exists()
+
+
+def test_amp_owned_badguys_gate_rejects_absolute_config_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod = _import_gate_badguys()
+    repo = _init_repo(tmp_path)
+    logger = _Logger()
+    workspaces_dir = tmp_path / "patches" / "workspaces"
+    outside_config = tmp_path / "outside" / "config.toml"
+    outside_config.parent.mkdir(parents=True, exist_ok=True)
+    outside_config.write_text(
+        '[suite]\nlogs_dir = "outside/logs"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        mod,
+        "_load_badguys_suite_config",
+        lambda _path: (_ for _ in ()).throw(AssertionError("config load must stay blocked")),
+    )
+    monkeypatch.setattr(
+        mod,
+        "_prepare_binds",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("bind prep must stay blocked")),
+    )
+
+    with pytest.raises(mod.RunnerError, match="config path must be repo-relative"):
+        mod.run_amp_owned_badguys_gate(
+            logger,
+            repo,
+            repo_root=repo,
+            command=["badguys/badguys.py", "-q", "--config", str(outside_config)],
+            changed_entries=[],
+            workspaces_dir=workspaces_dir,
+            cli_mode="workspace",
+            issue_id="373",
+        )
+
+    assert outside_config.is_file()
+    assert not (tmp_path / "outside" / "logs").exists()
+    assert not (workspaces_dir / "_badguys_gate" / "workspace_373").exists()
+
+
+def test_amp_owned_badguys_gate_rejects_absolute_logs_dir(
+    tmp_path: Path,
+) -> None:
+    mod = _import_gate_badguys()
+    repo = _init_repo(tmp_path)
+    logger = _Logger()
+    workspaces_dir = tmp_path / "patches" / "workspaces"
+    outside_logs = tmp_path / "outside" / "logs_dir"
+
+    (repo / "badguys" / "config.toml").write_text(
+        f'[suite]\nlogs_dir = "{outside_logs}"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(mod.RunnerError, match="logs_dir path must be repo-relative"):
+        mod.run_amp_owned_badguys_gate(
+            logger,
+            repo,
+            repo_root=repo,
+            command=["badguys/badguys.py", "-q"],
+            changed_entries=[],
+            workspaces_dir=workspaces_dir,
+            cli_mode="workspace",
+            issue_id="373",
+        )
+
+    assert not outside_logs.exists()
+    assert not (workspaces_dir / "_badguys_gate" / "workspace_373").exists()
+
+
+def test_amp_owned_badguys_gate_rejects_absolute_central_log_pattern(
+    tmp_path: Path,
+) -> None:
+    mod = _import_gate_badguys()
+    repo = _init_repo(tmp_path)
+    logger = _Logger()
+    workspaces_dir = tmp_path / "patches" / "workspaces"
+    outside_pattern = tmp_path / "outside" / "central_{run_id}.log"
+
+    (repo / "badguys" / "config.toml").write_text(
+        f'[suite]\ncentral_log_pattern = "{outside_pattern}"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(mod.RunnerError, match="central_log_pattern path must be repo-relative"):
+        mod.run_amp_owned_badguys_gate(
+            logger,
+            repo,
+            repo_root=repo,
+            command=["badguys/badguys.py", "-q"],
+            changed_entries=[],
+            workspaces_dir=workspaces_dir,
+            cli_mode="workspace",
+            issue_id="373",
+        )
+
+    assert not (tmp_path / "outside").exists()
+    assert not (workspaces_dir / "_badguys_gate" / "workspace_373").exists()
