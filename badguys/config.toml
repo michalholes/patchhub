@@ -314,7 +314,7 @@ value_not_contains = ["\"event\":\"connected\"", "\"kind\":\"HEARTBEAT\"", "\"ms
 
 [evaluation.tests.test_080_json_out_writes_ndjson_log.steps.2]
 rc_eq = 0
-value_contains = ["\"event\":\"connected\"", "\"kind\":\"HEARTBEAT\"", "\"type\":\"result\"", "\"msg\":\"RESULT: SUCCESS\""]
+value_contains = ["\"type\":\"hello\"", "\"kind\":\"HEARTBEAT\"", "\"type\":\"result\"", "\"terminal_status\":\"success\""]
 
 
 [evaluation.tests.test_081_ipc_heartbeat_events_present]
