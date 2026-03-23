@@ -178,6 +178,7 @@ class AsyncJobQueue:
         self._task: asyncio.Task[None] | None = None
         self._brokers: dict[str, JobEventBroker] = {}
         self._pump_commands: dict[str, EventPumpCommandChannel] = {}
+        self._on_patch_success: Callable[[JobRecord], Coroutine[object, object, None]] | None = None
 
     def _reset_loop_affine_state(self) -> None:
         self._mu = asyncio.Lock()
@@ -276,8 +277,23 @@ class AsyncJobQueue:
             job.ended_utc = utc_now()
             finalized = job
             await self._persist(job)
+        callback_error: str | None = None
         if finalized is not None and finalized.status == "success":
             await self._materialize_applied_files(finalized)
+            if finalized.mode == "patch" and self._on_patch_success is not None:
+                try:
+                    await self._on_patch_success(finalized)
+                except Exception as exc:
+                    callback_error = f"{type(exc).__name__}: {exc}"
+        if callback_error is not None:
+            async with self._mu:
+                job = self._jobs.get(job_id)
+                if job is not None:
+                    if job.error:
+                        job.error = f"{job.error}; {callback_error}"
+                    else:
+                        job.error = callback_error
+                    await self._persist(job)
         return True
 
     async def _reconcile_active_job(
@@ -471,6 +487,12 @@ class AsyncJobQueue:
 
     def jobs_root(self) -> Path:
         return self._jobs_root
+
+    def set_patch_success_callback(
+        self,
+        callback: Callable[[JobRecord], Coroutine[object, object, None]] | None,
+    ) -> None:
+        self._on_patch_success = callback
 
     def _job_dir(self, job_id: str) -> Path:
         return self._jobs_root / job_id

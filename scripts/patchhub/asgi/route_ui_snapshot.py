@@ -22,6 +22,7 @@ from patchhub.workspace_inventory import list_workspaces
 from .async_jobs_runs_indexer import build_header_sig, build_header_summary
 from .async_offload import to_thread
 from .json_contract import json_head_response, json_headers, json_response
+from .operator_info_runtime import build_operator_info_sig, load_operator_info
 
 if TYPE_CHECKING:
     from .async_app_core import AsyncAppCore
@@ -156,7 +157,18 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
         base_runs=base_runs,
     )
     header_sig = build_header_sig(header_body)
-    snapshot_sig = "|".join([jobs_sig, runs_sig, patches_sig, workspaces_sig, header_sig])
+    operator_info = await to_thread(load_operator_info, core.patches_root)
+    operator_info_sig = build_operator_info_sig(operator_info)
+    snapshot_sig = "|".join(
+        [
+            jobs_sig,
+            runs_sig,
+            patches_sig,
+            workspaces_sig,
+            header_sig,
+            operator_info_sig,
+        ]
+    )
     current_seq = 0
     try:
         current_seq = int(core.indexer.snapshot_seq())
@@ -171,6 +183,7 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
             "patches": patches_items,
             "workspaces": workspaces_items,
             "header": header_body,
+            "operator_info": operator_info,
         },
         "sigs": {
             "jobs": jobs_sig,
@@ -178,6 +191,7 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
             "patches": patches_sig,
             "workspaces": workspaces_sig,
             "header": header_sig,
+            "operator_info": operator_info_sig,
             "snapshot": snapshot_sig,
         },
     }
@@ -218,6 +232,7 @@ async def handle_api_ui_snapshot(
                     "patches": list(snap.patches_items),
                     "workspaces": list(snap.workspaces_items),
                     "header": dict(snap.header_body),
+                    "operator_info": dict(snap.operator_info),
                 },
                 "sigs": {
                     "jobs": str(snap.jobs_sig),
@@ -225,6 +240,7 @@ async def handle_api_ui_snapshot(
                     "patches": str(snap.patches_sig),
                     "workspaces": str(snap.workspaces_sig),
                     "header": str(snap.header_sig),
+                    "operator_info": str(snap.operator_info_sig),
                     "snapshot": snapshot_sig,
                 },
             }

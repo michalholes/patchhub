@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from patchhub import app_api_core as _core_api
 from patchhub.models import job_to_list_item_json
 from patchhub.patch_inventory import build_patch_inventory
 
+from ..repo_snapshot_cleanup import execute_repo_snapshot_cleanup
 from .async_app_core import AsyncAppCore
 from .async_offload import to_thread
 from .job_events_db_stream import stream_job_events_db_live
@@ -24,9 +26,16 @@ from .json_contract import (
     json_headers,
     json_response,
 )
+from .operator_info_runtime import (
+    append_cleanup_recent_status,
+    append_cleanup_recent_status_runtime,
+    load_operator_info,
+    operator_info_runtime_path,
+    write_operator_info,
+)
 from .route_diagnostics import handle_api_debug_diagnostics
 from .route_snapshot_events import handle_api_snapshot_events
-from .route_ui_snapshot import handle_api_ui_snapshot
+from .route_ui_snapshot import _legacy_snapshot_payload, handle_api_ui_snapshot
 from .route_ui_snapshot_delta import handle_api_ui_snapshot_delta
 from .route_workspaces import handle_api_workspaces
 from .snapshot_change_broker import SnapshotChangeBroker
@@ -80,11 +89,117 @@ def _head_json_response(status: int, *, etag: str = "") -> Response:
     return json_head_response(status, headers=headers)
 
 
+def _write_cleanup_summary_record_direct(
+    patches_root: Path,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    path = operator_info_runtime_path(patches_root)
+    text = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    tmp_path.replace(path)
+    return payload
+
+
+def _persist_cleanup_summary_record(
+    patches_root: Path,
+    cleanup_summary: dict[str, Any],
+) -> tuple[dict[str, Any], bool]:
+    try:
+        return append_cleanup_recent_status(patches_root, cleanup_summary), True
+    except Exception:
+        operator_info = load_operator_info(patches_root)
+        cleanup_recent_status = list(operator_info.get("cleanup_recent_status") or [])
+        cleanup_recent_status.append(dict(cleanup_summary))
+        merged_payload = {"cleanup_recent_status": cleanup_recent_status}
+        try:
+            return write_operator_info(patches_root, merged_payload), True
+        except Exception:
+            try:
+                return (
+                    _write_cleanup_summary_record_direct(
+                        patches_root,
+                        merged_payload,
+                    ),
+                    True,
+                )
+            except Exception:
+                return (
+                    append_cleanup_recent_status_runtime(
+                        patches_root,
+                        cleanup_summary,
+                    ),
+                    True,
+                )
+
+
+async def _publish_cleanup_refresh_fallback(core: Any) -> bool:
+    install_snapshot = getattr(core.indexer, "install_external_snapshot_payload", None)
+    if install_snapshot is None:
+        return False
+    try:
+        payload = await _legacy_snapshot_payload(core)
+    except Exception:
+        return False
+    try:
+        install_snapshot(payload)
+        return True
+    except Exception:
+        return False
+
+
+async def _refresh_after_cleanup(core: Any) -> bool:
+    try:
+        await core.indexer.force_rescan()
+        return True
+    except Exception:
+        pass
+
+    rebuild = getattr(core.indexer, "_rebuild", None)
+    if rebuild is not None:
+        try:
+            await rebuild(reason="patch_success_cleanup")
+            return True
+        except Exception:
+            pass
+
+    return await _publish_cleanup_refresh_fallback(core)
+
+
+async def run_patch_job_success_cleanup(core: Any, job: Any) -> None:
+    created_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    summary = await to_thread(
+        execute_repo_snapshot_cleanup,
+        patches_root=core.patches_root,
+        config=core.cfg.repo_snapshot_cleanup,
+        job_id=str(getattr(job, "job_id", "")),
+        issue_id=str(getattr(job, "issue_id", "")),
+        created_utc=created_utc,
+    )
+    _, persisted = await to_thread(
+        _persist_cleanup_summary_record,
+        core.patches_root,
+        summary.to_json(),
+    )
+    if not persisted:
+        return
+    await _refresh_after_cleanup(core)
+
+
 def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
     app = FastAPI()
     core = AsyncAppCore(repo_root=repo_root, cfg=cfg)
     snapshot_change_broker = SnapshotChangeBroker()
     snapshot_delta_store = SnapshotDeltaStore()
+
+    async def _handle_patch_job_success(job: Any) -> None:
+        try:
+            await run_patch_job_success_cleanup(core, job)
+        except Exception:
+            return
+
+    core.queue.set_patch_success_callback(_handle_patch_job_success)
 
     def _publish_snapshot_change(snap: Any) -> None:
         snapshot_delta_store.record_snapshot(snap)
@@ -97,6 +212,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
                     "patches": str(snap.patches_sig),
                     "workspaces": str(snap.workspaces_sig),
                     "header": str(snap.header_sig),
+                    "operator_info": str(snap.operator_info_sig),
                     "snapshot": str(snap.snapshot_sig),
                 },
             }

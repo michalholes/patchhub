@@ -70,6 +70,19 @@ class TestPatchhubUiSnapshot(unittest.TestCase):
                 runs_items=[{"issue_id": 501}],
                 workspaces_items=[{"issue_id": 501, "workspace_rel_path": "workspaces/issue_501"}],
                 header_body={"queue": {"queued": 0, "running": 0}},
+                operator_info={
+                    "cleanup_recent_status": [
+                        {
+                            "job_id": "job-375",
+                            "issue_id": "375",
+                            "created_utc": "2026-03-23T10:00:00Z",
+                            "deleted_count": 1,
+                            "rules": [],
+                            "summary_text": "Repo snapshot cleanup: deleted 1 file(s)",
+                        }
+                    ]
+                },
+                operator_info_sig="operator_info:s1",
                 jobs_sig="jobs:s1",
                 runs_sig="runs:s1",
                 workspaces_sig="workspaces:s1",
@@ -97,8 +110,39 @@ class TestPatchhubUiSnapshot(unittest.TestCase):
             body = resp.json()
             self.assertEqual(body["seq"], 7)
             self.assertEqual(body["snapshot"]["workspaces"], snap.workspaces_items)
+            self.assertEqual(
+                body["snapshot"]["operator_info"],
+                snap.operator_info,
+            )
             self.assertEqual(body["sigs"]["workspaces"], "workspaces:s1")
+            self.assertEqual(body["sigs"]["operator_info"], "operator_info:s1")
             self.assertEqual(body["sigs"]["snapshot"], "snapshot:s1")
+
+    def test_snapshot_sig_changes_when_operator_info_changes(self) -> None:
+        payload = {"queue": {"queued": 0, "running": 0}}
+        header_sig = build_header_sig(payload)
+        snapshot_a = "|".join(
+            [
+                "jobs:s1",
+                "runs:s1",
+                "patches:s1",
+                "workspaces:s1",
+                header_sig,
+                "operator_info:s1",
+            ]
+        )
+        snapshot_b = "|".join(
+            [
+                "jobs:s1",
+                "runs:s1",
+                "patches:s1",
+                "workspaces:s1",
+                header_sig,
+                "operator_info:s2",
+            ]
+        )
+
+        self.assertNotEqual(snapshot_a, snapshot_b)
 
     def test_ui_snapshot_returns_304_for_matching_etag(self) -> None:
         try:
@@ -115,6 +159,8 @@ class TestPatchhubUiSnapshot(unittest.TestCase):
                 runs_items=[],
                 workspaces_items=[],
                 header_body={},
+                operator_info={"cleanup_recent_status": []},
+                operator_info_sig="operator_info:s2",
                 jobs_sig="jobs:s2",
                 runs_sig="runs:s2",
                 workspaces_sig="workspaces:s2",
@@ -205,3 +251,5 @@ class TestPatchhubUiSnapshot(unittest.TestCase):
         self.assertEqual(payload["seq"], 9)
         self.assertEqual(payload["snapshot"]["jobs"], [])
         self.assertEqual(payload["snapshot"]["runs"], [])
+        self.assertEqual(payload["snapshot"]["operator_info"], {"cleanup_recent_status": []})
+        self.assertIn("operator_info", payload["sigs"])

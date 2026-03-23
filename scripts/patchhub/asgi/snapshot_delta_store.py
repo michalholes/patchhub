@@ -15,6 +15,7 @@ class SnapshotRecord:
     patches: list[dict[str, Any]]
     workspaces: list[dict[str, Any]]
     header: dict[str, Any]
+    operator_info: dict[str, Any]
     sigs: dict[str, str]
 
 
@@ -73,12 +74,14 @@ class SnapshotDeltaStore:
                 patches=_copy_items(list(snap.patches_items)),
                 workspaces=_copy_items(list(snap.workspaces_items)),
                 header=dict(snap.header_body),
+                operator_info=dict(snap.operator_info),
                 sigs={
                     "jobs": str(snap.jobs_sig),
                     "runs": str(snap.runs_sig),
                     "patches": str(snap.patches_sig),
                     "workspaces": str(snap.workspaces_sig),
                     "header": str(snap.header_sig),
+                    "operator_info": str(snap.operator_info_sig),
                     "snapshot": str(snap.snapshot_sig),
                 },
             )
@@ -117,6 +120,9 @@ class SnapshotDeltaStore:
                 previous = rec
                 break
         if previous is None:
+            return {"ok": True, "resync_needed": True, "seq": current.seq}
+
+        if previous.operator_info != current.operator_info:
             return {"ok": True, "resync_needed": True, "seq": current.seq}
 
         payload = {

@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .repo_snapshot_cleanup import (
+    RepoSnapshotCleanupConfig,
+    RepoSnapshotCleanupRule,
+)
+
 
 @dataclass(frozen=True)
 class ServerConfig:
@@ -121,6 +126,9 @@ class AppConfig:
     ui: UiConfig
     autofill: AutofillConfig
     targeting: TargetingConfig = field(default_factory=TargetingConfig)
+    repo_snapshot_cleanup: RepoSnapshotCleanupConfig = field(
+        default_factory=RepoSnapshotCleanupConfig
+    )
 
 
 def _must_get(d: dict[str, Any], key: str) -> Any:
@@ -136,6 +144,60 @@ def _must_int_at_least(value: Any, *, key: str, minimum: int) -> int:
     return parsed
 
 
+def _parse_repo_snapshot_cleanup_rule(
+    raw: Any,
+    *,
+    index: int,
+) -> RepoSnapshotCleanupRule:
+    prefix = f"repo_snapshot_cleanup.rules[{index}]"
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix} must be a table")
+    allowed = {"filename_pattern", "keep_count"}
+    extra = sorted(str(key) for key in raw if str(key) not in allowed)
+    if extra:
+        raise ValueError(f"{prefix} contains unsupported keys: {', '.join(extra)}")
+
+    pattern = raw.get("filename_pattern")
+    if not isinstance(pattern, str):
+        raise ValueError(f"{prefix}.filename_pattern must be a string")
+    if not pattern:
+        raise ValueError(f"{prefix}.filename_pattern must be non-empty")
+    if not pattern.isascii():
+        raise ValueError(f"{prefix}.filename_pattern must be ASCII-only")
+    if "\n" in pattern or "\r" in pattern:
+        raise ValueError(f"{prefix}.filename_pattern must be single-line")
+    if "/" in pattern or "\\" in pattern:
+        raise ValueError(f"{prefix}.filename_pattern must not contain separators")
+
+    keep_count = raw.get("keep_count")
+    if isinstance(keep_count, bool) or not isinstance(keep_count, int):
+        raise ValueError(f"{prefix}.keep_count must be an integer")
+    if keep_count < 0:
+        raise ValueError(f"{prefix}.keep_count must be >= 0")
+    return RepoSnapshotCleanupRule(
+        filename_pattern=pattern,
+        keep_count=int(keep_count),
+    )
+
+
+def _parse_repo_snapshot_cleanup(raw: Any) -> RepoSnapshotCleanupConfig:
+    if raw is None:
+        return RepoSnapshotCleanupConfig()
+    if not isinstance(raw, dict):
+        raise ValueError("repo_snapshot_cleanup must be a table")
+    allowed = {"rules"}
+    extra = sorted(str(key) for key in raw if str(key) not in allowed)
+    if extra:
+        raise ValueError("repo_snapshot_cleanup contains unsupported keys: " + ", ".join(extra))
+    raw_rules = raw.get("rules", [])
+    if not isinstance(raw_rules, list):
+        raise ValueError("repo_snapshot_cleanup.rules must be an array of tables")
+    rules = tuple(
+        _parse_repo_snapshot_cleanup_rule(item, index=index) for index, item in enumerate(raw_rules)
+    )
+    return RepoSnapshotCleanupConfig(rules=rules)
+
+
 def load_config(path: Path) -> AppConfig:
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
 
@@ -149,6 +211,7 @@ def load_config(path: Path) -> AppConfig:
     ui = raw.get("ui", {})
     autofill = raw.get("autofill", {})
     targeting = raw.get("targeting", {})
+    repo_snapshot_cleanup = _parse_repo_snapshot_cleanup(raw.get("repo_snapshot_cleanup"))
 
     return AppConfig(
         server=ServerConfig(
@@ -251,4 +314,5 @@ def load_config(path: Path) -> AppConfig:
             default_target_repo=str(targeting.get("default_target_repo", "patchhub")),
             zip_target_prefill_enabled=bool(targeting.get("zip_target_prefill_enabled", True)),
         ),
+        repo_snapshot_cleanup=repo_snapshot_cleanup,
     )

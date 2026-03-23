@@ -35,6 +35,8 @@ class TestPatchhubSnapshotEvents(unittest.TestCase):
             runs_items=[],
             workspaces_items=[],
             header_body={},
+            operator_info={"cleanup_recent_status": []},
+            operator_info_sig="operator_info:s1",
             jobs_sig="jobs:s1",
             runs_sig="runs:s1",
             workspaces_sig="workspaces:s1",
@@ -59,6 +61,7 @@ class TestPatchhubSnapshotEvents(unittest.TestCase):
                             "runs": "runs:s2",
                             "workspaces": "workspaces:s2",
                             "header": "header:s2",
+                            "operator_info": "operator_info:s2",
                             "snapshot": "snapshot:s2",
                         },
                     }
@@ -73,4 +76,5 @@ class TestPatchhubSnapshotEvents(unittest.TestCase):
         self.assertIn(b"event: snapshot_changed", second)
         body = json.loads(second.decode("utf-8").split("data: ", 1)[1])
         self.assertEqual(body["seq"], 8)
+        self.assertEqual(body["sigs"]["operator_info"], "operator_info:s2")
         self.assertEqual(body["sigs"]["snapshot"], "snapshot:s2")

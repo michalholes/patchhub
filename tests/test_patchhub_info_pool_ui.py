@@ -277,3 +277,34 @@ process.stdout.write(JSON.stringify({{
     assert "repair-supplemental" in result["body"]
     assert "RESULT: PASS" in result["body"]
     assert "tests/test_sample.txt" in result["body"]
+
+
+def test_cleanup_summary_is_modal_only_and_does_not_override_strip_priority() -> None:
+    app_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app.js"
+    pool_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_info_pool.js"
+    cleanup_text = json.dumps("Repo snapshot cleanup: deleted 2 file(s)")
+    script = (
+        _node_prelude(app_path, pool_path)
+        + f"""
+window.PH.call("initInfoPoolUi");
+setInfoPoolHint("fs", "patches directory ready");
+setOperatorInfoSnapshot({{
+  cleanup_recent_status: [{{
+    job_id: "job-375",
+    issue_id: "375",
+    created_utc: "2026-03-23T10:00:00Z",
+    deleted_count: 2,
+    rules: [],
+    summary_text: {cleanup_text},
+  }}],
+}});
+window.PH.call("renderInfoPoolUi");
+const stripSummary = document.getElementById("uiStatusBar").textContent;
+document.getElementById("uiStatusBar").dispatch("click");
+const modalBody = document.getElementById("uiStatusModalBody").innerHTML;
+process.stdout.write(JSON.stringify({{ stripSummary, modalBody }}));
+"""
+    )
+    result = _run_node(script)
+    assert result["stripSummary"] == "patches directory ready"
+    assert "Repo snapshot cleanup: deleted 2 file(s)" in result["modalBody"]

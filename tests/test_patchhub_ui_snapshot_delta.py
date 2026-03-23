@@ -26,6 +26,8 @@ class TestPatchhubUiSnapshotDelta(unittest.TestCase):
         header_count: int = 1,
         include_workspace: bool = True,
         include_run: bool = True,
+        operator_info_sig: str | None = None,
+        operator_info: dict[str, object] | None = None,
     ) -> IndexerSnapshot:
         jobs = [
             {
@@ -61,6 +63,12 @@ class TestPatchhubUiSnapshotDelta(unittest.TestCase):
             runs_items=runs,
             workspaces_items=workspaces,
             header_body={"runs": {"count": header_count}},
+            operator_info=(
+                operator_info if operator_info is not None else {"cleanup_recent_status": []}
+            ),
+            operator_info_sig=(
+                operator_info_sig if operator_info_sig is not None else f"operator_info:s{seq}"
+            ),
             jobs_sig=f"jobs:s{seq}",
             runs_sig=f"runs:s{seq}",
             workspaces_sig=f"workspaces:s{seq}",
@@ -104,6 +112,28 @@ class TestPatchhubUiSnapshotDelta(unittest.TestCase):
         self.assertTrue(delta["ok"])
         self.assertTrue(delta["resync_needed"])
         self.assertEqual(delta["seq"], 3)
+
+    def test_delta_store_returns_resync_when_operator_info_changes(self) -> None:
+        store = SnapshotDeltaStore()
+        store.record_snapshot(
+            self._snap(
+                seq=1,
+                operator_info_sig="operator_info:s1",
+                operator_info={"cleanup_recent_status": ["first"]},
+            )
+        )
+        store.record_snapshot(
+            self._snap(
+                seq=2,
+                operator_info_sig="operator_info:s2",
+                operator_info={"cleanup_recent_status": ["second"]},
+            )
+        )
+
+        delta = store.build_delta(1)
+        self.assertTrue(delta["ok"])
+        self.assertTrue(delta["resync_needed"])
+        self.assertEqual(delta["seq"], 2)
 
     def test_route_returns_json_payload(self) -> None:
         store = SnapshotDeltaStore()

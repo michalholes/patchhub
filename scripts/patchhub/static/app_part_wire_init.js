@@ -1,16 +1,29 @@
-/** @type {any} */
-var PH = /** @type {any} */ (window).PH;
+/**
+ * @typedef {{
+ *   call?: function(string, ...*): *,
+ *   has?: function(string): boolean,
+ *   register?: function(string, Object): void,
+ * }} WireInitRuntime
+ * @typedef {Window & typeof globalThis & { PH?: WireInitRuntime | null }} WireInitWindow
+ * @typedef {EventTarget & {
+ *   getAttribute?: function(string): string | null,
+ *   parentElement?: EventTarget | null,
+ * }} WireInitEventTarget
+ */
+var wireInitWindow = /** @type {WireInitWindow} */ (window);
+var wireInitRuntime = wireInitWindow.PH || null;
 
 function phCall(name, ...args) {
-	if (!PH || typeof PH.call !== "function") return undefined;
-	return PH.call(name, ...args);
+	if (!wireInitRuntime || typeof wireInitRuntime.call !== "function")
+		return undefined;
+	return wireInitRuntime.call(name, ...args);
 }
 
 function hasTrackedActiveJob() {
 	return !!(
-		PH &&
-		typeof PH.call === "function" &&
-		PH.call("hasTrackedActiveJob")
+		wireInitRuntime &&
+		typeof wireInitRuntime.call === "function" &&
+		wireInitRuntime.call("hasTrackedActiveJob")
 	);
 }
 function wireButtons() {
@@ -153,7 +166,7 @@ function wireButtons() {
 	if (el("patchesCollapse")) {
 		el("patchesCollapse").addEventListener("click", () => {
 			patchesVisible = !patchesVisible;
-			PH.call("setPatchesVisible", patchesVisible);
+			wireInitRuntime.call("setPatchesVisible", patchesVisible);
 			AMP_UI.savePatchesVisible(patchesVisible);
 			if (patchesVisible) phCall("refreshPatches", { mode: "user" });
 		});
@@ -164,7 +177,7 @@ function wireButtons() {
 	});
 	el("workspacesCollapse").addEventListener("click", () => {
 		workspacesVisible = !workspacesVisible;
-		PH.call("setWorkspacesVisible", workspacesVisible);
+		wireInitRuntime.call("setWorkspacesVisible", workspacesVisible);
 		AMP_UI.saveWorkspacesVisible(workspacesVisible);
 		if (workspacesVisible) phCall("refreshWorkspaces", { mode: "user" });
 	});
@@ -176,7 +189,7 @@ function wireButtons() {
 	if (el("runsCollapse")) {
 		el("runsCollapse").addEventListener("click", () => {
 			runsVisible = !runsVisible;
-			PH.call("setRunsVisible", runsVisible);
+			wireInitRuntime.call("setRunsVisible", runsVisible);
 			AMP_UI.saveRunsVisible(runsVisible);
 		});
 	}
@@ -199,7 +212,7 @@ function wireButtons() {
 	if (el("jobsCollapse")) {
 		el("jobsCollapse").addEventListener("click", () => {
 			jobsVisible = !jobsVisible;
-			PH.call("setJobsVisible", jobsVisible);
+			wireInitRuntime.call("setJobsVisible", jobsVisible);
 			AMP_UI.saveJobsVisible(jobsVisible);
 		});
 	}
@@ -212,15 +225,17 @@ function wireButtons() {
 	if (el("liveLevel")) {
 		el("liveLevel").addEventListener("change", () => {
 			var v = String(el("liveLevel").value || "normal");
-			PH.call("setLiveLevel", v);
-			PH.call("renderLiveLog");
-			PH.call("updateProgressFromEvents");
+			wireInitRuntime.call("setLiveLevel", v);
+			wireInitRuntime.call("renderLiveLog");
+			wireInitRuntime.call("updateProgressFromEvents");
 		});
 	}
 
 	if (el("jobsList")) {
 		el("jobsList").addEventListener("click", (e) => {
-			var t = e && e.target ? e.target : null;
+			var t = /** @type {WireInitEventTarget | null} */ (
+				e && e.target ? e.target : null
+			);
 			while (t && t !== el("jobsList")) {
 				const rerunJobId = t.getAttribute && t.getAttribute("data-rerun-jobid");
 				if (rerunJobId) {
@@ -236,7 +251,10 @@ function wireButtons() {
 					AMP_UI.saveLiveJobId(selectedJobId);
 					suppressIdleOutput = false;
 					phCall("refreshJobs");
-					PH.call("openLiveStream", PH.call("getLiveJobId"));
+					wireInitRuntime.call(
+						"openLiveStream",
+						wireInitRuntime.call("getLiveJobId"),
+					);
 					return;
 				}
 				t = t.parentElement;
@@ -320,7 +338,7 @@ function wireButtons() {
 	if (el("refreshAll")) {
 		el("refreshAll").addEventListener("click", () => {
 			refreshFs();
-			PH.call("refreshStats");
+			wireInitRuntime.call("refreshStats");
 			if (hasTrackedActiveJob()) {
 				if (patchesVisible) {
 					phCall("refreshPatches", { mode: "user" });
@@ -348,31 +366,32 @@ function init() {
 		phCall("setupUpload");
 		wireButtons();
 		setPreviewVisible(false);
-		var vis = PH.call("loadUiVisibility") || {};
+		var vis = wireInitRuntime.call("loadUiVisibility") || {};
 		patchesVisible = !!vis.patchesVisible;
 		workspacesVisible = !!vis.workspacesVisible;
 		runsVisible = !!vis.runsVisible;
 		jobsVisible = !!vis.jobsVisible;
-		PH.call("setPatchesVisible", patchesVisible);
-		PH.call("setWorkspacesVisible", workspacesVisible);
-		PH.call("setRunsVisible", runsVisible);
-		PH.call("setJobsVisible", jobsVisible);
+		wireInitRuntime.call("setPatchesVisible", patchesVisible);
+		wireInitRuntime.call("setWorkspacesVisible", workspacesVisible);
+		wireInitRuntime.call("setRunsVisible", runsVisible);
+		wireInitRuntime.call("setJobsVisible", jobsVisible);
 
-		PH.call("loadLiveLevel");
+		wireInitRuntime.call("loadLiveLevel");
+		var PH = wireInitRuntime;
 		PH.call("loadLiveAutoscroll");
-		var savedJobId = PH.call("loadLiveJobId");
+		var savedJobId = wireInitRuntime.call("loadLiveJobId");
 		if (savedJobId) selectedJobId = savedJobId;
 		phCall("initGateOptionsUi");
 		phCall("initLiveCopyButtons");
 
 		if (el("liveLevel")) {
-			const v = PH.call("getLiveLevel");
+			const v = wireInitRuntime.call("getLiveLevel");
 			if (v) el("liveLevel").value = String(v);
 		}
 
 		Promise.resolve(phCall("loadConfig")).then(() => {
 			refreshFs();
-			PH.call("refreshStats");
+			wireInitRuntime.call("refreshStats");
 			Promise.resolve(phCall("refreshOverviewSnapshot", { mode: "user" }))
 				.catch((e) => setUiError(e))
 				.finally(() => {
@@ -396,7 +415,7 @@ function init() {
 				phCall("stopAutofillPolling");
 				phCall("stopSnapshotEvents");
 				if (!opts.keepLiveStream) {
-					PH.call("closeLiveStream");
+					wireInitRuntime.call("closeLiveStream");
 				}
 			}
 
@@ -426,7 +445,7 @@ function init() {
 							tickMissingPatchClear({ mode: "idle" });
 							phCall("ensureSnapshotEvents");
 							if (
-								!PH.has("snapshotEventsNeedPolling") ||
+								!wireInitRuntime.has("snapshotEventsNeedPolling") ||
 								phCall("snapshotEventsNeedPolling")
 							) {
 								phCall("idleRefreshTick");
@@ -454,7 +473,7 @@ function init() {
 
 			function resyncVisible() {
 				refreshFs();
-				PH.call("refreshStats");
+				wireInitRuntime.call("refreshStats");
 				if (hasTrackedActiveJob()) {
 					if (patchesVisible) {
 						phCall("refreshPatches", { mode: "user" });
@@ -482,14 +501,14 @@ function init() {
 			document.addEventListener("visibilitychange", () => {
 				try {
 					if (document.hidden) {
-						if (PH.call("hasTrackedActiveJob")) {
+						if (wireInitRuntime.call("hasTrackedActiveJob")) {
 							phCall("stopSnapshotEvents");
 							phCall("stopAutofillPolling");
 						} else {
 							stopTimers();
 						}
 					} else {
-						keepLiveStream = !!PH.call("hasTrackedActiveJob");
+						keepLiveStream = !!wireInitRuntime.call("hasTrackedActiveJob");
 						resyncVisible();
 						startTimers({ keepLiveStream: keepLiveStream });
 					}
@@ -511,7 +530,8 @@ function init() {
 	}
 }
 
-if (PH && typeof PH.register === "function") {
+if (wireInitRuntime && typeof wireInitRuntime.register === "function") {
+	const PH = wireInitRuntime;
 	PH.register("app_part_wire_init", {
 		startAppWireInit: init,
 	});

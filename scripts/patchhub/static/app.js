@@ -1,10 +1,37 @@
 // PatchHub app core (refactored split: part files).
-var __ph_w = /** @type {any} */ (window);
-/** @type {any} */
-var PH = null;
+/**
+ * @typedef {{
+ *   loadScript?: function(string, string): Promise<boolean>,
+ *   call?: function(string, ...*): *,
+ *   has?: function(string): boolean,
+ *   register?: function(string, Object): void,
+ * }} PatchHubRuntime
+ * @typedef {{
+ *   filename_pattern?: string, keep_count?: number,
+ *   matched_count?: number, deleted_count?: number,
+ * }} CleanupRecentStatusRule
+ * @typedef {{
+ *   job_id?: string, issue_id?: string, created_utc?: string,
+ *   deleted_count?: number, rules?: CleanupRecentStatusRule[], summary_text?: string,
+ * }} CleanupRecentStatusItem
+ * @typedef {{ cleanup_recent_status?: CleanupRecentStatusItem[] }} OperatorInfoSnapshot
+ * @typedef {HTMLElement & {
+ *   value?: string, disabled?: boolean, checked?: boolean, files?: FileList | null,
+ * }} PatchHubUiElement
+ * @typedef {Window & typeof globalThis & {
+ *   AMP_PATCHHUB_UI?: Object,
+ *   PH?: PatchHubRuntime | null,
+ *   PH_BOOT?: { bootLog?: function(string, string): void },
+ *   PH_APP_SHOW_DEGRADED?: function(string): void,
+ *   PH_APP_MAIN?: function(PatchHubRuntime): Promise<void>,
+ * }} PatchHubWindow
+ */
+var appWindow = /** @type {PatchHubWindow} */ (window);
+/** @type {PatchHubRuntime | null} */
+var appPhRuntime = appWindow.PH || null;
 
-__ph_w.AMP_PATCHHUB_UI = __ph_w.AMP_PATCHHUB_UI || {};
-const AMP_UI = __ph_w.AMP_PATCHHUB_UI;
+appWindow.AMP_PATCHHUB_UI = appWindow.AMP_PATCHHUB_UI || {};
+const AMP_UI = appWindow.AMP_PATCHHUB_UI;
 
 var activeJobId = null;
 var autoRefreshTimer = null;
@@ -15,6 +42,8 @@ var degradedNotes = [];
 var infoPoolHints = { upload: "", enqueue: "", fs: "", parse: "" };
 var infoPoolHintSeq = { upload: 0, enqueue: 0, fs: 0, parse: 0 };
 var infoPoolSeq = 0;
+/** @type {OperatorInfoSnapshot} */
+var backendOperatorInfo = { cleanup_recent_status: [] };
 
 var selectedJobId = null;
 var liveStreamJobId = null;
@@ -33,8 +62,8 @@ var workspacesCache = [];
 function appLog(kind, message) {
 	var msg = String(message || "");
 	try {
-		if (__ph_w.PH_BOOT && typeof __ph_w.PH_BOOT.bootLog === "function") {
-			__ph_w.PH_BOOT.bootLog(kind, msg);
+		if (appWindow.PH_BOOT && typeof appWindow.PH_BOOT.bootLog === "function") {
+			appWindow.PH_BOOT.bootLog(kind, msg);
 			return;
 		}
 	} catch (e) {
@@ -49,6 +78,14 @@ function appLog(kind, message) {
 	}
 }
 
+function canRenderInfoPoolUi() {
+	return !!(
+		appPhRuntime &&
+		typeof appPhRuntime.has === "function" &&
+		appPhRuntime.has("renderInfoPoolUi")
+	);
+}
+
 function rememberDegraded(message) {
 	var msg = String(message || "").trim();
 	if (!msg) return;
@@ -56,28 +93,26 @@ function rememberDegraded(message) {
 	if (degradedNotes.length > UI_STATUS_LIMIT) {
 		degradedNotes.splice(0, degradedNotes.length - UI_STATUS_LIMIT);
 	}
-	if (PH && typeof PH.has === "function" && PH.has("renderInfoPoolUi")) {
-		PH.call("renderInfoPoolUi");
+	if (canRenderInfoPoolUi()) {
+		appPhRuntime.call("renderInfoPoolUi");
 		return;
 	}
 	setLegacyPooledNode("uiDegradedBanner", "DEGRADED MODE: " + msg);
 }
 
-__ph_w.PH_APP_SHOW_DEGRADED = rememberDegraded;
+appWindow.PH_APP_SHOW_DEGRADED = rememberDegraded;
 
 async function loadParts(rt) {
-	PH = rt;
+	appPhRuntime = rt;
+	var PH = appPhRuntime;
 	if (!PH) {
 		appLog("error", "PH runtime missing");
 		throw new Error("PH runtime missing");
 	}
-
 	function noteLoad(ok, note) {
 		if (!ok) rememberDegraded(note);
 		return ok;
 	}
-
-	// Optional modules (degraded mode if missing).
 	noteLoad(
 		await PH.loadScript(
 			"/static/patchhub_visible_duration.js",
@@ -97,8 +132,6 @@ async function loadParts(rt) {
 		await PH.loadScript("/static/amp_settings.js", "amp_settings"),
 		"amp settings module missing",
 	);
-
-	// App part files. Missing modules fall back to minimal built-in handlers.
 	noteLoad(
 		await PH.loadScript("/static/app_part_runs.js", "app_part_runs"),
 		"runs module missing",
@@ -182,8 +215,9 @@ async function loadParts(rt) {
 }
 
 // Called by bootstrap.
-__ph_w.PH_APP_MAIN = async function PH_APP_MAIN(rt) {
+appWindow.PH_APP_MAIN = async function PH_APP_MAIN(rt) {
 	await loadParts(rt);
+	var PH = appPhRuntime;
 	if (!PH || typeof PH.call !== "function") {
 		appLog("error", "PatchHub runtime dispatcher unavailable");
 		rememberDegraded("runtime dispatcher unavailable");
@@ -202,6 +236,7 @@ var idleSigs = {
 	patches: "",
 	workspaces: "",
 	hdr: "",
+	operator_info: "",
 	snapshot: "",
 };
 
@@ -224,10 +259,10 @@ function isNearBottom(node, slack) {
 
 /**
  * @param {string} id
- * @returns {any}
+ * @returns {PatchHubUiElement | null}
  */
 function el(id) {
-	return /** @type {any} */ (document.getElementById(id));
+	return document.getElementById(id);
 }
 
 function normalizeUiStatusLines(message) {
@@ -273,14 +308,33 @@ function getInfoPoolSnapshot() {
 	};
 }
 
+/** @returns {OperatorInfoSnapshot} */
+function normalizeOperatorInfoSnapshot(payload) {
+	var info = payload && typeof payload === "object" ? payload : {};
+	var cleanup = Array.isArray(info.cleanup_recent_status)
+		? info.cleanup_recent_status.map((item) => ({ ...item }))
+		: [];
+	return { cleanup_recent_status: cleanup };
+}
+
+/** @returns {OperatorInfoSnapshot} */
+function getOperatorInfoSnapshot() {
+	return normalizeOperatorInfoSnapshot(backendOperatorInfo);
+}
+
+function setOperatorInfoSnapshot(payload) {
+	backendOperatorInfo = normalizeOperatorInfoSnapshot(payload);
+	if (canRenderInfoPoolUi()) appPhRuntime.call("renderInfoPoolUi");
+}
+
 function setInfoPoolHint(source, message) {
 	var key = String(source || "");
 	if (!Object.hasOwn(infoPoolHints, key)) return;
 	var text = String(message || "").trim();
 	infoPoolHints[key] = text;
 	infoPoolHintSeq[key] = text ? ++infoPoolSeq : 0;
-	if (PH && typeof PH.has === "function" && PH.has("renderInfoPoolUi")) {
-		PH.call("renderInfoPoolUi");
+	if (canRenderInfoPoolUi()) {
+		appPhRuntime.call("renderInfoPoolUi");
 		return;
 	}
 	var legacyId = "";
@@ -292,8 +346,8 @@ function setInfoPoolHint(source, message) {
 }
 
 function renderUiStatusLines() {
-	if (PH && typeof PH.has === "function" && PH.has("renderInfoPoolUi")) {
-		PH.call("renderInfoPoolUi");
+	if (canRenderInfoPoolUi()) {
+		appPhRuntime.call("renderInfoPoolUi");
 		return;
 	}
 	var node = el("uiStatusBar");
@@ -839,11 +893,12 @@ function refreshFs() {
 		fsUpdateSelCount();
 
 		Array.from(el("fsList").querySelectorAll(".fsChk")).forEach((node) => {
-			node.addEventListener("click", (ev) => {
+			var checkbox = /** @type {PatchHubUiElement} */ (node);
+			checkbox.addEventListener("click", (ev) => {
 				ev.stopPropagation();
-				var rel = node.getAttribute("data-rel") || "";
+				var rel = checkbox.getAttribute("data-rel") || "";
 				if (!rel) return;
-				if (node.checked) {
+				if (checkbox.checked === true) {
 					fsChecked[rel] = true;
 				} else {
 					delete fsChecked[rel];

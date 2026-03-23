@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -36,7 +37,20 @@ def test_hidden_active_keeps_active_orchestration_paths() -> None:
     assert "startTimers({ keepLiveStream: keepLiveStream });" in wire_src
 
     snapshot_src = _read("scripts/patchhub/static/app_part_snapshot_events.js")
-    assert 'PH.call("hasTrackedActiveJob") || document.hidden' in snapshot_src
+    match = re.search(
+        (
+            r"function openSnapshotEvents\(\) \{"
+            r"(?P<body>.*?)"
+            r"function ensureSnapshotEvents\(\)"
+        ),
+        snapshot_src,
+        re.S,
+    )
+    assert match is not None
+    body = " ".join(match.group("body").split())
+    assert "snapshotEventsSource ||" in body
+    assert "document.hidden" in body
+    assert 'call("hasTrackedActiveJob") || document.hidden' in body
 
 
 def test_live_progress_stays_on_structured_stream_sources() -> None:
@@ -102,3 +116,34 @@ def test_missing_patch_check_uses_empty_path_guard_and_backoff_state() -> None:
     assert "patchStatNextDueMs" in app_src
     assert "patchStatIdleBackoffIdx" in app_src
     assert "PATCH_STAT_ACTIVE_MS = 5000" in app_src
+
+
+def test_cleanup_refresh_reuses_snapshot_resync_path_without_new_timer() -> None:
+    snapshot_src = _read("scripts/patchhub/static/app_part_snapshot_events.js")
+    assert 'refreshOverviewSnapshot({ mode: "latest" })' in snapshot_src
+    assert "cleanupTimer" not in snapshot_src
+    assert "setInterval(" not in snapshot_src
+
+
+def test_operator_info_cleanup_payload_typedefs_are_explicit_and_consistent() -> None:
+    app_src = _read("scripts/patchhub/static/app.js")
+    info_src = _read("scripts/patchhub/static/app_part_info_pool.js")
+    snapshot_src = _read("scripts/patchhub/static/app_part_snapshot_events.js")
+
+    for src in (app_src, info_src, snapshot_src):
+        assert "@typedef {{" in src
+        assert "}} CleanupRecentStatusRule" in src
+        assert "}} CleanupRecentStatusItem" in src
+        assert "rules?: CleanupRecentStatusRule[]" in src
+        assert "cleanup_recent_status?: CleanupRecentStatusItem[]" in src
+        assert "filename_pattern?: string" in src
+        assert "keep_count?: number" in src
+        assert "matched_count?: number" in src
+        assert "deleted_count?: number" in src
+        assert "job_id?: string" in src
+        assert "issue_id?: string" in src
+        assert "created_utc?: string" in src
+        assert "summary_text?: string" in src
+
+    assert "cleanup_recent_status?: Array<Object>" not in app_src
+    assert "cleanup_recent_status?: Array<Object>" not in snapshot_src

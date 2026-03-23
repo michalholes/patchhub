@@ -1,10 +1,18 @@
-/** @type {any} */
-var __ph_w = /** @type {any} */ (window);
-var PH = /** @type {any} */ (window).PH;
+/**
+ * @typedef {{
+ *   call?: function(string, ...*): *,
+ *   register?: function(string, Object): void,
+ * }} GateOptionsRuntime
+ * @typedef {Window & typeof globalThis & { PH?: GateOptionsRuntime | null }} GateOptionsWindow
+ * @typedef {EventTarget & { closest?: function(string): Element | null }} GateOptionsEventTarget
+ */
+var gateOptionsWindow = /** @type {GateOptionsWindow} */ (window);
+var gateOptionsRuntime = gateOptionsWindow.PH || null;
 
 function phCall(name, ...args) {
-	if (!PH || typeof PH.call !== "function") return undefined;
-	return PH.call(name, ...args);
+	if (!gateOptionsRuntime || typeof gateOptionsRuntime.call !== "function")
+		return undefined;
+	return gateOptionsRuntime.call(name, ...args);
 }
 
 var gateOptionDefs = [
@@ -365,7 +373,9 @@ function initGateOptionsUi() {
 	var list = gateOptionsList();
 	if (list) {
 		list.addEventListener("click", (event) => {
-			var target = event && event.target ? event.target : null;
+			var target = /** @type {GateOptionsEventTarget | null} */ (
+				event && event.target ? event.target : null
+			);
 			var button =
 				target && typeof target.closest === "function"
 					? target.closest(".gate-options-switch")
@@ -383,7 +393,8 @@ function initGateOptionsUi() {
 	syncGateOptionsUi({});
 }
 
-if (PH && typeof PH.register === "function") {
+if (gateOptionsRuntime && typeof gateOptionsRuntime.register === "function") {
+	const PH = gateOptionsRuntime;
 	PH.register("app_part_gate_options", {
 		initGateOptionsUi,
 		applyGatePreview,

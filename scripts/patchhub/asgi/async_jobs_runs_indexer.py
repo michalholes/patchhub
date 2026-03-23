@@ -25,6 +25,11 @@ from patchhub.patch_inventory import build_patch_inventory
 from patchhub.workspace_inventory import list_workspaces
 
 from .async_offload import to_thread
+from .operator_info_runtime import build_operator_info_sig, load_operator_info
+
+
+def _empty_operator_info() -> dict[str, Any]:
+    return {"cleanup_recent_status": []}
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,8 @@ class IndexerSnapshot:
     snapshot_sig: str
     patches_items: list[dict[str, Any]] = field(default_factory=list)
     patches_sig: str = ""
+    operator_info: dict[str, Any] = field(default_factory=_empty_operator_info)
+    operator_info_sig: str = ""
     seq: int = 0
 
 
@@ -235,6 +242,45 @@ class AsyncJobsRunsIndexer:
     def get_ui_snapshot(self) -> IndexerSnapshot | None:
         return self._snap
 
+    def install_external_snapshot_payload(self, payload: dict[str, Any]) -> IndexerSnapshot:
+        snapshot = payload.get("snapshot") if isinstance(payload, dict) else None
+        sigs = payload.get("sigs") if isinstance(payload, dict) else None
+        if not isinstance(snapshot, dict):
+            raise TypeError("payload.snapshot must be a mapping")
+        if not isinstance(sigs, dict):
+            raise TypeError("payload.sigs must be a mapping")
+
+        next_seq = (
+            max(
+                int(self._snapshot_seq),
+                int(payload.get("seq", 0) or 0),
+            )
+            + 1
+        )
+        snap = IndexerSnapshot(
+            jobs_items=[dict(item) for item in list(snapshot.get("jobs") or [])],
+            runs_items=[dict(item) for item in list(snapshot.get("runs") or [])],
+            patches_items=[dict(item) for item in list(snapshot.get("patches") or [])],
+            workspaces_items=[dict(item) for item in list(snapshot.get("workspaces") or [])],
+            header_body=dict(snapshot.get("header") or {}),
+            operator_info=dict(snapshot.get("operator_info") or _empty_operator_info()),
+            jobs_sig=str(sigs.get("jobs", "")),
+            runs_sig=str(sigs.get("runs", "")),
+            patches_sig=str(sigs.get("patches", "")),
+            workspaces_sig=str(sigs.get("workspaces", "")),
+            header_sig=str(sigs.get("header", "")),
+            operator_info_sig=str(sigs.get("operator_info", "")),
+            snapshot_sig=str(sigs.get("snapshot", "")),
+            seq=next_seq,
+        )
+        self._snapshot_seq = next_seq
+        self._snap = snap
+        self._ready = True
+        self._last_err = None
+        if self._snapshot_change_callback is not None:
+            self._snapshot_change_callback(snap)
+        return snap
+
     async def force_rescan(self) -> None:
         async with self._mu:
             self._force = True
@@ -350,7 +396,18 @@ class AsyncJobsRunsIndexer:
                 base_runs=base_runs,
             )
             header_sig = build_header_sig(header_body)
-            snapshot_sig = "|".join([jobs_sig, runs_sig, patches_sig, workspaces_sig, header_sig])
+            operator_info = load_operator_info(self._core.patches_root)
+            operator_info_sig = build_operator_info_sig(operator_info)
+            snapshot_sig = "|".join(
+                [
+                    jobs_sig,
+                    runs_sig,
+                    patches_sig,
+                    workspaces_sig,
+                    header_sig,
+                    operator_info_sig,
+                ]
+            )
 
             return IndexerSnapshot(
                 jobs_items=jobs_items,
@@ -364,6 +421,8 @@ class AsyncJobsRunsIndexer:
                 workspaces_sig=workspaces_sig,
                 header_sig=header_sig,
                 snapshot_sig=snapshot_sig,
+                operator_info=operator_info,
+                operator_info_sig=operator_info_sig,
             )
 
         try:
@@ -376,6 +435,7 @@ class AsyncJobsRunsIndexer:
                     and prev.patches_sig == snap.patches_sig
                     and prev.workspaces_sig == snap.workspaces_sig
                     and prev.header_sig == snap.header_sig
+                    and prev.operator_info_sig == snap.operator_info_sig
                 ):
                     self._ready = True
                     self._last_err = None

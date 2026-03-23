@@ -697,3 +697,146 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(finished.cancel_source, "hard_stop")
             self.assertIsNotNone(finished.cancel_ack_utc)
             self.assertEqual(executor.terminate_calls, [5])
+
+
+class TestPatchhubAsyncQueueCleanupHook(unittest.IsolatedAsyncioTestCase):
+    async def test_patch_success_runs_cleanup_hook_once(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            jobs_root = root / "patches" / "artifacts" / "web_jobs"
+            queue = async_queue_mod.AsyncJobQueue(
+                repo_root=root,
+                lock_path=root / "am_patch.lock",
+                jobs_root=jobs_root,
+                executor=_FakeExecutor(),
+            )
+            calls: list[tuple[str, str]] = []
+
+            async def _on_patch_success(job: JobRecord) -> None:
+                calls.append((job.job_id, job.mode))
+
+            queue.set_patch_success_callback(_on_patch_success)
+            job = JobRecord(
+                job_id="job-375-success",
+                created_utc="2026-03-23T10:00:00Z",
+                mode="patch",
+                issue_id="375",
+                commit_summary="Cleanup",
+                patch_basename="issue_375_v1.zip",
+                raw_command="python3 scripts/am_patch.py 375",
+                canonical_command=["python3", "scripts/am_patch.py", "375"],
+                status="running",
+            )
+            queue._jobs[job.job_id] = job
+
+            changed = await queue._finalize_running_job(
+                job.job_id,
+                return_code=0,
+                error=None,
+            )
+
+            self.assertTrue(changed)
+            self.assertEqual(queue._jobs[job.job_id].status, "success")
+            self.assertEqual(calls, [(job.job_id, "patch")])
+
+    async def test_patch_success_callback_failure_is_persisted_without_reclassifying(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            jobs_root = root / "patches" / "artifacts" / "web_jobs"
+            queue = async_queue_mod.AsyncJobQueue(
+                repo_root=root,
+                lock_path=root / "am_patch.lock",
+                jobs_root=jobs_root,
+                executor=_FakeExecutor(),
+            )
+
+            async def _on_patch_success(job: JobRecord) -> None:
+                raise RuntimeError("cleanup callback boom")
+
+            queue.set_patch_success_callback(_on_patch_success)
+            job = JobRecord(
+                job_id="job-375-callback-fail",
+                created_utc="2026-03-23T10:00:00Z",
+                mode="patch",
+                issue_id="375",
+                commit_summary="Cleanup",
+                patch_basename="issue_375_v1.zip",
+                raw_command="python3 scripts/am_patch.py 375",
+                canonical_command=["python3", "scripts/am_patch.py", "375"],
+                status="running",
+            )
+            queue._jobs[job.job_id] = job
+
+            changed = await queue._finalize_running_job(
+                job.job_id,
+                return_code=0,
+                error=None,
+            )
+
+            persisted = await queue.get_job(job.job_id)
+            self.assertTrue(changed)
+            self.assertIsNotNone(persisted)
+            assert persisted is not None
+            self.assertEqual(persisted.status, "success")
+            self.assertEqual(
+                persisted.error,
+                "RuntimeError: cleanup callback boom",
+            )
+
+    async def test_non_patch_or_failed_jobs_do_not_run_cleanup_hook(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            jobs_root = root / "patches" / "artifacts" / "web_jobs"
+            queue = async_queue_mod.AsyncJobQueue(
+                repo_root=root,
+                lock_path=root / "am_patch.lock",
+                jobs_root=jobs_root,
+                executor=_FakeExecutor(),
+            )
+            calls: list[str] = []
+
+            async def _on_patch_success(job: JobRecord) -> None:
+                calls.append(job.job_id)
+
+            queue.set_patch_success_callback(_on_patch_success)
+            repair_job = JobRecord(
+                job_id="job-375-repair",
+                created_utc="2026-03-23T10:00:01Z",
+                mode="repair",
+                issue_id="375",
+                commit_summary="Repair",
+                patch_basename="issue_375_v1.zip",
+                raw_command="python3 scripts/am_patch.py 375",
+                canonical_command=["python3", "scripts/am_patch.py", "375"],
+                status="running",
+            )
+            fail_job = JobRecord(
+                job_id="job-375-fail",
+                created_utc="2026-03-23T10:00:02Z",
+                mode="patch",
+                issue_id="375",
+                commit_summary="Fail",
+                patch_basename="issue_375_v1.zip",
+                raw_command="python3 scripts/am_patch.py 375",
+                canonical_command=["python3", "scripts/am_patch.py", "375"],
+                status="running",
+            )
+            queue._jobs[repair_job.job_id] = repair_job
+            queue._jobs[fail_job.job_id] = fail_job
+
+            await queue._finalize_running_job(
+                repair_job.job_id,
+                return_code=0,
+                error=None,
+            )
+            await queue._finalize_running_job(
+                fail_job.job_id,
+                return_code=1,
+                error="boom",
+            )
+
+            self.assertEqual(queue._jobs[repair_job.job_id].status, "success")
+            self.assertEqual(queue._jobs[fail_job.job_id].status, "fail")
+            self.assertEqual(calls, [])
