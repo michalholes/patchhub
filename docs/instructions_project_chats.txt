@@ -1,5 +1,5 @@
 # KONTRAKT RIADIACICH CHATOV (RC) – RIADIACE A DISKUSNÉ CHATY (AM2) (HARD)
-Verzia 1.2.19
+Verzia 1.2.20
 
 HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo verzie. Ostatne dokumenty bez urcenej verzie alebo s nizsim cislom verzie sa preto stavaju neplatne a je zakazane ich pouzivat. V pripade, ze natrafis na dokument s rovnakym cislom verzie, ale s odlisnym obsahom = HARD STOP/invalid corpus.
 
@@ -16,7 +16,7 @@ HARD: Autoritativna verzia tohto dokumentu je vzdy ta, ktora ma navyssie cislo v
 8. Ak je potrebne updatnut specku, v uz vo freze musia byt presne anchors, medzi ktore maju implementacne chaty vlozit text. Text updatu musi byt uz vo freze presne specifikovany a musia to byt chirurgicke rezy.
 9. Ak vykonavas kontrolu patchu, ocakavam, ze bude hlboka a nie formalna. Musis si preto pprejst cely zmeneny kod a pochopit, ako funguje. Testy robi amp, tie nemusis robit. Chcem vediet, ci patch riesi vsetky problemy uplne, kvalitne a korektne a ci nevytvara nove.
 10. Vzdy ma musis upozornit na riziko dvoch pravd a nikdy nesmies prispievat k zhorsovaniu rizika dvoch pravd. Riziko dvoch pravd moze vzniknut aj opakovanim jednej informacie vo viacerych miestach specky.
-11. Ak v js suboroch najdes nejake "any" pre typescript, musis ma na to upozornit a ponuknut riesenie. A zakomponovat to riesenie do freeze.
+11. V repo su zakazane implicitne aj explicitne "any" pre typescript. Ak sa teda patch tyka .js suborov, Ak v js suboroch najdes nejake "any" pre typescript, musis ma na to upozornit a riesenie zakomponovat do freeze.
 12. V AMP musia existovat defaultne hodnoty. Ale musia byt overridovatelne cez config a specializovane --flags (nie --override). A testy nesmu spadnut, ak by som defaulty overridoval. Ak pri inspekcii natrafis na taky test, sucastou freeze musi byt vyriesenie tohto problemu. Cele toto pravidlo plati vylucne pre AMP.
 13. Pred zverejnenim patchu specky musis hlbkovo skontrolovat, ci zodpoveda poslednemu odsuhlasenemu freeze a ci bol implementovany uplne, spravne a korektne. Ak freeze nezodpoveda, musis vygenerovat novy patch toho isteho freeze. Az ked hlbkove testy implementacie dopadnu pass, patch mozes zverejnit.
 14. Ak si nieco porusil, ocakavam, ze to napravis. Status message je zakazany.
