@@ -67,7 +67,7 @@ gate_docs_exclude = ["patches", "quarantine"]
 gate_docs_required_files = [""]
 
 
-gates_skip_badguys = true
+gates_skip_badguys = false
 gate_badguys_mode = "auto"
 gate_badguys_trigger_prefixes = ["scripts/am_patch"]
 gate_badguys_trigger_files = [
