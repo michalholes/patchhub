@@ -611,3 +611,110 @@ def test_run_suite_console_modes_verbose_and_debug_are_distinct_from_normal(
     ) in out_debug
     assert "test_001_step_visible ... PASSED" in out_debug
     assert "BadGuys summary: OK passed=1 failed=0" in out_debug
+
+
+def test_execute_bdg_step_debug_streams_runner_ipc_logs_to_console(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path
+    cfg_path = _write_config(repo_root)
+    artifacts_dir = repo_root / "patches" / "badguys_logs" / "test_ops"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    class _FakeProc:
+        pid = 12345
+        returncode = 0
+
+        def communicate(self, timeout=None):
+            return ("", "")
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    def _fake_popen(*_args, **_kwargs):
+        return _FakeProc()
+
+    def _fake_record_ipc_stream(
+        socket_path: Path,
+        *,
+        out_path: Path,
+        connect_timeout_s: float,
+        total_timeout_s: float,
+        command_plans=None,
+        result_json_copy_path=None,
+        runner_jsonl_copy_path=None,
+        runner_log_copy_path=None,
+        on_log_message=None,
+    ):
+        del socket_path
+        del connect_timeout_s
+        del total_timeout_s
+        del command_plans
+        del result_json_copy_path
+        del runner_jsonl_copy_path
+        del runner_log_copy_path
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            '{"type":"log","msg":"START: issue=777 mode=finalize"}\n'
+            '{"type":"log","msg":"DO: GATE_PYTEST"}\n'
+            '{"type":"result","ok":true,"return_code":0}\n',
+            encoding="utf-8",
+        )
+
+        if on_log_message is not None:
+            on_log_message("START: issue=777 mode=finalize")
+            on_log_message("DO: GATE_PYTEST")
+
+        return (
+            {"ok": True, "return_code": 0},
+            "START: issue=777 mode=finalize\nDO: GATE_PYTEST",
+            {"ok": True, "error": None},
+        )
+
+    monkeypatch.setattr("badguys.bdg_executor.subprocess.Popen", _fake_popen)
+    monkeypatch.setattr(
+        "badguys.ipc_stream_recorder.record_ipc_stream",
+        _fake_record_ipc_stream,
+    )
+
+    def _run(console_verbosity: str) -> tuple[StepResult, str]:
+        capsys.readouterr()
+        result = execute_bdg_step(
+            repo_root=repo_root,
+            config_path=cfg_path.relative_to(repo_root),
+            cfg_runner_cmd=["python3", "scripts/am_patch.py"],
+            subst=SubstCtx(issue_id="777", now_stamp="20260308_090000"),
+            full_runner_tests=set(),
+            step=BdgStep(op="RUN_RUNNER", params={}),
+            mats=_mats(repo_root),
+            test_id="test_ops",
+            step_index=0,
+            step_runner_cfg={
+                **_step_runner_cfg(repo_root, artifacts_dir=artifacts_dir),
+                "console_verbosity": console_verbosity,
+            },
+        )
+        return result, capsys.readouterr().out
+
+    result_debug, out_debug = _run("debug")
+    result_verbose, out_verbose = _run("verbose")
+
+    assert result_debug.rc == 0
+    assert result_debug.value == "START: issue=777 mode=finalize\nDO: GATE_PYTEST"
+    assert out_debug == "START: issue=777 mode=finalize\nDO: GATE_PYTEST\n"
+
+    assert result_verbose.rc == 0
+    assert result_verbose.value == "START: issue=777 mode=finalize\nDO: GATE_PYTEST"
+    assert out_verbose == ""

@@ -171,6 +171,56 @@ def test_record_ipc_stream_copies_result_artifact_before_source_disappears(
     assert not result_src.exists()
 
 
+def test_record_ipc_stream_emits_log_callback_messages_in_receive_order(
+    tmp_path: Path,
+) -> None:
+    from badguys.ipc_stream_recorder import record_ipc_stream
+
+    socket_path = tmp_path / "ipc.sock"
+    out_path = tmp_path / "runner.ipc.jsonl"
+    seen: list[str] = []
+
+    def _target() -> None:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as srv:
+            srv.bind(str(socket_path))
+            srv.listen(1)
+            conn, _ = srv.accept()
+            with conn:
+                fp = conn.makefile("rwb", buffering=0)
+                fp.write(b'{"type":"log","msg":"START: issue=777 mode=finalize"}\n')
+                fp.write(b'{"type":"log","msg":"DO: GATE_PYTEST"}\n')
+                fp.write(b'{"type":"result","ok":true,"return_code":0}\n')
+
+    server = threading.Thread(
+        target=_target,
+        name="ipc_log_callback_server",
+        daemon=True,
+    )
+    server.start()
+
+    result, value_text, artifact_copy = record_ipc_stream(
+        socket_path,
+        out_path=out_path,
+        connect_timeout_s=3.0,
+        total_timeout_s=3.0,
+        on_log_message=seen.append,
+    )
+    server.join(timeout=3.0)
+
+    assert seen == [
+        "START: issue=777 mode=finalize",
+        "DO: GATE_PYTEST",
+    ]
+    assert value_text == "START: issue=777 mode=finalize\nDO: GATE_PYTEST"
+    assert result == {"ok": True, "return_code": 0}
+    assert artifact_copy == {"ok": True, "error": None}
+    assert _read_ndjson_lines(out_path) == [
+        {"type": "log", "msg": "START: issue=777 mode=finalize"},
+        {"type": "log", "msg": "DO: GATE_PYTEST"},
+        {"type": "result", "ok": True, "return_code": 0},
+    ]
+
+
 def test_record_ipc_stream_fails_when_result_artifact_disappears_during_copy(
     tmp_path: Path,
     monkeypatch,

@@ -6,6 +6,7 @@ import select
 import shutil
 import socket
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -127,6 +128,7 @@ def record_ipc_stream(
     result_json_copy_path: Path | None = None,
     runner_jsonl_copy_path: Path | None = None,
     runner_log_copy_path: Path | None = None,
+    on_log_message: Callable[[str], None] | None = None,
 ) -> tuple[dict[str, Any] | None, str, dict[str, Any]]:
     """Record the full runner IPC NDJSON stream and compute runner value_text.
 
@@ -185,6 +187,8 @@ def record_ipc_stream(
             msg = obj.get("msg")
             if isinstance(msg, str):
                 value_msgs.append(msg)
+                if on_log_message is not None:
+                    on_log_message(msg)
         if obj.get("type") == "result":
             valid = _validate_result(obj)
             if valid is not None:

@@ -236,6 +236,12 @@ def _exec_one(
         console_verbosity = str(step_runner_cfg.get("console_verbosity", "normal"))
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
+        def _emit_runner_debug_log_message(msg: str) -> None:
+            if console_verbosity != "debug":
+                return
+            sys.stdout.write(str(msg) + "\n")
+            sys.stdout.flush()
+
         argv = list(cfg_runner_cmd)
         if runner_patch_dir is not None:
             argv.extend(["--override", f"patch_dir={runner_patch_dir}"])
@@ -290,6 +296,7 @@ def _exec_one(
                 runner_log_copy_path=(
                     artifacts_dir / "runner.log.txt" if copy_runner_log else None
                 ),
+                on_log_message=_emit_runner_debug_log_message,
             )
             ipc_holder["result"] = res
             ipc_holder["value_text"] = value_text
