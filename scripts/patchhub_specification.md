@@ -1120,6 +1120,23 @@ Primary parsing source (static client modules):
   - Tail text MUST NOT drive the Progress card.
   - Tail text MUST NOT replace structured event/state sources during ACTIVE.
   - Tail endpoints MUST NOT participate in automatic idle refresh.
+
+7.1.3A revert_job live-observability contract
+
+- revert_job is a first-class PatchHub job mode.
+- revert_job MUST use the same persisted structured event stream model as
+  other PatchHub jobs.
+- The main-screen live log view MUST display revert_job through the existing
+  selected-job live view.
+- The top-right Progress card and Active job surface MUST consume revert_job
+  from the same persisted SSE event source model used for other jobs.
+- PatchHub MUST NOT introduce a revert-specific live view, revert-specific SSE
+  endpoint, revert-specific tail source, or any parallel observability surface.
+- The canonical live SSE endpoint for revert_job remains:
+  GET /api/jobs/<job_id>/events
+- Terminal SSE trailer semantics for revert_job are unchanged from the shared
+  job-completion contract.
+
 - Step transitions are derived from persisted event payloads corresponding to runner
   progress markers:
   - DO: <STEP>
@@ -1389,6 +1406,20 @@ Quick action rules:
   - MUST NOT enqueue a job and MUST NOT start processing before explicit Start
 - If the detail fetch fails or returns no JobRecord, the UI MUST leave the Start
   form unchanged and MUST show an explicit operator-visible status.
+
+Revert control rules:
+- The Jobs list MAY render a Revert control for a selected job row.
+- The UI MUST fetch GET /api/jobs/<job_id> and MUST use the returned JobRecord
+  detail as the only availability source for the Revert control.
+- The UI MUST determine Revert availability only by the required field
+  presence rule defined in Section 7.2.9B.
+- The UI MUST NOT apply any additional eligibility heuristic, fallback, or
+  client-side derivation.
+- If the source job is revertable under Section 7.2.9B, the Revert control MAY
+  trigger POST /api/jobs/<job_id>/revert.
+- If any required field is missing, the UI MUST NOT expose the Revert control
+  for that job.
+- The Runs panel MUST NOT expose a Revert control.
 
 Forbidden in visible item text:
 - job_id (may exist only as an internal data attribute for selection)
@@ -2116,6 +2147,32 @@ Detail-only additive fields for patch/repair jobs:
 GET /api/jobs remains the thin list endpoint defined elsewhere in this spec;
 these fields are detail-only and MUST NOT be added to list items.
 
+7.2.9B revert data contract
+
+The following JobRecord fields are first-class persisted fields:
+- run_start_sha: "<string|null>"
+- run_end_sha: "<string|null>"
+- revert_source_job_id: "<string|null>"
+
+Authoritative rules:
+- PatchHub owns capture of run_start_sha and run_end_sha.
+- run_start_sha MUST equal the live HEAD of the effective target repository
+  immediately before the job begins execution.
+- run_end_sha MUST equal the live HEAD of the same target repository
+  immediately after terminal completion of the job.
+- PatchHub MUST NOT read these fields from AMP events, AMP stdout, raw logs,
+  canonical_command, patch archive metadata, workspace metadata, or any
+  historical fallback source.
+- PatchHub MUST NOT compute or persist any separate revert-eligibility flag.
+- Revert availability MUST be determined exclusively by presence of:
+  - effective_runner_target_repo
+  - run_start_sha
+  - run_end_sha
+- If any required field is missing, the source job is non-revertable.
+- No backfill is permitted.
+- Older rows that predate these fields remain non-revertable.
+- revert_source_job_id is populated only for mode = "revert_job".
+
 7.2.9A GET /api/patches/zip_manifest?path=<string>
 Output:
 {
@@ -2454,7 +2511,7 @@ JobRecord JSON schema (models.JobRecord):
 {
   "job_id": "<string>",
   "created_utc": "<UTC ISO Z string>",
-  "mode": "patch|repair|finalize_live|finalize_workspace|rerun_latest",
+  "mode": "patch|repair|finalize_live|finalize_workspace|rerun_latest|revert_job",
   "issue_id": "<string>",
   "commit_message": "<string>",
   "commit_summary": "<string>",
@@ -2477,32 +2534,22 @@ JobRecord JSON schema (models.JobRecord):
   "effective_runner_target_repo": "<string|null>",
   "target_mismatch": <bool>,
   "selected_patch_entries": ["<string>", ...],
-  "selected_repo_paths": ["<string>", ...]
+  "selected_repo_paths": ["<string>", ...],
+  "run_start_sha": "<string|null>",
+  "run_end_sha": "<string|null>",
+  "revert_source_job_id": "<string|null>"
 }
 
 Notes:
 - created_utc/started_utc/ended_utc use format "%Y-%m-%dT%H:%M:%SZ".
 - commit_message stores the full message for detail consumers.
 - commit_summary is the single-line deterministic truncation used by JobListItem.
-- For patch, repair, and rerun_latest jobs, every field known at enqueue time
-  MUST be persisted as first-class JobRecord data and MUST survive DB
-  round-trip.
-- Enqueue-time fields that MUST be persisted when known include at minimum:
-  - issue_id
-  - commit_message
-  - original_patch_path
-  - effective_patch_path
-  - effective_patch_kind
-  - zip_target_repo
-  - selected_target_repo
-  - effective_runner_target_repo
-  - target_mismatch
-  - selected_patch_entries
-  - selected_repo_paths
-- Detail consumers MUST prefer persisted first-class fields.
-- Derivation from canonical_command, patch archive metadata, or other fallback
-  sources MAY be used only for backward compatibility with older rows that
-  predate persisted fields or for damaged rows.
+- For new rows created after this feature, effective_runner_target_repo MUST be
+  persisted as an explicit resolved token even when the runner would otherwise
+  use the default target.
+- Semantics of run_start_sha, run_end_sha, revert_source_job_id, revert
+  availability, and fallback/backfill prohibition are defined only in
+  Section 7.2.9B.
 
 JobListItem JSON schema (used by Section 7.2.8 GET /api/jobs):
 {
@@ -2511,7 +2558,7 @@ JobListItem JSON schema (used by Section 7.2.8 GET /api/jobs):
   "created_utc": "<UTC ISO Z string>",
   "started_utc": "<UTC ISO Z string|null>",
   "ended_utc": "<UTC ISO Z string|null>",
-  "mode": "patch|repair|finalize_live|finalize_workspace|rerun_latest",
+  "mode": "patch|repair|finalize_live|finalize_workspace|rerun_latest|revert_job",
   "issue_id": "<string>",
   "commit_summary": "<string>",
   "patch_basename": "<string|null>"
@@ -2543,6 +2590,78 @@ UI contract for zip subset controls:
   modal surfaces are forbidden.
 - Preview remains collapsed-by-default; zip subset selection MUST NOT require Preview
   to be opened.
+
+7.3.2A POST /api/jobs/<job_id>/revert
+Output (success):
+{ "ok": true, "job_id": "<string>", "job": <JobRecord JSON> }
+
+Errors:
+- 404 if the source job does not exist in the active backend mode
+- 409 if the source job is non-revertable under Section 7.2.9B
+
+Route contract:
+- PatchHub MUST create a new internal JobRecord with:
+  - mode = "revert_job"
+  - revert_source_job_id = "<source job_id>"
+  - issue_id copied from the source job
+  - effective_runner_target_repo copied from the source job
+- This route MUST NOT modify the Start form contract.
+- This route MUST NOT extend the Runs panel contract.
+- Source-job data validity for this route MUST be determined only by
+  Section 7.2.9B.
+- Revert execution semantics are defined only by Section 7.3.2B.
+- Live observability semantics for revert_job are defined only by
+  Section 7.1.3A.
+
+7.3.2B revert_job execution contract
+
+Source of truth:
+- PatchHub MUST read the source job only from persisted first-class fields.
+- PatchHub MUST use:
+  - source.effective_runner_target_repo
+  - source.run_end_sha
+- PatchHub MUST NOT use AMP events, AMP stdout, raw logs, canonical_command,
+  patch archive metadata, workspace metadata, or any fallback source.
+
+Repository resolution:
+- PatchHub MUST resolve the live target repository exclusively from
+  revert_job.effective_runner_target_repo.
+
+Preflight:
+- Immediately before revert execution, PatchHub MUST capture
+  revert_job.run_start_sha as the live HEAD of the resolved target repository.
+- PatchHub MUST require a clean tracked working tree/index before attempting
+  revert.
+- If the tracked working tree/index is not clean, the revert_job MUST fail
+  without invoking git revert.
+
+Execution:
+- PatchHub MUST execute exactly:
+  git revert --no-edit <source.run_end_sha>
+
+Failure handling:
+- If git revert exits non-zero and a revert state is active, PatchHub MUST
+  execute:
+  git revert --abort
+- PatchHub MUST NOT auto-resolve conflicts.
+- PatchHub MUST NOT translate this operation into rollback, reset, checkout,
+  cherry-pick, rebase, or any other repository mutation.
+
+Postconditions on failure:
+- A failed revert_job MUST leave the repository HEAD equal to
+  revert_job.run_start_sha.
+- A failed revert_job MUST leave the tracked working tree/index clean.
+
+Postconditions on success:
+- On success, PatchHub MUST capture revert_job.run_end_sha as the live HEAD
+  after the revert commit is created.
+- On success, revert_job.run_end_sha MUST differ from revert_job.run_start_sha.
+- On success, the repository MUST contain exactly one new revert commit
+  created by the git revert operation.
+
+Scope lock:
+- This contract applies only to reverting one concrete source job.
+- It does not define rollback-to-before-job semantics.
 
 7.3.3 POST /api/jobs/<job_id>/cancel
 Output (success):
