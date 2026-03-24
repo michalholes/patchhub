@@ -20,6 +20,16 @@ from .async_events_socket import job_socket_path
 from .async_runner_exec import AsyncRunnerExecutor, ExecResult
 from .async_task_grace import wait_with_grace
 from .job_event_broker import JobEventBroker
+from .revert_job_runtime import (
+    RevertJobRuntimeError,
+    abort_git_revert,
+    build_revert_job_handler,
+    capture_head_sha,
+    resolve_target_repo_root,
+    run_git_revert,
+    tracked_tree_is_clean,
+    verify_failed_revert_postconditions,
+)
 
 
 def utc_now() -> str:
@@ -159,6 +169,7 @@ class AsyncJobQueue:
         terminate_grace_s: int = 3,
         job_db: WebJobsDatabase | None = None,
         patches_root: Path | None = None,
+        target_repo_roots: dict[str, Path] | None = None,
     ) -> None:
         self._repo_root = repo_root
         self._lock_path = lock_path
@@ -169,6 +180,10 @@ class AsyncJobQueue:
         self._terminate_grace_s = max(1, int(terminate_grace_s))
         self._job_db = job_db
         self._patches_root = patches_root or jobs_root.parent.parent
+        self._target_repo_roots = {
+            str(token): Path(root).resolve()
+            for token, root in dict(target_repo_roots or {}).items()
+        }
 
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._mu = asyncio.Lock()
@@ -244,6 +259,32 @@ class AsyncJobQueue:
             job.applied_files = files
             job.applied_files_source = source
             await self._persist(job, count_as_job_change=False)
+
+    async def _capture_head_sha(self, job: JobRecord) -> str:
+        token = str(job.effective_runner_target_repo or "").strip()
+        target_root = resolve_target_repo_root(self._target_repo_roots, token)
+        return await asyncio.to_thread(capture_head_sha, target_root)
+
+    async def _current_job_lookup(self, job_id: str) -> JobRecord | None:
+        async with self._mu:
+            return self._jobs.get(job_id)
+
+    def _build_revert_job_handler(self):
+        return build_revert_job_handler(
+            jobs_root=self._jobs_root,
+            job_db=self._job_db,
+            current_job_lookup=self._current_job_lookup,
+            target_repo_roots=self._target_repo_roots,
+            capture_head_sha_for_job=self._capture_head_sha,
+            job_dir_for_id=self._job_dir,
+            event_path_for_job=lambda job: _job_jsonl_path_from_fields(
+                self._job_dir(job.job_id), str(job.mode), str(job.issue_id)
+            ),
+            tracked_tree_is_clean_fn=tracked_tree_is_clean,
+            run_git_revert_fn=run_git_revert,
+            abort_git_revert_fn=abort_git_revert,
+            verify_failed_revert_postconditions_fn=verify_failed_revert_postconditions,
+        )
 
     async def _finalize_running_job(
         self,
@@ -571,6 +612,29 @@ class AsyncJobQueue:
             jsonl_path = _job_jsonl_path_from_fields(job_dir, str(job.mode), str(job.issue_id))
 
             try:
+                async with self._mu:
+                    current_job = self._jobs.get(job_id)
+                if current_job is None:
+                    continue
+                if str(current_job.effective_runner_target_repo or "").strip():
+                    current_job.run_start_sha = await self._capture_head_sha(current_job)
+                    await self._persist(current_job, count_as_job_change=False)
+                if current_job.mode == "revert_job":
+                    broker = JobEventBroker()
+                    async with self._mu:
+                        self._brokers[job_id] = broker
+                    rc, internal_error = await self._build_revert_job_handler().run(
+                        current_job,
+                        broker,
+                    )
+                    await self._persist(current_job, count_as_job_change=False)
+                    await self._finalize_running_job(
+                        job_id,
+                        return_code=rc,
+                        error=internal_error,
+                    )
+                    continue
+
                 effective_cmd = _inject_web_overrides(
                     job.canonical_command,
                     job_id,
@@ -631,6 +695,7 @@ class AsyncJobQueue:
                     pump_task, grace_s=self._post_exit_grace_s
                 )
 
+                finalize_return_code = int(result.return_code)
                 async with self._mu:
                     job = self._jobs.get(job_id)
                     if job is None:
@@ -640,9 +705,21 @@ class AsyncJobQueue:
                         res=result,
                         pump_tail_timed_out=pump_tail_timed_out,
                     )
+                    if str(job.effective_runner_target_repo or "").strip():
+                        try:
+                            job.run_end_sha = await self._capture_head_sha(job)
+                        except RevertJobRuntimeError as exc:
+                            capture_error = f"RevertJobRuntimeError: {exc}"
+                            error = capture_error if not error else f"{error}; {capture_error}"
+                            if finalize_return_code == 0:
+                                finalize_return_code = 1
+                        else:
+                            await self._persist(job, count_as_job_change=False)
 
                 await self._finalize_running_job(
-                    job_id, return_code=result.return_code, error=error
+                    job_id,
+                    return_code=finalize_return_code,
+                    error=error,
                 )
             except Exception as e:
                 if result is not None:

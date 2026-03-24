@@ -18,6 +18,7 @@ from patchhub.app_support import read_tail
 from patchhub.config import AppConfig
 from patchhub.fs_jail import FsJail
 from patchhub.models import JobRecord
+from patchhub.targeting import resolve_targeting_runtime
 from patchhub.web_jobs_backend_mode import WebJobsBackendModeState
 from patchhub.web_jobs_backup import (
     create_verified_backup,
@@ -86,6 +87,15 @@ class AsyncAppCore:
         return queue
 
     def _build_queue(self, *, job_db: WebJobsDatabase | None) -> AsyncJobQueue:
+        try:
+            targeting_runtime = resolve_targeting_runtime(
+                repo_root=self.repo_root,
+                runner_config_toml=self.cfg.runner.runner_config_toml,
+                target_cfg=getattr(self.cfg, "targeting", None),
+            )
+            target_repo_roots = targeting_runtime.resolved_roots_by_token
+        except (OSError, ValueError):
+            target_repo_roots = {}
         return self._bind_queue_callbacks(
             AsyncJobQueue(
                 repo_root=self.repo_root,
@@ -97,6 +107,7 @@ class AsyncAppCore:
                 terminate_grace_s=self.cfg.runner.terminate_grace_s,
                 job_db=job_db,
                 patches_root=self.patches_root,
+                target_repo_roots=target_repo_roots,
             )
         )
 
@@ -324,6 +335,7 @@ class AsyncAppCore:
     _pick_tail_job = _jobs._pick_tail_job
     api_patch_zip_manifest = _jobs.api_patch_zip_manifest
     api_jobs_get = _jobs.api_jobs_get
+    api_jobs_revert = _jobs.api_jobs_revert
 
     api_upload_patch = _upload.api_upload_patch
     api_workspaces = _workspaces.api_workspaces

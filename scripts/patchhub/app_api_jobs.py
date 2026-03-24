@@ -106,6 +106,31 @@ def _targeting_runtime(self):
     )
 
 
+def _resolved_target_repo_token(runtime: Any, requested_target_repo: str | None) -> str:
+    token = str(requested_target_repo or "").strip()
+    if token:
+        return token
+    return str(runtime.default_target_repo or "").strip()
+
+
+def _load_job_record_any(self, job_id: str) -> JobRecord | None:
+    try:
+        job = _run_queue_get_sync(self.queue.get_job, job_id)
+    except Exception:
+        job = None
+    if job is not None:
+        return job
+    return self._load_job_from_disk(job_id)
+
+
+def _job_has_revert_fields(job: JobRecord) -> bool:
+    return bool(
+        str(job.effective_runner_target_repo or "").strip()
+        and str(job.run_start_sha or "").strip()
+        and str(job.run_end_sha or "").strip()
+    )
+
+
 def _parsed_canonical_command(job: JobRecord) -> ParsedCommand | None:
     argv = [str(item or "") for item in list(job.canonical_command or [])]
     if not argv:
@@ -298,10 +323,6 @@ def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
             payload["effective_patch_path"] = patch_path
     if not payload.get("effective_patch_kind") and payload.get("effective_patch_path"):
         payload["effective_patch_kind"] = "original"
-    if "effective_runner_target_repo" not in payload:
-        effective_target = _target_flag_from_job(job)
-        if effective_target:
-            payload["effective_runner_target_repo"] = effective_target
     if not payload.get("zip_target_repo"):
         patch_path = str(
             payload.get("effective_patch_path") or payload.get("original_patch_path") or ""
@@ -442,6 +463,10 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 )
             except ValueError as e:
                 return _err(str(e), status=400)
+        effective_runner_target_repo = _resolved_target_repo_token(
+            runtime,
+            effective_runner_target_repo,
+        )
         zip_target_repo = _read_zip_target_from_patch_path(self, patch_path)
     else:
         if mode == "finalize_live":
@@ -456,7 +481,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 gate_argv,
                 target_repo=target_repo,
             )
-            effective_runner_target_repo = target_repo or None
+            effective_runner_target_repo = _resolved_target_repo_token(runtime, target_repo)
         elif mode == "finalize_workspace":
             if not issue_id or not issue_id.isdigit():
                 return _err("Missing/invalid issue_id", status=400)
@@ -469,7 +494,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 gate_argv,
                 target_repo=target_repo,
             )
-            effective_runner_target_repo = target_repo or None
+            effective_runner_target_repo = _resolved_target_repo_token(runtime, target_repo)
         elif mode == "rerun_latest":
             if not issue_id or not issue_id.isdigit():
                 return _err("Missing/invalid issue_id", status=400)
@@ -484,7 +509,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 gate_argv,
                 target_repo=target_repo,
             )
-            effective_runner_target_repo = target_repo or None
+            effective_runner_target_repo = _resolved_target_repo_token(runtime, target_repo)
             zip_target_repo = _read_zip_target_from_patch_path(self, patch_path)
         else:
             if not issue_id and patch_path:
@@ -561,7 +586,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 gate_argv,
                 target_repo=target_repo,
             )
-            effective_runner_target_repo = target_repo or None
+            effective_runner_target_repo = _resolved_target_repo_token(runtime, target_repo)
             zip_target_repo = _read_zip_target_from_patch_path(
                 self,
                 str(effective_patch_path or patch_path),
@@ -594,7 +619,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 effective_runner_target_repo=effective_runner_target_repo,
                 target_mismatch=target_mismatch,
             )
-            self.queue.enqueue(job)
+            _run_queue_enqueue_sync(self.queue.enqueue, job)
             return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})
 
     target_mismatch = bool(
@@ -627,7 +652,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
         effective_runner_target_repo=effective_runner_target_repo,
         target_mismatch=target_mismatch,
     )
-    self.queue.enqueue(job)
+    _run_queue_enqueue_sync(self.queue.enqueue, job)
     return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})
 
 
@@ -686,6 +711,40 @@ def api_jobs_log_tail(self, job_id: str, qs: dict[str, str]) -> tuple[int, bytes
     return _ok({"job_id": job_id, "tail": tail})
 
 
+def api_jobs_revert(self, job_id: str) -> tuple[int, bytes]:
+    blocked = _queue_block_reason(self)
+    if blocked is not None:
+        return _err(blocked, status=409)
+    source_job = _load_job_record_any(self, job_id)
+    if source_job is None:
+        return _err("Not found", status=404)
+    if not _job_has_revert_fields(source_job):
+        return _err("Source job is not revertable", status=409)
+
+    revert_job_id = new_job_id()
+    commit_message = f"Revert job {source_job.job_id}"
+    commit_summary = compute_commit_summary(
+        f"Revert job {source_job.job_id}: {source_job.commit_summary}"
+    )
+    if not commit_summary:
+        commit_summary = f"Revert job {source_job.job_id}"
+    job = JobRecord(
+        job_id=revert_job_id,
+        created_utc=_utc_now(),
+        mode="revert_job",
+        issue_id=str(source_job.issue_id or ""),
+        commit_summary=commit_summary,
+        commit_message=commit_message,
+        patch_basename=None,
+        raw_command=f"patchhub revert_job {source_job.job_id}",
+        canonical_command=["patchhub", "revert_job", source_job.job_id],
+        effective_runner_target_repo=str(source_job.effective_runner_target_repo or ""),
+        revert_source_job_id=source_job.job_id,
+    )
+    _run_queue_enqueue_sync(self.queue.enqueue, job)
+    return _ok({"job_id": revert_job_id, "job": _job_detail_json(self, job)})
+
+
 def _run_queue_bool_sync(
     fn: Callable[[str], Awaitable[bool]],
     job_id: str,
@@ -711,6 +770,21 @@ def _run_queue_get_sync(
             return asyncio.run(coro)
         raise RuntimeError("Legacy jobs API cannot run inside an active event loop")
     return cast("JobRecord | None", result)
+
+
+def _run_queue_enqueue_sync(
+    fn: Callable[[JobRecord], Awaitable[None] | None],
+    job: JobRecord,
+) -> None:
+    result = fn(job)
+    if asyncio.iscoroutine(result):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            coro = cast("Coroutine[Any, Any, None]", result)
+            asyncio.run(coro)
+            return
+        raise RuntimeError("Legacy jobs API cannot run inside an active event loop")
 
 
 def api_jobs_cancel(self, job_id: str) -> tuple[int, bytes]:

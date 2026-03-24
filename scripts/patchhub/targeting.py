@@ -11,6 +11,7 @@ class TargetingRuntime:
     default_target_repo: str
     options: list[str]
     runner_config_toml: Path
+    resolved_roots_by_token: dict[str, Path]
 
 
 def validate_target_repo_token(value: str, *, field: str) -> str:
@@ -56,11 +57,11 @@ def _resolve_runner_relative(raw: str | None, *, runner_root: Path) -> Path | No
     return base.resolve()
 
 
-def derive_target_options(
+def derive_target_repo_roots(
     runner_config_toml: Path,
     *,
     runner_root: Path | None = None,
-) -> list[str]:
+) -> dict[str, Path]:
     runner_root = (
         Path(runner_root).resolve()
         if runner_root is not None
@@ -71,8 +72,7 @@ def derive_target_options(
     if not isinstance(paths, dict):
         raise ValueError("runner config [paths] must be a TOML object")
     raw_values = list(paths.get("target_repo_roots", []) or [])
-    options: list[str] = []
-    seen_tokens: set[str] = set()
+    roots_by_token: dict[str, Path] = {}
     seen_roots: set[Path] = set()
     for raw in raw_values:
         text = str(raw).strip()
@@ -89,14 +89,26 @@ def derive_target_options(
             if resolved_root is None:
                 continue
             token = canonical_target_repo_name_from_root(resolved_root)
-        if token in seen_tokens:
+        if token in roots_by_token:
             raise ValueError(f"duplicate target_repo_roots token: {token!r}")
         if resolved_root in seen_roots:
             raise ValueError(f"duplicate target_repo_roots root: {resolved_root}")
-        seen_tokens.add(token)
+        roots_by_token[token] = resolved_root
         seen_roots.add(resolved_root)
-        options.append(token)
-    return sorted(options)
+    return dict(sorted(roots_by_token.items()))
+
+
+def derive_target_options(
+    runner_config_toml: Path,
+    *,
+    runner_root: Path | None = None,
+) -> list[str]:
+    return list(
+        derive_target_repo_roots(
+            runner_config_toml,
+            runner_root=runner_root,
+        ).keys()
+    )
 
 
 def validate_targeting_config(
@@ -146,8 +158,13 @@ def resolve_targeting_runtime(
         default_target_repo=default_target_repo,
         runner_root=repo_root,
     )
+    resolved_roots_by_token = derive_target_repo_roots(
+        runner_cfg_path,
+        runner_root=repo_root,
+    )
     return TargetingRuntime(
         default_target_repo=default_target_repo,
         options=options,
         runner_config_toml=runner_cfg_path,
+        resolved_roots_by_token=resolved_roots_by_token,
     )

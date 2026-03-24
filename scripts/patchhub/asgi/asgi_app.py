@@ -648,6 +648,11 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         tail = await to_thread(core.read_log_tail_sync, job_id, lines=lines)
         return _json_response_obj(200, {"ok": True, "job_id": job_id, "tail": tail})
 
+    @app.post("/api/jobs/{job_id}/revert")
+    async def api_jobs_revert(job_id: str) -> Response:
+        status, data = await to_thread(core.api_jobs_revert, job_id)
+        return _json_bytes_response(status, data)
+
     @app.post("/api/jobs/{job_id}/cancel")
     async def api_jobs_cancel(job_id: str) -> Response:
         ok = await core.queue.cancel(job_id)

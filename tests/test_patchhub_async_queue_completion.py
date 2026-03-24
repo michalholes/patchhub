@@ -638,6 +638,74 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(finished.cancel_ack_utc)
             self.assertEqual(executor.terminate_calls, [4])
 
+    async def test_successful_runner_fails_when_end_head_capture_fails(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            repo_root = root / "repo"
+            jobs_root = root / "patches" / "artifacts" / "web_jobs"
+            queue = async_queue_mod.AsyncJobQueue(
+                repo_root=repo_root,
+                lock_path=root / "am_patch.lock",
+                jobs_root=jobs_root,
+                executor=_FakeExecutor(),
+                target_repo_roots={"patchhub": repo_root},
+            )
+            job = JobRecord(
+                job_id="job-380-end-capture-fail",
+                created_utc="2026-03-24T10:00:00Z",
+                mode="patch",
+                issue_id="380",
+                commit_summary="Capture fail",
+                patch_basename="issue_380_v1.zip",
+                raw_command="python3 scripts/am_patch.py 380",
+                canonical_command=["python3", "scripts/am_patch.py", "380"],
+                effective_runner_target_repo="patchhub",
+            )
+
+            capture_calls = 0
+
+            def fake_capture(_repo_root: Path) -> str:
+                nonlocal capture_calls
+                capture_calls += 1
+                if capture_calls == 1:
+                    return "start-sha"
+                raise async_queue_mod.RevertJobRuntimeError("cannot capture final HEAD")
+
+            async def idle_pump(**kwargs):
+                del kwargs
+                return None
+
+            async def wait_for_status(expected: str) -> async_queue_mod.JobRecord:
+                deadline = asyncio.get_running_loop().time() + 3.0
+                while True:
+                    current = await queue.get_job(job.job_id)
+                    if current is not None and current.status == expected:
+                        return current
+                    if asyncio.get_running_loop().time() >= deadline:
+                        raise AssertionError(f"{job.job_id} did not reach {expected}")
+                    await asyncio.sleep(0.01)
+
+            with (
+                patch.object(async_queue_mod, "capture_head_sha", side_effect=fake_capture),
+                patch.object(async_queue_mod, "start_event_pump", side_effect=idle_pump),
+                patch.object(
+                    async_queue_mod,
+                    "job_socket_path",
+                    return_value=str(root / "job-380.sock"),
+                ),
+            ):
+                await queue.start()
+                try:
+                    await queue.enqueue(job)
+                    finished = await wait_for_status("fail")
+                finally:
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await queue.stop()
+
+            self.assertEqual(finished.run_start_sha, "start-sha")
+            self.assertIsNone(finished.run_end_sha)
+            self.assertIn("cannot capture final HEAD", str(finished.error or ""))
+
     async def test_hard_stop_running_job_finalizes_as_canceled(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

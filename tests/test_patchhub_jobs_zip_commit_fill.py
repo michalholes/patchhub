@@ -364,6 +364,34 @@ def test_enqueue_patch_persists_commit_and_target_metadata(tmp_path: Path) -> No
     assert payload["target_mismatch"] is True
 
 
+def test_job_detail_does_not_backfill_effective_target_for_revert_gating(tmp_path: Path) -> None:
+    s = _mk_self(tmp_path)
+    job = __import__("scripts.patchhub.models", fromlist=["JobRecord"]).JobRecord(
+        job_id="job-380-detail-no-fallback",
+        created_utc="2026-03-20T10:00:00Z",
+        mode="patch",
+        issue_id="380",
+        commit_summary="Persisted summary",
+        patch_basename="issue_380_v1.zip",
+        raw_command="",
+        canonical_command=[
+            "python3",
+            "scripts/am_patch.py",
+            "380",
+            "Fallback commit",
+            "issue_380_v1.zip",
+            "--target-repo-name",
+            "fallback-target",
+        ],
+        run_start_sha="aaa111",
+        run_end_sha="bbb222",
+    )
+    payload = _job_detail_json(s, job)
+    assert payload["run_start_sha"] == "aaa111"
+    assert payload["run_end_sha"] == "bbb222"
+    assert payload.get("effective_runner_target_repo") is None
+
+
 def test_job_detail_prefers_persisted_first_class_values(tmp_path: Path) -> None:
     s = _mk_self(tmp_path)
     zpath = s.patches_root / "issue_361_v1.zip"

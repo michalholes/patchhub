@@ -10,11 +10,18 @@
  *   },
  *   PH?: JobsRuntime | null,
  * }} JobsWindow
+ * @typedef {EventTarget & {
+ *   getAttribute?: function(string): string | null,
+ *   parentElement?: EventTarget | null,
+ * }} JobsEventTarget
  */
 var jobsWindow = /** @type {JobsWindow} */ (window);
 var __ph_w = jobsWindow;
 var PH = jobsWindow.PH || null;
 var jobsCache = [];
+var jobDetailCache = {};
+var jobDetailInflight = {};
+var jobsListActionsWired = false;
 var rerunPrepareSeq = 0;
 var trackedJobDurationClock = null;
 var trackedJobDurationJobId = "";
@@ -303,6 +310,131 @@ function loadJobDetail(jobId) {
 	return apiGet("/api/jobs/" + encodeURIComponent(String(jobId || "")));
 }
 
+function cacheJobDetail(detail) {
+	var jobId = String((detail && detail.job_id) || "").trim();
+	if (!jobId) return null;
+	jobDetailCache[jobId] = detail || null;
+	return detail || null;
+}
+
+function pruneJobDetailCache(jobs) {
+	var keep = Object.create(null);
+	(jobs || []).forEach((job) => {
+		var jobId = String((job && job.job_id) || "").trim();
+		if (jobId) keep[jobId] = true;
+	});
+	Object.keys(jobDetailCache).forEach((jobId) => {
+		if (!keep[jobId]) delete jobDetailCache[jobId];
+	});
+	Object.keys(jobDetailInflight).forEach((jobId) => {
+		if (!keep[jobId]) delete jobDetailInflight[jobId];
+	});
+}
+
+function selectedJobDetail() {
+	var jobId = String(selectedJobId || "").trim();
+	if (!jobId) return null;
+	return jobDetailCache[jobId] || null;
+}
+
+function detailHasRevertFields(detail) {
+	return !!(
+		String((detail && detail.effective_runner_target_repo) || "").trim() &&
+		String((detail && detail.run_start_sha) || "").trim() &&
+		String((detail && detail.run_end_sha) || "").trim()
+	);
+}
+
+function ensureSelectedJobDetailLoaded() {
+	var jobId = String(selectedJobId || "").trim();
+	if (!jobId) return Promise.resolve(null);
+	if (jobDetailCache[jobId]) return Promise.resolve(jobDetailCache[jobId]);
+	if (jobDetailInflight[jobId]) return jobDetailInflight[jobId];
+	jobDetailInflight[jobId] = loadJobDetail(jobId)
+		.then((resp) => {
+			if (!resp || resp.ok === false || !resp.job) return null;
+			cacheJobDetail(resp.job);
+			if (String(selectedJobId || "").trim() === jobId) renderJobsList();
+			return resp.job;
+		})
+		.finally(() => {
+			delete jobDetailInflight[jobId];
+		});
+	return jobDetailInflight[jobId];
+}
+
+function reportRevertError(message) {
+	var text = String(message || "revert: failed");
+	if (typeof setUiError === "function") {
+		setUiError(text);
+		return;
+	}
+	setUiStatus(text);
+}
+
+function applyRevertEnqueuedJob(jobId) {
+	selectedJobId = String(jobId || "").trim();
+	if (!selectedJobId) return;
+	AMP_UI.saveLiveJobId(selectedJobId);
+	suppressIdleOutput = false;
+	phCall("refreshJobs", { mode: "user" });
+	phCall("openLiveStream", selectedJobId);
+}
+
+function triggerRevertJob(jobId) {
+	var sourceJobId = String(jobId || selectedJobId || "").trim();
+	if (!sourceJobId) return Promise.resolve(false);
+	setUiStatus("revert: started source_job_id=" + sourceJobId);
+	return apiPost(
+		"/api/jobs/" + encodeURIComponent(sourceJobId) + "/revert",
+		{},
+	).then(
+		(resp) => {
+			var newJobId = "";
+			if (!resp || resp.ok === false) {
+				reportRevertError("revert: failed source_job_id=" + sourceJobId);
+				phCall("refreshJobs", { mode: "user" });
+				return false;
+			}
+			if (resp.job) cacheJobDetail(resp.job);
+			newJobId = String(resp.job_id || "").trim();
+			setUiStatus("revert: ok job_id=" + newJobId);
+			applyRevertEnqueuedJob(newJobId);
+			return true;
+		},
+		() => {
+			reportRevertError("revert: failed source_job_id=" + sourceJobId);
+			return false;
+		},
+	);
+}
+
+function initJobsListActions() {
+	var listNode = el("jobsList");
+	if (!listNode || jobsListActionsWired) return;
+	jobsListActionsWired = true;
+	listNode.addEventListener("click", (e) => {
+		var target = /** @type {JobsEventTarget | null} */ (
+			e && e.target ? e.target : null
+		);
+		while (target && target !== listNode) {
+			const revertJobId =
+				target.getAttribute && target.getAttribute("data-revert-jobid");
+			if (revertJobId) {
+				if (typeof e.preventDefault === "function") e.preventDefault();
+				if (typeof e.stopImmediatePropagation === "function") {
+					e.stopImmediatePropagation();
+				} else if (typeof e.stopPropagation === "function") {
+					e.stopPropagation();
+				}
+				triggerRevertJob(String(revertJobId || ""));
+				return;
+			}
+			target = target.parentElement;
+		}
+	});
+}
+
 function prepareRerunLatestFromJobId(jobId, opts) {
 	opts = opts || {};
 	var seq = ++rerunPrepareSeq;
@@ -408,6 +540,7 @@ function renderJobsList() {
 	var jobs = Array.isArray(jobsCache) ? jobsCache.slice() : [];
 	var trackedActiveId = String(phCall("getTrackedActiveJobId", jobs) || "");
 	var tickNowMs = getVisibleDurationNowMs();
+	var selectedDetail = selectedJobDetail();
 	var html = jobs
 		.map((j) => {
 			var jobId = String(j.job_id || "");
@@ -445,6 +578,11 @@ function renderJobsList() {
 			var meta = metaParts.join(" | ");
 			var commit = String(j.commit_summary || "").trim();
 			var showRerun = isRerunLatestListCandidate(j);
+			var showRevert = !!(
+				isSel &&
+				selectedDetail &&
+				detailHasRevertFields(selectedDetail)
+			);
 
 			var line = '<div class="' + cls + '">';
 			line +=
@@ -461,13 +599,22 @@ function renderJobsList() {
 			line += "</div>";
 			line += '<div class="job-commit">' + escapeHtml(commit) + "</div>";
 			line += '<div class="job-meta">' + escapeHtml(meta) + "</div>";
-			if (showRerun) {
+			if (showRerun || showRevert) {
 				line += '<div class="actions job-actions">';
-				line +=
-					'<button type="button" class="btn btn-small jobUseForRerun" ' +
-					'data-rerun-jobid="' +
-					escapeHtml(jobId) +
-					'">Use for -l</button>';
+				if (showRerun) {
+					line +=
+						'<button type="button" class="btn btn-small jobUseForRerun" ' +
+						'data-rerun-jobid="' +
+						escapeHtml(jobId) +
+						'">Use for -l</button>';
+				}
+				if (showRevert) {
+					line +=
+						'<button type="button" class="btn btn-small jobRevert" ' +
+						'data-revert-jobid="' +
+						escapeHtml(jobId) +
+						'">Revert</button>';
+				}
 				line += "</div>";
 			}
 			line += "</div>";
@@ -482,6 +629,7 @@ function renderJobsList() {
 function renderJobsFromResponse(r) {
 	var jobs = r.jobs || [];
 	jobsCache = Array.isArray(jobs) ? jobs.slice() : [];
+	pruneJobDetailCache(jobsCache);
 	phCall("syncProtectedRerunLatestLifecycleFromJobs", jobsCache);
 
 	// If the most recently enqueued job reached a terminal state, reset mode to patch.
@@ -565,6 +713,7 @@ function renderJobsFromResponse(r) {
 	syncTrackedJobDurationClock(jobs);
 	ensureAutoRefresh(jobs);
 	renderJobsList();
+	ensureSelectedJobDetailLoaded();
 	syncJobsDurationSurface();
 }
 
@@ -733,6 +882,8 @@ function computeCanonicalPreview(
 	return argv.concat(targetTail, gateTail);
 }
 
+initJobsListActions();
+
 if (PH && typeof PH.register === "function") {
 	PH.register("app_part_jobs", {
 		renderJobsFromResponse,
@@ -747,5 +898,6 @@ if (PH && typeof PH.register === "function") {
 		recordTrackedRerunLatestJobId,
 		clearProtectedRerunLatestLifecycle,
 		syncProtectedRerunLatestLifecycleFromJobs,
+		triggerRevertJob,
 	});
 }

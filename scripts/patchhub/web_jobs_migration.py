@@ -162,6 +162,9 @@ def _verify(repo_root: Path) -> list[dict[str, Any]]:
             expected_job.setdefault("zip_target_repo", None)
             expected_job.setdefault("selected_target_repo", None)
             expected_job.setdefault("effective_runner_target_repo", None)
+            expected_job.setdefault("run_start_sha", None)
+            expected_job.setdefault("run_end_sha", None)
+            expected_job.setdefault("revert_source_job_id", None)
             if db_job is not None and "row_rev" in db_job:
                 expected_job["row_rev"] = int(db_job.get("row_rev", 0) or 0)
         ok = (

@@ -185,6 +185,9 @@ def test_web_jobs_db_round_trip_preserves_commit_and_target_metadata(
             selected_target_repo="audiomason2",
             effective_runner_target_repo="audiomason2",
             target_mismatch=True,
+            run_start_sha="abc123",
+            run_end_sha="def456",
+            revert_source_job_id="job-360-source",
         )
     )
 
@@ -195,6 +198,9 @@ def test_web_jobs_db_round_trip_preserves_commit_and_target_metadata(
     assert payload["selected_target_repo"] == "audiomason2"
     assert payload["effective_runner_target_repo"] == "audiomason2"
     assert payload["target_mismatch"] is True
+    assert payload["run_start_sha"] == "abc123"
+    assert payload["run_end_sha"] == "def456"
+    assert payload["revert_source_job_id"] == "job-360-source"
 
     record = seeded_db.load_job_record("job-361-roundtrip")
     assert record is not None
@@ -203,6 +209,9 @@ def test_web_jobs_db_round_trip_preserves_commit_and_target_metadata(
     assert record.selected_target_repo == "audiomason2"
     assert record.effective_runner_target_repo == "audiomason2"
     assert record.target_mismatch is True
+    assert record.run_start_sha == "abc123"
+    assert record.run_end_sha == "def456"
+    assert record.revert_source_job_id == "job-360-source"
 
 
 def test_web_jobs_db_additive_migration_keeps_existing_rows(tmp_path: Path) -> None:
@@ -302,6 +311,9 @@ def test_web_jobs_db_additive_migration_keeps_existing_rows(tmp_path: Path) -> N
     assert payload["selected_target_repo"] is None
     assert payload["effective_runner_target_repo"] is None
     assert payload["target_mismatch"] is False
+    assert payload["run_start_sha"] is None
+    assert payload["run_end_sha"] is None
+    assert payload["revert_source_job_id"] is None
 
     with sqlite3.connect(cfg.db_path) as verify_conn:
         columns = {row[1] for row in verify_conn.execute("PRAGMA table_info(web_jobs)").fetchall()}
@@ -311,4 +323,7 @@ def test_web_jobs_db_additive_migration_keeps_existing_rows(tmp_path: Path) -> N
         "selected_target_repo",
         "effective_runner_target_repo",
         "target_mismatch",
+        "run_start_sha",
+        "run_end_sha",
+        "revert_source_job_id",
     }.issubset(columns)

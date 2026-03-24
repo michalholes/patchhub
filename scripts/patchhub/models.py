@@ -5,7 +5,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-JobMode = Literal["patch", "repair", "finalize_live", "finalize_workspace", "rerun_latest"]
+JobMode = Literal[
+    "patch",
+    "repair",
+    "finalize_live",
+    "finalize_workspace",
+    "rerun_latest",
+    "revert_job",
+]
 JobStatus = Literal["queued", "running", "success", "fail", "canceled", "unknown"]
 RunResult = Literal["success", "fail", "unknown", "canceled"]
 
@@ -15,6 +22,7 @@ _VALID_JOB_MODES = {
     "finalize_live",
     "finalize_workspace",
     "rerun_latest",
+    "revert_job",
 }
 _VALID_JOB_STATUSES = {"queued", "running", "success", "fail", "canceled", "unknown"}
 
@@ -126,6 +134,9 @@ class JobRecord:
     selected_target_repo: str | None = None
     effective_runner_target_repo: str | None = None
     target_mismatch: bool = False
+    run_start_sha: str | None = None
+    run_end_sha: str | None = None
+    revert_source_job_id: str | None = None
     applied_files: list[str] = field(default_factory=list)
     applied_files_source: str = "unavailable"
     last_log_seq: int = 0
@@ -222,6 +233,19 @@ class JobRecord:
                 else None
             ),
             target_mismatch=bool(payload.get("target_mismatch", False)),
+            run_start_sha=(
+                str(payload.get("run_start_sha"))
+                if payload.get("run_start_sha") is not None
+                else None
+            ),
+            run_end_sha=(
+                str(payload.get("run_end_sha")) if payload.get("run_end_sha") is not None else None
+            ),
+            revert_source_job_id=(
+                str(payload.get("revert_source_job_id"))
+                if payload.get("revert_source_job_id") is not None
+                else None
+            ),
             applied_files=[str(item) for item in list(payload.get("applied_files") or [])],
             applied_files_source=str(payload.get("applied_files_source", "unavailable")),
             last_log_seq=_coerce_int(payload.get("last_log_seq", 0), 0),
@@ -239,6 +263,12 @@ class JobRecord:
             payload.pop("selected_target_repo", None)
         if self.effective_runner_target_repo is None:
             payload.pop("effective_runner_target_repo", None)
+        if self.run_start_sha is None:
+            payload.pop("run_start_sha", None)
+        if self.run_end_sha is None:
+            payload.pop("run_end_sha", None)
+        if self.revert_source_job_id is None:
+            payload.pop("revert_source_job_id", None)
         payload["target_mismatch"] = bool(self.target_mismatch)
         return payload
 
