@@ -44,12 +44,12 @@ zip_target_prefill_enabled = true
 [repo_snapshot_cleanup]
 
 [[repo_snapshot_cleanup.rules]]
-filename_pattern = "patchhub-main_*.zip"
+filename_pattern = "patchhub-main_*.zip", "audiomason2-main_*.zip"
 keep_count = 1
 
-[[repo_snapshot_cleanup.rules]]
-filename_pattern = "audiomason2-main_*.zip"
-keep_count = 1
+#[[repo_snapshot_cleanup.rules]]
+#filename_pattern = "audiomason2-main_*.zip"
+#keep_count = 1
 
 [ui]
 base_font_px = 24
