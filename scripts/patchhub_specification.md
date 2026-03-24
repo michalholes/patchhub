@@ -1385,17 +1385,7 @@ Quick action rules:
 - The UI MUST NOT apply any second rerun_latest eligibility gate beyond the
   visible-summary candidate rule above.
 - If the detail fetch succeeds and returns a JobRecord, the UI MUST:
-  - set mode = rerun_latest
-  - set issueId from JobRecord.issue_id
-  - set commitMsg from JobRecord.commit_message
-  - set patchPath from the JobRecord patch path resolution algorithm defined in
-    Section 7.1.6B
-  - set targetRepo from JobRecord.selected_target_repo when non-empty, else from
-    JobRecord.effective_runner_target_repo when non-empty, else clear targetRepo
-  - clear rawCommand
-  - refresh preview/validation
-  - MUST NOT apply filesystem-stat retention veto or clearing when the resolved
-    patchPath is outside inventory-monitored patchPath scope
+  - populate the Start form exactly as defined in Section 7.1.6B
   - MUST NOT enqueue a job and MUST NOT start processing before explicit Start
 - If the detail fetch fails or returns no JobRecord, the UI MUST leave the Start
   form unchanged and MUST show an explicit operator-visible status.
@@ -1486,6 +1476,20 @@ Definitions:
   - commit_summary is non-empty
 - latest rerun_latest summary-eligible job = the first rerun_latest
   summary-eligible job in jobs history sorted by created_utc descending.
+- rerun_latest quartet = the four Start-form fields:
+  - issueId
+  - commitMsg
+  - patchPath
+  - targetRepo
+- protected rerun_latest lifecycle = the Start-form protection state that begins
+  immediately after a successful rerun_latest autofill and ends only when:
+  - the operator changes mode away from rerun_latest
+  - the operator completes a new successful rerun_latest autofill that replaces
+    the current rerun_latest quartet
+  - the tracked rerun_latest job created from the current rerun_latest quartet
+    reaches a terminal state
+- tracked rerun_latest job = the most recent enqueued rerun_latest job whose
+  enqueue payload was produced from the current rerun_latest quartet
 
 Patch path resolution algorithm:
 - For rerun_latest Start-form filling, patchPath resolves by this algorithm:
@@ -1513,23 +1517,37 @@ Single source of truth:
 - The client MUST NOT apply any second eligibility pass based on commit_message
   presence, patch path resolution, patch path existence, filesystem stat, or any
   other detail-only field before mutating the Start form.
-- After candidate selection and successful detail fetch, the client MUST retain
-  the authoritative JobRecord-derived Start-form values when the resolved
-  patchPath is outside inventory-monitored patchPath scope.
+- After candidate selection and successful detail fetch, the client MUST:
+  - set mode = rerun_latest
+  - set issueId from JobRecord.issue_id
+  - set commitMsg from JobRecord.commit_message
+  - set patchPath from the patch path resolution algorithm above
+  - set targetRepo from JobRecord.selected_target_repo when non-empty, else from
+    JobRecord.effective_runner_target_repo when non-empty, else clear targetRepo
+  - clear rawCommand
+  - refresh preview/validation
+  - enter protected rerun_latest lifecycle
+- While protected rerun_latest lifecycle is active, the client MUST retain the
+  entire rerun_latest quartet and MUST NOT apply any auto-clear or
+  auto-overwrite logic to that quartet, including:
+  - filesystem stat
+  - patch existence checks
+  - inventory-scope checks
+  - watchdog clearing
+  - validation-time clearing
+  - stale terminal reset replay
+  - new patch token overwrite or mode-forcing
+- While the tracked rerun_latest job status is queued or running, the
+  protections above remain active and the client MUST retain the same
+  rerun_latest quartet.
 - Paths under successful/ and unsuccessful/ are valid rerun_latest Start-form
   patchPath values.
-- The client MUST NOT trigger filesystem-stat retention veto or clearing for a
-  rerun_latest Start-form patchPath outside inventory-monitored patchPath scope.
 
 Global mode-switch behavior:
 - When the operator changes the mode dropdown to rerun_latest, the UI MUST:
-  - clear rawCommand
   - resolve the latest rerun_latest summary-eligible job from jobs history
   - fetch the authoritative JobRecord detail for the selected job_id
-  - fill issueId, commitMsg, and patchPath from that one JobRecord
-  - set targetRepo from selected_target_repo when non-empty, else from
-    effective_runner_target_repo when non-empty, else clear targetRepo
-  - refresh preview/validation
+  - populate the Start form exactly as defined above
   - MUST NOT enqueue a job and MUST NOT start processing before explicit Start
 - If no rerun_latest summary-eligible job exists, the UI MUST:
   - clear issueId, commitMsg, and patchPath
@@ -1647,8 +1665,11 @@ Authority chain for load-time PM validation:
 7.1.7 Missing patchPath Clears Run Fields (UI) (HARD)
 
 Rule:
-- The UI MUST enforce the following invariant for inventory-monitored patchPath
-  only.
+- This rule governs filesystem-stat-based clearing only when the protections
+  defined in Section 7.1.6B are inactive.
+- If the protections defined in Section 7.1.6B are active, this rule MUST NOT
+  call filesystem stat and MUST NOT mutate any Start-form field protected by
+  Section 7.1.6B.
 - If the file referenced by the current Run patchPath is inventory-monitored and
   does not exist on disk, the UI MUST set:
   - issueId = ""
@@ -1659,8 +1680,7 @@ Rule:
   or patchPath.
 
 Notes:
-- For inventory-monitored patchPath, this clearing is unconditional with respect
-  to user edits, autofill, dirty flags, and overwrite policies.
+- Non-rerun_latest modes keep the existing inventory-monitored behavior.
 
 7.1.8 Mode Reset After Terminal Job (UI) (HARD)
 
@@ -1675,15 +1695,23 @@ Additionally, after the same terminal reset, the UI MUST clear any transient
 Gate options overrides for the next run.
 
 
+- If the protections defined in Section 7.1.6B are active, this rule MUST NOT
+  apply because of any older terminal job, stale replay state, or historical
+  terminal notification.
+- Once the protections defined in Section 7.1.6B end, the general terminal-reset
+  rule above applies again.
+
 Notes:
-- This rule applies to all UI-exposed modes (patch, finalize_live, finalize_workspace, rerun_latest).
+- This rule still applies to all non-rerun_latest modes.
 - repair is a legacy mode supported only for backward compatibility via API/parse; UI MUST NOT expose repair in the mode dropdown.
 
-7.1.9 Autofill New Patch Token Forces Patch Mode (UI) (HARD)
+7.1.9 Autofill New Patch Token Handling (UI) (HARD)
 
 Rule:
 - When /api/patches/latest returns a new token (a different patch than previously
-  seen), the UI MUST:
+  seen), the UI MUST preserve the protections defined in Section 7.1.6B while
+  those protections are active.
+- If the protections defined in Section 7.1.6B are inactive, the UI MUST:
   - set mode dropdown to: patch
   - set issueId, commitMsg, patchPath from the new autofill payload
   - clear rawCommand (if present)
