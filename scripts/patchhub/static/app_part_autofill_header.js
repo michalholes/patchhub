@@ -1,14 +1,22 @@
-/** @type {any} */
-var __ph_w = /** @type {any} */ (window);
-var PH = /** @type {any} */ (window).PH;
+var autofillHeaderWindow = /** @type {Window & typeof globalThis & {
+ *   __ph_patch_load_seq?: number,
+ *   PH?: { call?: function(string, ...Array<unknown>): unknown } | null,
+ * }} */ (window);
+var autofillHeaderBridge = autofillHeaderWindow;
+var PH = autofillHeaderWindow.PH || null;
 var headerSummaryCache = {};
 
 function phCall(name, ...args) {
 	if (!PH || typeof PH.call !== "function") return undefined;
 	return PH.call(name, ...args);
 }
+
+function isProtectedRerunLatestLifecycleActive() {
+	return !!phCall("isProtectedRerunLatestLifecycleActive");
+}
 var headerDiagnosticsCache = null;
 function prepareFormForNewPatchLoad() {
+	if (isProtectedRerunLatestLifecycleActive()) return false;
 	try {
 		if (typeof dirty === "object" && dirty) {
 			dirty.issueId = false;
@@ -25,13 +33,15 @@ function prepareFormForNewPatchLoad() {
 		if (rc) rc.value = "";
 	} catch (_) {}
 	try {
-		const next = Number(__ph_w.__ph_patch_load_seq || 0) + 1;
-		__ph_w.__ph_patch_load_seq = next;
+		const next = Number(autofillHeaderBridge.__ph_patch_load_seq || 0) + 1;
+		autofillHeaderBridge.__ph_patch_load_seq = next;
 	} catch (_) {}
+	return true;
 }
 
 function applyAutofillFromPayload(p) {
-	if (!cfg || !cfg.autofill || !p) return;
+	if (isProtectedRerunLatestLifecycleActive()) return false;
+	if (!cfg || !cfg.autofill || !p) return false;
 
 	if (cfg.autofill.fill_patch_path && p.stored_rel_path) {
 		const n1 = el("patchPath");
@@ -66,6 +76,7 @@ function applyAutofillFromPayload(p) {
 	}
 
 	phCall("validateAndPreview");
+	return true;
 }
 
 function resetOutputForNewPatch() {
@@ -100,6 +111,15 @@ function pollLatestPatchOnce() {
 		var token = String(r.token || "");
 		if (!token || token === latestToken) return;
 		latestToken = token;
+		if (isProtectedRerunLatestLifecycleActive()) {
+			if (cfg && cfg.ui && cfg.ui.clear_output_on_autofill) {
+				if (token !== lastAutofillClearedToken) {
+					resetOutputForNewPatch();
+					lastAutofillClearedToken = token;
+				}
+			}
+			return;
+		}
 		// New patch token: reset UI state deterministically.
 		prepareFormForNewPatchLoad();
 		applyAutofillFromPayload(r);

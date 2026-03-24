@@ -339,52 +339,33 @@ def test_rerun_latest_helper_uses_commit_summary_when_detail_commit_missing() ->
     script = (
         _node_prelude(script_path)
         + """
-global.apiGet = (path) => {
-  if (path === "/api/jobs/job-eligible") {
-    return Promise.resolve({
-      ok: true,
-      job: {
-        job_id: "job-eligible",
-        mode: "patch",
-        issue_id: "311",
-        commit_summary: "Summary fallback commit",
-        effective_patch_path: "patches/issue_311_v1.zip",
-        canonical_command: [
-          "python3",
-          "scripts/am_patch.py",
-          "311",
-          "Summary fallback commit",
-          "patches/issue_311_v1.zip",
-        ],
-      },
-    });
-  }
-  return Promise.resolve({ ok: false, error: "unexpected path: " + path });
-};
+global.apiGet = (path) =>
+  path === "/api/jobs/job-eligible"
+    ? Promise.resolve({
+        ok: true,
+        job: {
+          job_id: "job-eligible", mode: "patch", issue_id: "311",
+          commit_summary: "Summary fallback commit",
+          effective_patch_path: "patches/issue_311_v1.zip",
+          canonical_command: ["python3", "scripts/am_patch.py", "311",
+            "Summary fallback commit", "patches/issue_311_v1.zip"],
+        },
+      })
+    : Promise.resolve({ ok: false, error: "unexpected path: " + path });
 document.getElementById("mode").value = "rerun_latest";
-renderJobsFromResponse({
-  jobs: [
-    {
-      job_id: "job-eligible",
-      mode: "patch",
-      issue_id: "311",
-      commit_summary: "Summary fallback commit",
-      created_utc: "2026-03-13T10:00:00Z",
-      status: "success",
-      patch_basename: "issue_311_v1.zip",
-    },
-  ],
-});
+renderJobsFromResponse({ jobs: [{
+  job_id: "job-eligible", mode: "patch", issue_id: "311",
+  commit_summary: "Summary fallback commit", created_utc: "2026-03-13T10:00:00Z",
+  status: "success", patch_basename: "issue_311_v1.zip",
+}] });
 await prepareRerunLatestFromJobId("job-eligible", {
-  sourceLabel: "selected jobs item",
-  clearOnFailure: false,
+  sourceLabel: "selected jobs item", clearOnFailure: false,
 });
 process.stdout.write(JSON.stringify({
   issueId: document.getElementById("issueId").value,
   commitMsg: document.getElementById("commitMsg").value,
   patchPath: document.getElementById("patchPath").value,
-  uiStatus: window.__uiStatus,
-  uiErrors: window.__uiErrors,
+  uiStatus: window.__uiStatus, uiErrors: window.__uiErrors,
 }));
 """
     )
@@ -411,21 +392,15 @@ global.apiGet = (path) => {
       ok: true,
       jobs: [
         {
-          job_id: "job-first",
-          mode: "patch",
-          issue_id: "312",
+          job_id: "job-first", mode: "patch", issue_id: "312",
           commit_summary: "First summary candidate",
-          created_utc: "2026-03-13T12:00:00Z",
-          status: "success",
+          created_utc: "2026-03-13T12:00:00Z", status: "success",
           patch_basename: "issue_312_v5.zip",
         },
         {
-          job_id: "job-second",
-          mode: "patch",
-          issue_id: "311",
+          job_id: "job-second", mode: "patch", issue_id: "311",
           commit_summary: "Second summary candidate",
-          created_utc: "2026-03-13T11:00:00Z",
-          status: "success",
+          created_utc: "2026-03-13T11:00:00Z", status: "success",
           patch_basename: "issue_311_v1.zip",
         },
       ],
@@ -435,18 +410,11 @@ global.apiGet = (path) => {
     return Promise.resolve({
       ok: true,
       job: {
-        job_id: "job-first",
-        mode: "patch",
-        issue_id: "312",
+        job_id: "job-first", mode: "patch", issue_id: "312",
         commit_message: "First detail wins",
         effective_patch_path: "patches/issue_312_v5.zip",
-        canonical_command: [
-          "python3",
-          "scripts/am_patch.py",
-          "312",
-          "First detail wins",
-          "patches/issue_312_v5.zip",
-        ],
+        canonical_command: ["python3", "scripts/am_patch.py", "312",
+          "First detail wins", "patches/issue_312_v5.zip"],
       },
     });
   }
@@ -461,8 +429,7 @@ process.stdout.write(JSON.stringify({
   issueId: document.getElementById("issueId").value,
   commitMsg: document.getElementById("commitMsg").value,
   patchPath: document.getElementById("patchPath").value,
-  uiStatus: window.__uiStatus,
-  uiErrors: window.__uiErrors,
+  uiStatus: window.__uiStatus, uiErrors: window.__uiErrors,
   apiPaths: global.__apiPaths,
 }));
 """
@@ -677,6 +644,7 @@ global.apiGet = (path) => {
         issue_id: "311",
         commit_message: "Ready patch",
         effective_patch_path: "patches/issue_311_v2.zip",
+        effective_runner_target_repo: "patchhub",
         canonical_command: [
           "python3",
           "scripts/am_patch.py",
@@ -694,11 +662,13 @@ document.getElementById("mode").value = "rerun_latest";
 document.getElementById("mode").dispatch("change");
 await new Promise((resolve) => setTimeout(resolve, 0));
 await new Promise((resolve) => setTimeout(resolve, 0));
+window.PH.call("validateAndPreview");
 process.stdout.write(JSON.stringify({
   mode: document.getElementById("mode").value,
   issueId: document.getElementById("issueId").value,
   commitMsg: document.getElementById("commitMsg").value,
   patchPath: document.getElementById("patchPath").value,
+  targetRepo: document.getElementById("targetRepo").value,
   validated: global.__validated,
   uiStatus: window.__uiStatus,
   uiErrors: window.__uiErrors,
@@ -710,7 +680,9 @@ process.stdout.write(JSON.stringify({
     assert result["issueId"] == "311"
     assert result["commitMsg"] == "Ready patch"
     assert result["patchPath"] == "patches/issue_311_v2.zip"
+    assert result["targetRepo"] == "patchhub"
     assert result["validated"]["mode"] == "rerun_latest"
+    assert result["validated"]["targetRepo"] == "patchhub"
     assert result["uiErrors"] == []
     assert result["uiStatus"][-1] == (
         "rerun_latest: prepared form from latest candidate job_id=job-valid"
@@ -733,6 +705,7 @@ global.apiGet = (path) => {
         issue_id: "312",
         commit_message: "Chosen patch",
         effective_patch_path: "patches/issue_312_v3.zip",
+        effective_runner_target_repo: "audiomason2",
         canonical_command: [
           "python3",
           "scripts/am_patch.py",
@@ -770,11 +743,13 @@ const button = {
 jobsList.dispatch("click", { target: button });
 await new Promise((resolve) => setTimeout(resolve, 0));
 await new Promise((resolve) => setTimeout(resolve, 0));
+window.PH.call("validateAndPreview");
 process.stdout.write(JSON.stringify({
   mode: document.getElementById("mode").value,
   issueId: document.getElementById("issueId").value,
   commitMsg: document.getElementById("commitMsg").value,
   patchPath: document.getElementById("patchPath").value,
+  targetRepo: document.getElementById("targetRepo").value,
   validated: global.__validated,
   uiStatus: window.__uiStatus,
   uiErrors: window.__uiErrors,
@@ -786,46 +761,105 @@ process.stdout.write(JSON.stringify({
     assert result["issueId"] == "312"
     assert result["commitMsg"] == "Chosen patch"
     assert result["patchPath"] == "patches/issue_312_v3.zip"
+    assert result["targetRepo"] == "audiomason2"
     assert result["validated"]["mode"] == "rerun_latest"
+    assert result["validated"]["targetRepo"] == "audiomason2"
     assert result["uiErrors"] == []
     assert result["uiStatus"][-1] == (
         "rerun_latest: prepared form from selected jobs item job_id=job-eligible"
     )
 
 
-def test_use_for_latest_preserves_effective_target_from_raw_command_job() -> None:
-    script_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_jobs.js"
+def test_rerun_latest_lifecycle_blocks_stale_reset_and_new_token_until_terminal() -> None:
+    jobs_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_jobs.js"
+    watchdog_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_patch_watchdog.js"
+    queue_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_queue_upload.js"
+    header_path = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_autofill_header.js"
     script = (
-        _node_prelude(script_path)
+        _node_prelude(jobs_path, watchdog_path, queue_path, header_path)
         + """
-const values = extractRerunLatestValues({
-  job_id: "job-raw",
-  mode: "patch",
-  issue_id: "311",
-  commit_message: "Spec update",
-  effective_patch_path: "patches/issue_311_v1.zip",
-  effective_runner_target_repo: "audiomason2",
-  canonical_command: [
-    "python3",
-    "scripts/am_patch.py",
-    "311",
-    "Spec update",
-    "patches/issue_311_v1.zip",
-    "--target-repo-name",
-    "audiomason2",
-  ],
+Object.assign(global, {
+  latestToken: "",
+  lastAutofillClearedToken: "",
+  autofillTimer: null,
+  getRawCommand: () => "",
+  parseInFlight: false,
+  lastParsed: null,
+  lastParsedRaw: "",
+  setInfoPoolHint: () => {},
+  pushApiStatus: () => {},
 });
-document.getElementById("targetRepo").value = "patchhub";
-applyRerunLatestValues(values, "selected");
-process.stdout.write(JSON.stringify({
+global.apiGet = (path) => Promise.resolve(
+  path.startsWith("/api/fs/stat") ? { ok: true, exists: false } : { ok: true }
+);
+global.cfg = {
+  autofill: {
+    enabled: true, fill_patch_path: true, fill_issue_id: true, fill_commit_message: true,
+    overwrite_policy: "if_not_dirty",
+  },
+  targeting: { zip_target_prefill_enabled: true },
+  ui: { clear_output_on_autofill: false },
+};
+global.AMP_UI = window.AMP_PATCHHUB_UI;
+window.PH.register("queue_stub", {
+  syncZipSubsetUiFromInputs() {}, getGateOptionsEnqueuePayload() { return {}; },
+  applyZipSubsetPreview(v) { return v; }, applyGatePreview(v) { return v; },
+  getZipSubsetValidationState() { return { ok: true, hint: "" }; },
+  hasTrackedActiveJob() { return false; },
+});
+applyRerunLatestValues({
+  issueId: "311", commitMsg: "Ready patch", patchPath: "patches/issue_311_v2.zip",
+  targetRepo: "patchhub", jobId: "job-valid",
+}, "latest candidate");
+validateAndPreview();
+window.__ph_last_enqueued_job_id = "job-old";
+renderJobsFromResponse({ jobs: [{ job_id: "job-old", status: "success" }] });
+window.PH.call("recordTrackedRerunLatestJobId", "job-current");
+window.__ph_last_enqueued_job_id = "job-current";
+renderJobsFromResponse({ jobs: [{ job_id: "job-current", status: "queued" }] });
+renderJobsFromResponse({ jobs: [{ job_id: "job-current", status: "running" }] });
+global.apiGetETag = () => Promise.resolve({
+  ok: true, found: true, token: "tok-1", stored_rel_path: "patches/issue_999_v1.zip",
+  derived_issue: "999", derived_commit_message: "Overwrite",
+  derived_target_repo: "audiomason2",
+});
+await pollLatestPatchOnce();
+const getState = () => ({
+  mode: document.getElementById("mode").value,
+  issueId: document.getElementById("issueId").value,
+  commitMsg: document.getElementById("commitMsg").value,
+  patchPath: document.getElementById("patchPath").value,
   targetRepo: document.getElementById("targetRepo").value,
-  valuesTarget: values && values.targetRepo,
-}));
+  latestToken,
+});
+const protectedState = getState();
+renderJobsFromResponse({ jobs: [{ job_id: "job-current", status: "success" }] });
+global.apiGetETag = () => Promise.resolve({
+  ok: true, found: true, token: "tok-2", stored_rel_path: "patches/issue_999_v1.zip",
+  derived_issue: "999", derived_commit_message: "Overwrite",
+  derived_target_repo: "audiomason2",
+});
+await pollLatestPatchOnce();
+process.stdout.write(JSON.stringify({ protectedState, terminalState: getState() }));
 """
     )
     result = _run_node(script)
-    assert result["valuesTarget"] == "audiomason2"
-    assert result["targetRepo"] == "audiomason2"
+    assert result["protectedState"] == {
+        "mode": "rerun_latest",
+        "issueId": "311",
+        "commitMsg": "Ready patch",
+        "patchPath": "patches/issue_311_v2.zip",
+        "targetRepo": "patchhub",
+        "latestToken": "tok-1",
+    }
+    assert result["terminalState"] == {
+        "mode": "patch",
+        "issueId": "999",
+        "commitMsg": "Overwrite",
+        "patchPath": "patches/issue_999_v1.zip",
+        "targetRepo": "audiomason2",
+        "latestToken": "tok-2",
+    }
 
 
 def test_selected_rerun_latest_clears_stale_target_repo() -> None:

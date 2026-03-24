@@ -219,6 +219,59 @@ function extractRerunLatestValues(job, summaryJob) {
 	};
 }
 
+var protectedRerunLatestState = {
+	active: false,
+	trackedJobId: "",
+};
+
+function isProtectedRerunLatestLifecycleActive() {
+	return !!(
+		protectedRerunLatestState.active &&
+		String((el("mode") && el("mode").value) || "") === "rerun_latest"
+	);
+}
+
+function recordProtectedRerunLatestPrepare() {
+	protectedRerunLatestState.active = true;
+	protectedRerunLatestState.trackedJobId = "";
+	return true;
+}
+
+function recordTrackedRerunLatestJobId(jobId) {
+	if (!isProtectedRerunLatestLifecycleActive()) return false;
+	protectedRerunLatestState.trackedJobId = String(jobId || "").trim();
+	return !!protectedRerunLatestState.trackedJobId;
+}
+
+function clearProtectedRerunLatestLifecycle() {
+	protectedRerunLatestState.active = false;
+	protectedRerunLatestState.trackedJobId = "";
+	return false;
+}
+
+function syncProtectedRerunLatestLifecycleFromJobs(jobs) {
+	var items = Array.isArray(jobs) ? jobs : [];
+	var trackedJobId = "";
+	var tracked = null;
+	var status = "";
+	if (!isProtectedRerunLatestLifecycleActive()) return false;
+	trackedJobId = String(protectedRerunLatestState.trackedJobId || "").trim();
+	if (!trackedJobId) return true;
+	tracked =
+		items.find(
+			(job) => String((job && job.job_id) || "").trim() === trackedJobId,
+		) || null;
+	if (!tracked) return true;
+	status = String((tracked && tracked.status) || "")
+		.trim()
+		.toLowerCase();
+	if (status && status !== "queued" && status !== "running") {
+		clearProtectedRerunLatestLifecycle();
+		return false;
+	}
+	return true;
+}
+
 function applyRerunLatestValues(values, sourceLabel) {
 	if (!values) return false;
 	clearRerunLatestRawCommand();
@@ -229,6 +282,7 @@ function applyRerunLatestValues(values, sourceLabel) {
 	if (el("targetRepo")) {
 		el("targetRepo").value = String(values.targetRepo || "").trim();
 	}
+	recordProtectedRerunLatestPrepare();
 	dirty.issueId = false;
 	dirty.commitMsg = false;
 	dirty.patchPath = false;
@@ -428,6 +482,7 @@ function renderJobsList() {
 function renderJobsFromResponse(r) {
 	var jobs = r.jobs || [];
 	jobsCache = Array.isArray(jobs) ? jobs.slice() : [];
+	phCall("syncProtectedRerunLatestLifecycleFromJobs", jobsCache);
 
 	// If the most recently enqueued job reached a terminal state, reset mode to patch.
 	try {
@@ -440,7 +495,13 @@ function renderJobsFromResponse(r) {
 						.trim()
 						.toLowerCase()
 				: "";
-			if (st && st !== "running" && st !== "queued") {
+			if (
+				st &&
+				st !== "running" &&
+				st !== "queued" &&
+				!phCall("isProtectedRerunLatestLifecycleActive")
+			) {
+				phCall("clearProtectedRerunLatestLifecycle");
 				const m = el("mode");
 				if (m) m.value = "patch";
 				try {
@@ -450,6 +511,8 @@ function renderJobsFromResponse(r) {
 					if (cm) cm.value = "";
 					const pp = el("patchPath");
 					if (pp) pp.value = "";
+					const tr = el("targetRepo");
+					if (tr) tr.value = "";
 					const rc = el("rawCommand");
 					if (rc) rc.value = "";
 				} catch (_) {}
@@ -457,6 +520,7 @@ function renderJobsFromResponse(r) {
 					dirty.issueId = false;
 					dirty.commitMsg = false;
 					dirty.patchPath = false;
+					dirty.targetRepo = false;
 				} catch (_) {}
 				PH.call("clearGateOverrides");
 				try {
@@ -681,5 +745,10 @@ if (PH && typeof PH.register === "function") {
 		isRerunLatestListCandidate,
 		prepareRerunLatestFromJobId,
 		prepareRerunLatestFromLatestJob,
+		isProtectedRerunLatestLifecycleActive,
+		recordProtectedRerunLatestPrepare,
+		recordTrackedRerunLatestJobId,
+		clearProtectedRerunLatestLifecycle,
+		syncProtectedRerunLatestLifecycleFromJobs,
 	});
 }

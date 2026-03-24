@@ -36,10 +36,12 @@ const nodes = {
   patchPath: { value: "", disabled: false },
   issueId: { value: "123", disabled: false },
   commitMsg: { value: "msg", disabled: false },
+  targetRepo: { value: "patchhub", disabled: false },
 };
 const statCalls = [];
 const validateCalls = [];
 const pending = [];
+global.__protected = false;
 global.window = {
   PH: {
     register(name, exports) { registry.set(String(name), exports || {}); },
@@ -71,6 +73,9 @@ global.apiGet = (url) => {
   return new Promise((resolve) => { pending.push(resolve); });
 };
 global.validateAndPreview = () => { validateCalls.push("validate"); };
+window.PH.register("jobs_state", {
+  isProtectedRerunLatestLifecycleActive() { return global.__protected; },
+});
 const src = fs.readFileSync("""
         + json.dumps(str(watchdog_path))
         + """, "utf8");
@@ -145,9 +150,11 @@ def test_archived_rerun_latest_path_stays_loaded_after_watchdog_tick() -> None:
     result = _run_node(
         _node_script(
             """
-document.getElementById("patchPath").value = "patches/successful/issue_376_v2.zip";
+global.__protected = true;
+document.getElementById("patchPath").value = "patches/issue_376_v2.zip";
 document.getElementById("issueId").value = "376";
 document.getElementById("commitMsg").value = "rerun latest";
+document.getElementById("targetRepo").value = "patchhub";
 window.PH.call("tickMissingPatchClear", { mode: "active" });
 await flush();
 process.stdout.write(JSON.stringify({
@@ -155,16 +162,20 @@ process.stdout.write(JSON.stringify({
   issueId: document.getElementById("issueId").value,
   commitMsg: document.getElementById("commitMsg").value,
   patchPath: document.getElementById("patchPath").value,
-  monitored: window.PH.call("isInventoryMonitoredPatchRel", "successful/issue_376_v2.zip"),
+  targetRepo: document.getElementById("targetRepo").value,
+  monitored: window.PH.call("isInventoryMonitoredPatchRel", "issue_376_v2.zip"),
 }));
 """
         )
     )
-    assert result["statCalls"] == []
-    assert result["issueId"] == "376"
-    assert result["commitMsg"] == "rerun latest"
-    assert result["patchPath"] == "patches/successful/issue_376_v2.zip"
-    assert result["monitored"] is False
+    assert result == {
+        "statCalls": [],
+        "issueId": "376",
+        "commitMsg": "rerun latest",
+        "patchPath": "patches/issue_376_v2.zip",
+        "targetRepo": "patchhub",
+        "monitored": True,
+    }
 
 
 def test_stale_monitored_response_does_not_clear_archived_current_form() -> None:
@@ -174,8 +185,9 @@ def test_stale_monitored_response_does_not_clear_archived_current_form() -> None
 document.getElementById("patchPath").value = "patches/issue_1_v1.zip";
 document.getElementById("issueId").value = "376";
 document.getElementById("commitMsg").value = "keep";
+document.getElementById("targetRepo").value = "patchhub";
 window.PH.call("tickMissingPatchClear", { mode: "idle" });
-document.getElementById("patchPath").value = "patches/successful/issue_1_v1.zip";
+global.__protected = true;
 pending[0]({ ok: true, exists: false });
 await flush();
 process.stdout.write(JSON.stringify({
@@ -183,13 +195,17 @@ process.stdout.write(JSON.stringify({
   issueId: document.getElementById("issueId").value,
   commitMsg: document.getElementById("commitMsg").value,
   patchPath: document.getElementById("patchPath").value,
+  targetRepo: document.getElementById("targetRepo").value,
   validateCalls: validateCalls.length,
 }));
 """
         )
     )
-    assert result["statCalls"] == ["/api/fs/stat?path=issue_1_v1.zip"]
-    assert result["issueId"] == "376"
-    assert result["commitMsg"] == "keep"
-    assert result["patchPath"] == "patches/successful/issue_1_v1.zip"
-    assert result["validateCalls"] == 0
+    assert result == {
+        "statCalls": ["/api/fs/stat?path=issue_1_v1.zip"],
+        "issueId": "376",
+        "commitMsg": "keep",
+        "patchPath": "patches/issue_1_v1.zip",
+        "targetRepo": "patchhub",
+        "validateCalls": 0,
+    }

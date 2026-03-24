@@ -301,6 +301,7 @@ function wireButtons() {
 			phCall("prepareRerunLatestFromLatestJob");
 			return;
 		}
+		phCall("clearProtectedRerunLatestLifecycle");
 		validateAndPreview();
 	});
 	el("issueId").addEventListener("input", () => {

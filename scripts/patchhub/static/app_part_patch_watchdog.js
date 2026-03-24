@@ -11,6 +11,13 @@
 	 *   } | null,
 	 * }} */ (window);
 	var PH = patchWatchdogWindow.PH || null;
+	function phCall(name, ...args) {
+		if (!PH || typeof PH.call !== "function") return undefined;
+		return PH.call(name, ...args);
+	}
+	function isProtectedRerunLatestLifecycleActive() {
+		return !!phCall("isProtectedRerunLatestLifecycleActive");
+	}
 	function getPatchWatchdogConfig() {
 		if (patchWatchdogWindow.cfg) return patchWatchdogWindow.cfg;
 		if (typeof cfg !== "undefined") {
@@ -108,10 +115,12 @@
 	}
 
 	function clearRunFieldsBecauseMissingPatch() {
+		if (isProtectedRerunLatestLifecycleActive()) return;
 		resetMissingPatchState();
 		if (el("issueId")) el("issueId").value = "";
 		if (el("commitMsg")) el("commitMsg").value = "";
 		if (el("patchPath")) el("patchPath").value = "";
+		if (el("targetRepo")) el("targetRepo").value = "";
 		validateAndPreview();
 	}
 
@@ -146,7 +155,12 @@
 	}
 
 	function syncMissingPatchStateAfterResponse(requestRel) {
-		var currentRel = getMissingPatchRel();
+		var currentRel = "";
+		if (isProtectedRerunLatestLifecycleActive()) {
+			patchStatNextDueMs = 0;
+			return "";
+		}
+		currentRel = getMissingPatchRel();
 		if (!currentRel) {
 			patchStatNextDueMs = 0;
 			return "";
@@ -167,6 +181,7 @@
 		var changedRel = false;
 		var now = 0;
 		opts = opts || {};
+		if (isProtectedRerunLatestLifecycleActive()) return;
 		rel = getMissingPatchRel();
 		if (!rel) return;
 		mode = String(opts.mode || "idle");

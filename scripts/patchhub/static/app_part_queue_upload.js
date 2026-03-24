@@ -226,6 +226,9 @@ function enqueue() {
 			phCall("clearGateOverrides");
 			setUiStatus("enqueue: ok job_id=" + String(r.job_id));
 			selectedJobId = String(r.job_id);
+			if (mode === "rerun_latest") {
+				phCall("recordTrackedRerunLatestJobId", selectedJobId);
+			}
 			try {
 				window.__ph_last_enqueued_job_id = selectedJobId;
 				window.__ph_last_enqueued_mode = String(el("mode") && el("mode").value);
@@ -276,8 +279,11 @@ function uploadFile(file) {
 			} else {
 				setUiError(String((j && j.error) || "upload failed"));
 			}
-			if (j && j.stored_rel_path) {
-				phCall("prepareFormForNewPatchLoad");
+			if (
+				j &&
+				j.stored_rel_path &&
+				phCall("prepareFormForNewPatchLoad") !== false
+			) {
 				const stored = String(j.stored_rel_path);
 				const n = el("patchPath");
 				if (n && shouldOverwrite("patchPath", n)) {
