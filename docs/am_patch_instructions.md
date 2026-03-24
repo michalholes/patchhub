@@ -26,8 +26,8 @@ the patch successfully and close the issue.
 2.  The patch MUST be served in a `.zip` file.
 3.  The patch MUST be a unified diff in `git apply` format. Python patch
     scripts are non-compliant.
-4.  The patch MUST NOT modify setting of DONT_TOUCH_GATE
-5. Always inspect the authoritative workspace snapshot before proposing or generating any patch.
+
+6. Always inspect the authoritative workspace snapshot before proposing or generating any patch.
 
 ------------------------------------------------------------------------
 
@@ -574,6 +574,27 @@ Even after escalation, only the minimal required files may be modified.
 
 Mechanical replacement of the entire repository tree is prohibited.
 
+### TypeScript / Biome any-removal discipline (HARD)
+
+When repairing or preparing TypeScript or Biome gate failures, the agent MUST treat explicit and implicit any as prohibited unless the authoritative specification for the touched surface explicitly permits them.
+
+1. The agent MUST NOT bypass the failure by disabling, weakening, or suppressing TypeScript, Biome, JSDoc, or declaration checking.
+2. The agent MUST NOT introduce new explicit `any`, new JSDoc `@type {any}`, or new globals typed as `any`.
+3. Existing explicit `any` and JSDoc `@type {any}` in touched files MUST be removed, not preserved.
+4. Preferred replacement order:
+   - a concrete structural type derivable from inspected code,
+   - an existing authoritative shared type,
+   - `unknown` plus narrowing at use sites,
+   - a narrow DOM or platform interface with null checks where applicable.
+5. For globals, window-attached state, and shared browser surfaces, the agent MUST update the authoritative `.d.ts` declaration surface instead of scattering duplicate local casts across multiple files.
+6. The agent MUST NOT create a second truth by defining duplicate shapes for the same global or shared surface in multiple files.
+7. If fixing a TypeScript or Biome any failure in JS requires touching multiple files in the same gate scope, the agent MUST repair the minimal full set required for the gate to pass.
+8. Replacing one prohibited any with another prohibited any is forbidden.
+9. Converting the failure into a suppression, ignore comment, or configuration relaxation is forbidden unless the approved plan explicitly authorizes a policy patch.
+10. If the touched declaration or source comments contain non-ASCII text, the repair MUST normalize those comments to ASCII-only form instead of preserving invalid comments.
+
+
+
 ## Monolith gate repair instructions (HARD)
 
 This section does NOT apply to patching of .md and .json
@@ -645,7 +666,6 @@ it MUST include a SCOPE EXPANSION JUSTIFICATION block containing:
 
 Missing justification when scope expands = NON-COMPLIANT.
 ------------------------------------------------------------------------
-
 ## FILE AUTHORITY MANIFEST (HARD)
 
 Before generating repair patch, the chat MUST output:
