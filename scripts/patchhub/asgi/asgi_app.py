@@ -199,7 +199,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         except Exception:
             return
 
-    core.queue.set_patch_success_callback(_handle_patch_job_success)
+    core.register_patch_success_callback(_handle_patch_job_success)
 
     def _publish_snapshot_change(snap: Any) -> None:
         snapshot_delta_store.record_snapshot(snap)

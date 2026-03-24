@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -74,21 +75,37 @@ class AsyncAppCore:
             db_cfg=self.web_jobs_db_cfg,
             get_mode=lambda: self.backend_mode_state.mode,
         )
+        self._patch_success_callback: (
+            Callable[[JobRecord], Coroutine[object, object, None]] | None
+        ) = None
         self.queue = self._build_queue(job_db=None)
         self.indexer = AsyncJobsRunsIndexer(core=self)
 
+    def _bind_queue_callbacks(self, queue: AsyncJobQueue) -> AsyncJobQueue:
+        queue.set_patch_success_callback(self._patch_success_callback)
+        return queue
+
     def _build_queue(self, *, job_db: WebJobsDatabase | None) -> AsyncJobQueue:
-        return AsyncJobQueue(
-            repo_root=self.repo_root,
-            lock_path=self.jail.lock_path(),
-            jobs_root=self.jobs_root,
-            executor=AsyncRunnerExecutor(),
-            ipc_handshake_wait_s=self.cfg.runner.ipc_handshake_wait_s,
-            post_exit_grace_s=self.cfg.runner.post_exit_grace_s,
-            terminate_grace_s=self.cfg.runner.terminate_grace_s,
-            job_db=job_db,
-            patches_root=self.patches_root,
+        return self._bind_queue_callbacks(
+            AsyncJobQueue(
+                repo_root=self.repo_root,
+                lock_path=self.jail.lock_path(),
+                jobs_root=self.jobs_root,
+                executor=AsyncRunnerExecutor(),
+                ipc_handshake_wait_s=self.cfg.runner.ipc_handshake_wait_s,
+                post_exit_grace_s=self.cfg.runner.post_exit_grace_s,
+                terminate_grace_s=self.cfg.runner.terminate_grace_s,
+                job_db=job_db,
+                patches_root=self.patches_root,
+            )
         )
+
+    def register_patch_success_callback(
+        self,
+        callback: Callable[[JobRecord], Coroutine[object, object, None]] | None,
+    ) -> None:
+        self._patch_success_callback = callback
+        self._bind_queue_callbacks(self.queue)
 
     def queue_block_reason(self) -> str | None:
         return self.backend_mode_state.queue_block_reason()
