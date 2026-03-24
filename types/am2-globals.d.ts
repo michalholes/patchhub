@@ -1,11 +1,14 @@
+/// <reference path="./types/am2-import-ui-globals.d.ts" />
+/// <reference path="./types/am2-web-interface-globals.d.ts" />
 export {};
 
+/* legacy declarations disabled; authoritative declarations moved to types/
 declare global {
 	interface Window {
-		// --- import/ui globals (reálne sa nastavujú v JS assets) ---
+		// --- import/ui globals (realne sa nastavuju v JS assets) ---
 		AM2EditorHTTP: any;
 		AM2FlowEditor: any;
-		AM2FlowEditorState: any; // ak používaš AM2FlowEditorState
+		AM2FlowEditorState: any; // ak pouzivas AM2FlowEditorState
 		FlowEditorState: any; // flow_editor_state.js nastavuje window.FlowEditorState
 		AM2FlowConfigEditor: any;
 		AM2WizardDefinitionEditor: any;
@@ -32,14 +35,16 @@ declare global {
 		__AM_JS_ERRORS__: any;
 		__AM_FETCH_CAPTURE_INSTALLED__: any;
 
-		_amPushJsError: any; // podľa logu existuje toto meno
-		// ak kód používa _amPushJSError, buď oprav kód na _amPushJsError, alebo sem pridaj aj alias:
+		_amPushJsError: any; // podla logu existuje toto meno
+		// ak kod pouziva _amPushJSError, bud oprav kod na _amPushJsError, alebo sem pridaj aj alias:
 		_amPushJSError?: any;
 
 		__ph_last_enqueued_job_id: any;
 		__ph_last_enqueued_mode: any;
 	}
 
-	// Ak sa to volá globálne bez window. (napr. startBookFlow())
+	// Ak sa to vola globalne bez window. (napr. startBookFlow())
 	function startBookFlow(...args: any[]): any;
 }
+
+*/
