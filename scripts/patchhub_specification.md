@@ -1408,7 +1408,7 @@ Quick action rules:
   form unchanged and MUST show an explicit operator-visible status.
 
 Revert control rules:
-- The Jobs list MAY render a Revert control for a selected job row.
+- The Jobs list MUST render a Revert control.
 - The UI MUST fetch GET /api/jobs/<job_id> and MUST use the returned JobRecord
   detail as the only availability source for the Revert control.
 - The UI MUST determine Revert availability only by the required field
