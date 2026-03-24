@@ -51,24 +51,57 @@ jobs:
           . .venv/bin/activate
           pytest
 
-      - name: Detect changes in scripts/
-        id: changes
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            scripts:
-              - 'scripts/**'
 
+      - name: Detect BadGuys trigger changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          zero=0000000000000000000000000000000000000000
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            base_sha="${{ github.event.before }}"
+          fi
+
+          if [ "$base_sha" != "$zero" ] && ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base_sha"
+          fi
+
+          if [ "$base_sha" = "$zero" ]; then
+            changed_files="$(git diff-tree --no-commit-id --name-only -r HEAD -- \
+              scripts/am_patch.py \
+              scripts/am_patch.md \
+              scripts/am_patch_specification.md \
+              scripts/am_patch_instructions.md \
+              scripts/am_patch/)"
+          else
+            changed_files="$(git diff --name-only "$base_sha..HEAD" -- \
+              scripts/am_patch.py \
+              scripts/am_patch.md \
+              scripts/am_patch_specification.md \
+              scripts/am_patch_instructions.md \
+              scripts/am_patch/)"
+          fi
+
+          if [ -n "$changed_files" ]; then
+            echo "badguys=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "badguys=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Badguys
-        if: steps.changes.outputs.scripts == 'true'
+        if: steps.changes.outputs.badguys == 'true'
         run: |
           ./.venv/bin/python badguys/badguys.py \
             --no-suite-jail \
             --per-run-logs-post-run keep_all \
-            --exclude=test_086_pytest_gate_runs_on_targeted_python_change\
+            --exclude=test_086_pytest_gate_runs_on_targeted_python_change \
             --exclude=test_064_a_allows_undeclared \
             --exclude=test_900_commit_push_timestamp
+
+
 
       - name: Collect CI logs (always)
         if: always()
