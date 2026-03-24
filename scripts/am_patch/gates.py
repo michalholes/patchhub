@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
 import re
 import sys
 from collections.abc import Callable
@@ -16,6 +14,7 @@ from .gate_badguys import (
 )
 from .gate_docs import check_docs_gate
 from .gate_step_capture import GateStepCallback, run_logged_gate_step
+from .gate_typescript import run_typescript_gate
 from .gates_wiring_guard import assert_single_run_gates_callsite
 from .log import Logger
 from .monolith_gate import run_monolith_gate
@@ -32,75 +31,6 @@ def _norm_targets(targets: list[str], fallback: list[str]) -> list[str]:
         if s and s not in out:
             out.append(s)
     return out or list(fallback)
-
-
-def _typescript_target_to_include_glob(t: str) -> str:
-    s = str(t).strip().replace("\\", "/")
-    if s.startswith("./"):
-        s = s[2:]
-    s = s.rstrip("/")
-    if not s:
-        return ""
-    if any(ch in s for ch in ("*", "?", "[")):
-        return s
-    return s + "/**/*"
-
-
-def _typescript_targets_to_include(targets: list[str]) -> list[str]:
-    out: list[str] = []
-    for t in targets:
-        g = _typescript_target_to_include_glob(t)
-        if g and g not in out:
-            out.append(g)
-    return out
-
-
-def _typescript_targets_to_trigger_prefixes(targets: list[str]) -> list[str]:
-    out: list[str] = []
-    for t in targets:
-        s = str(t).strip().replace("\\", "/")
-        if s.startswith("./"):
-            s = s[2:]
-        for ch in ("*", "?", "["):
-            if ch in s:
-                s = s.split(ch, 1)[0]
-                break
-        s = s.rstrip("/")
-        if s and s not in out:
-            out.append(s)
-    return out
-
-
-def _write_typescript_gate_tsconfig(
-    repo_root: Path,
-    *,
-    base_tsconfig: str,
-    targets: list[str],
-) -> Path:
-    base_path = repo_root / base_tsconfig
-    if not base_path.exists():
-        raise RunnerError(
-            "CONFIG",
-            "TYPESCRIPT_BASE_TSCONFIG_NOT_FOUND",
-            f"missing base tsconfig: {base_tsconfig!r}",
-        )
-
-    gen_dir = repo_root / ".am_patch"
-    gen_dir.mkdir(parents=True, exist_ok=True)
-    gen_path = gen_dir / "tsconfig.typescript_gate.json"
-    rel_extends = os.path.relpath(base_path, gen_dir)
-    includes = _typescript_targets_to_include(targets)
-    # NOTE: TypeScript resolves `include` relative to the directory of the
-    # tsconfig itself. Our generated tsconfig lives under `.am_patch/`, so we
-    # must point one level up to reach repo-relative targets (scripts/, plugins/...).
-    includes = [("../" + x.lstrip("./")) if not x.startswith(("../", "/")) else x for x in includes]
-    includes = [x.replace("\\", "/") for x in includes]
-    payload: dict[str, object] = {
-        "extends": rel_extends,
-        "include": includes,
-    }
-    gen_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return gen_path
 
 
 def _select_python_for_gate(**kwargs: object) -> str:
@@ -777,21 +707,16 @@ def run_gates(
                 skipped.append("typescript")
                 logger.warning_core("gate_typescript=SKIP (skipped_by_user)")
                 return True
-            if ts_mode != "always":
-                trigger_prefixes = _typescript_targets_to_trigger_prefixes(ts_targets)
-                trigger = _has_changed_basename((ts_base,)) or _has_changed_file(
-                    tuple(ts_exts), trigger_prefixes
-                )
-                if not trigger:
-                    skipped.append("typescript")
-                    logger.warning_core("gate_typescript=SKIP (no_matching_files)")
-                    return True
-            gen_path = _write_typescript_gate_tsconfig(
-                cwd, base_tsconfig=ts_base, targets=ts_targets
+            return run_typescript_gate(
+                logger,
+                cwd,
+                decision_paths=_norm_decision_paths,
+                extensions=ts_exts,
+                command=ts_cmd,
+                mode=ts_mode,
+                targets=ts_targets,
+                base_tsconfig=ts_base,
             )
-            argv = list(ts_cmd) + ["--project", str(gen_path)]
-            r = logger.run_logged(argv, cwd=cwd)
-            return r.returncode == 0
 
         if name == "ruff":
             if skip_ruff:

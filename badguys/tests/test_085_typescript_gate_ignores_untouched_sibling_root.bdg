@@ -1,0 +1,32 @@
+[meta]
+makes_commit = false
+is_guard = false
+
+[subjects.invalid_sibling]
+relpath = "types/badguys_typescript_untouched_invalid.d.ts"
+
+[subjects.clean_root]
+relpath = "types/badguys_typescript_clean_root.d.ts"
+
+[[asset]]
+id = "seed_invalid_sibling"
+kind = "git_patch_text"
+subject = "invalid_sibling"
+content = """export type Broken = ;
+"""
+
+[[asset]]
+id = "touch_clean_root"
+kind = "git_patch_text"
+subject = "clean_root"
+content = """export type Clean = string;
+"""
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "seed_invalid_sibling"
+
+[[step]]
+op = "RUN_RUNNER"
+input_asset = "touch_clean_root"
+

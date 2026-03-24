@@ -711,6 +711,40 @@ list_contains = ["?? scripts/badguys_batch3/"]
 [recipes.tests.test_084_workspace_git_state_matches_mode.steps.0]
 args = ["--skip-pytest", "${issue_id}", "badguys: workspace git state matches mode"]
 
+[evaluation.tests.test_085_typescript_gate_ignores_untouched_sibling_root]
+
+[evaluation.tests.test_085_typescript_gate_ignores_untouched_sibling_root.steps]
+
+[evaluation.tests.test_085_typescript_gate_ignores_untouched_sibling_root.steps.0]
+rc_eq = 0
+value_contains = ["gate_typescript=SKIP (skipped_by_user)"]
+
+[evaluation.tests.test_085_typescript_gate_ignores_untouched_sibling_root.steps.1]
+rc_eq = 0
+value_contains = ["DO: GATE_TYPESCRIPT"]
+value_not_contains = ["FAIL: GATE_TYPESCRIPT"]
+
+[recipes.tests.test_085_typescript_gate_ignores_untouched_sibling_root]
+
+[recipes.tests.test_085_typescript_gate_ignores_untouched_sibling_root.steps]
+
+[recipes.tests.test_085_typescript_gate_ignores_untouched_sibling_root.steps.0]
+args = [
+  "--skip-biome",
+  "--skip-pytest",
+  "--skip-typescript",
+  "${issue_id}",
+  "badguys: seed untouched invalid typescript sibling",
+]
+
+[recipes.tests.test_085_typescript_gate_ignores_untouched_sibling_root.steps.1]
+args = [
+  "--skip-biome",
+  "--skip-pytest",
+  "${issue_id}",
+  "badguys: typescript gate ignores untouched sibling root",
+]
+
 [evaluation.tests.test_086_pytest_gate_runs_on_targeted_python_change]
 
 [evaluation.tests.test_086_pytest_gate_runs_on_targeted_python_change.steps]
