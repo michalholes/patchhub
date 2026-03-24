@@ -268,6 +268,35 @@ def _console(ctx: Ctx, *, level: str, text: str) -> None:
     sys.stdout.flush()
 
 
+def _format_console_step_line(
+    *,
+    test_id: str,
+    step_index: int,
+    op: str,
+    rc: int | None,
+) -> str:
+    return f"BadGuys step: test={test_id} step={step_index} op={op} rc={rc}\n"
+
+
+def _format_console_debug_config_line(
+    *,
+    config_path: str,
+    cfg: SuiteCfg,
+) -> str:
+    suite_jail = "true" if cfg.suite_jail else "false"
+    runner_cmd = " ".join(cfg.runner_cmd)
+    return (
+        "BadGuys debug: "
+        f"config={config_path} "
+        f"console={cfg.console_verbosity} "
+        f"log={cfg.log_verbosity} "
+        f"issue={cfg.issue_id} "
+        f"per_run_logs_post_run={cfg.per_run_logs_post_run} "
+        f"suite_jail={suite_jail} "
+        f"runner_cmd={runner_cmd}\n"
+    )
+
+
 def _post_run_cleanup_logs(cfg: SuiteCfg, per_test_ok: dict[str, bool]) -> None:
     mode = cfg.per_run_logs_post_run
     logs_dir = cfg.logs_dir
@@ -448,6 +477,17 @@ def _run_test_plan(test, ctx: Ctx) -> bool:
             )
             break
 
+        _console(
+            ctx,
+            level="verbose",
+            text=_format_console_step_line(
+                test_id=bdg.test_id,
+                step_index=int(idx),
+                op=str(step.op),
+                rc=r.rc,
+            ),
+        )
+
         rules = _rules_for_step(evaluation, test_id=bdg.test_id, step_index=idx)
         if strict and not rules:
             ok = False
@@ -584,6 +624,15 @@ def _run_suite_body(
         cfg=cfg,
         console_verbosity=cfg.console_verbosity,
         log_verbosity=cfg.log_verbosity,
+    )
+
+    _console(
+        ctx,
+        level="debug",
+        text=_format_console_debug_config_line(
+            config_path=str(args.config),
+            cfg=cfg,
+        ),
     )
 
     if ctx.log_verbosity == "debug":

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from badguys import run_suite
+from badguys.bdg_evaluator import StepResult
 from badguys.bdg_executor import execute_bdg_step
 from badguys.bdg_loader import BdgStep, BdgTest
 from badguys.bdg_materializer import MaterializedAssets
@@ -520,3 +521,93 @@ def test_run_suite_keeps_guard_fail_fast_for_step_system_exit(
         "passed": 0,
         "failed": 1,
     }
+
+
+def test_run_suite_console_modes_verbose_and_debug_are_distinct_from_normal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    tests = _suite_test_list(
+        _SuiteTestDef(
+            name="test_001_step_visible",
+            bdg=BdgTest(
+                test_id="test_001_step_visible",
+                makes_commit=False,
+                is_guard=False,
+                assets={},
+                steps=[
+                    BdgStep(
+                        op="READ_TEXT_FILE",
+                        params={"scope": "repo", "relpath": "docs/a"},
+                    )
+                ],
+            ),
+        ),
+        abort_on_guard_fail=False,
+    )
+
+    def _fake_discover_tests(**_kwargs) -> _SuiteTestList:
+        return tests
+
+    def _fake_execute_bdg_step(**_kwargs) -> StepResult:
+        return StepResult(rc=0, stdout=None, stderr=None, value="repo text\n")
+
+    monkeypatch.setattr("badguys.discovery.discover_tests", _fake_discover_tests)
+    monkeypatch.setattr("badguys.bdg_executor.execute_bdg_step", _fake_execute_bdg_step)
+    monkeypatch.setattr(
+        run_suite,
+        "_load_eval_rules",
+        lambda *_args, **_kwargs: {"strict_coverage": False},
+    )
+
+    def _run(console_verbosity: str, run_id: str) -> str:
+        cfg_path = _write_config(repo_root, console_verbosity=console_verbosity)
+        args = _suite_args(cfg_path)
+        cfg = run_suite._make_cfg(
+            repo_root,
+            Path(args.config),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        central_log = run_suite._init_logs(cfg, run_id)
+        rc = run_suite._run_suite_body(
+            args=args,
+            repo_root=repo_root,
+            cfg=cfg,
+            run_id=run_id,
+            central_log=central_log,
+        )
+        assert rc == 0
+        return capsys.readouterr().out
+
+    out_normal = _run("normal", "run_normal")
+    out_verbose = _run("verbose", "run_verbose")
+    out_debug = _run("debug", "run_debug")
+
+    assert "BadGuys step:" not in out_normal
+    assert "BadGuys debug:" not in out_normal
+    assert "test_001_step_visible ... PASSED" in out_normal
+    assert "BadGuys summary: OK passed=1 failed=0" in out_normal
+
+    assert ("BadGuys step: test=test_001_step_visible step=0 op=READ_TEXT_FILE rc=0") in out_verbose
+    assert "BadGuys debug:" not in out_verbose
+    assert "test_001_step_visible ... PASSED" in out_verbose
+    assert "BadGuys summary: OK passed=1 failed=0" in out_verbose
+
+    assert ("BadGuys step: test=test_001_step_visible step=0 op=READ_TEXT_FILE rc=0") in out_debug
+    assert (
+        "BadGuys debug: config=badguys/config_ops.toml console=debug "
+        "log=quiet issue=777 per_run_logs_post_run=keep_all "
+        "suite_jail=false runner_cmd=python3 scripts/am_patch.py "
+        "--verbosity=quiet --ipc-socket-mode=patch_dir "
+        "--ipc-socket-name-template=am_patch_ipc_{issue}.sock"
+    ) in out_debug
+    assert "test_001_step_visible ... PASSED" in out_debug
+    assert "BadGuys summary: OK passed=1 failed=0" in out_debug
