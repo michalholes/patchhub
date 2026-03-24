@@ -817,8 +817,9 @@ scope accordingly - Should be used deliberately and sparingly
 
 ### 6.1.4 TypeScript gate
 
--   Purpose: run TypeScript/JS typechecking when a patch touches files inside configured
-    TypeScript targets.
+-   Purpose: run TypeScript/JS typechecking for the changed TypeScript root files
+    selected by the patch, while still allowing the compiler to load the
+    required import graph from those roots.
 -   Trigger (when gate_typescript_mode!="always"):
     -   the gate is evaluated only when at least one changed path:
         -   is under any entry in `typescript_targets` (path prefix match), AND
@@ -827,12 +828,36 @@ scope accordingly - Should be used deliberately and sparingly
     -   OR when the changed set includes the base tsconfig file
         (`gate_typescript_base_tsconfig`).
 -   If not triggered, the gate is SKIPPED and MUST NOT execute any external tool.
--   Execution semantics (project-scoped):
-    -   Runner generates a deterministic temporary tsconfig JSON file under `.am_patch/`
-        that extends `gate_typescript_base_tsconfig` and sets `include` to
-        `typescript_targets`.
-    -   Runner executes the gate exactly once:
-        `<argv...> --project <generated_tsconfig_path>`
+-   Execution semantics:
+    -   Auto mode, source-file trigger:
+        -   Runner builds a deterministic lexicographically sorted list of changed
+            root files that:
+            -   match `gate_typescript_extensions`,
+            -   are under `typescript_targets`, and
+            -   exist as files after patch application.
+        -   If this root-file list is empty, the gate is SKIPPED and MUST NOT
+            execute any external tool.
+        -   Runner generates a deterministic temporary tsconfig JSON file under
+            `.am_patch/` that extends `gate_typescript_base_tsconfig`, sets
+            `files` to that root-file list, and sets `include` to an empty list
+            so inherited base-config include globs do not widen the root scope.
+        -   Runner executes the gate exactly once:
+            `<argv...> --project <generated_tsconfig_path>`
+        -   The compiler MAY load transitive imports, referenced declaration files,
+            and other compiler-required dependencies reachable from those root files.
+    -   Auto mode, base-tsconfig trigger:
+        -   If the changed set includes `gate_typescript_base_tsconfig`, runner MUST
+            treat the gate as full-scope for the configured TypeScript surface.
+        -   Runner generates a deterministic temporary tsconfig JSON file under
+            `.am_patch/` that extends `gate_typescript_base_tsconfig` and sets
+            `include` to `typescript_targets`.
+        -   Runner executes the gate exactly once:
+            `<argv...> --project <generated_tsconfig_path>`
+    -   Always mode:
+        -   Runner generates the same full-scope temporary tsconfig JSON file used by
+            the auto-mode base-tsconfig trigger branch.
+        -   Runner executes the gate exactly once:
+            `<argv...> --project <generated_tsconfig_path>`
 -   Controls (precedence per section 0.1):
     -   `gates_skip_typescript = true|false` (default: true)
     -   `gate_typescript_mode = "auto"|"always"` (default: "auto")
