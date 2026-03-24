@@ -511,8 +511,6 @@ function renderJobsFromResponse(r) {
 					if (cm) cm.value = "";
 					const pp = el("patchPath");
 					if (pp) pp.value = "";
-					const tr = el("targetRepo");
-					if (tr) tr.value = "";
 					const rc = el("rawCommand");
 					if (rc) rc.value = "";
 				} catch (_) {}
@@ -520,7 +518,6 @@ function renderJobsFromResponse(r) {
 					dirty.issueId = false;
 					dirty.commitMsg = false;
 					dirty.patchPath = false;
-					dirty.targetRepo = false;
 				} catch (_) {}
 				PH.call("clearGateOverrides");
 				try {

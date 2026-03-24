@@ -118,6 +118,36 @@ process.stdout.write(JSON.stringify({
     assert result["validateCalls"] == 1
 
 
+def test_inventory_monitored_missing_path_preserves_target_repo() -> None:
+    result = _run_node(
+        _node_script(
+            """
+document.getElementById("patchPath").value = "patches/issue_376_v2.zip";
+document.getElementById("issueId").value = "376";
+document.getElementById("commitMsg").value = "keep";
+document.getElementById("targetRepo").value = "patchhub";
+window.PH.call("tickMissingPatchClear", { mode: "idle" });
+pending[0]({ ok: true, exists: false });
+await flush();
+process.stdout.write(JSON.stringify({
+  issueId: document.getElementById("issueId").value,
+  commitMsg: document.getElementById("commitMsg").value,
+  patchPath: document.getElementById("patchPath").value,
+  targetRepo: document.getElementById("targetRepo").value,
+  validateCalls: validateCalls.length,
+}));
+"""
+        )
+    )
+    assert result == {
+        "issueId": "",
+        "commitMsg": "",
+        "patchPath": "",
+        "targetRepo": "patchhub",
+        "validateCalls": 1,
+    }
+
+
 def test_successful_and_unsuccessful_paths_skip_stat_and_preserve_form() -> None:
     result = _run_node(
         _node_script(

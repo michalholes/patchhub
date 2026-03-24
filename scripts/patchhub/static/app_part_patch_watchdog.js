@@ -120,7 +120,6 @@
 		if (el("issueId")) el("issueId").value = "";
 		if (el("commitMsg")) el("commitMsg").value = "";
 		if (el("patchPath")) el("patchPath").value = "";
-		if (el("targetRepo")) el("targetRepo").value = "";
 		validateAndPreview();
 	}
 

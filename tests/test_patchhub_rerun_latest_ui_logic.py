@@ -834,13 +834,17 @@ const getState = () => ({
 });
 const protectedState = getState();
 renderJobsFromResponse({ jobs: [{ job_id: "job-current", status: "success" }] });
+const terminalResetState = getState();
 global.apiGetETag = () => Promise.resolve({
   ok: true, found: true, token: "tok-2", stored_rel_path: "patches/issue_999_v1.zip",
   derived_issue: "999", derived_commit_message: "Overwrite",
   derived_target_repo: "audiomason2",
 });
 await pollLatestPatchOnce();
-process.stdout.write(JSON.stringify({ protectedState, terminalState: getState() }));
+const terminalState = getState();
+process.stdout.write(JSON.stringify({
+  protectedState, terminalResetState, terminalState,
+}));
 """
     )
     result = _run_node(script)
@@ -849,6 +853,14 @@ process.stdout.write(JSON.stringify({ protectedState, terminalState: getState() 
         "issueId": "311",
         "commitMsg": "Ready patch",
         "patchPath": "patches/issue_311_v2.zip",
+        "targetRepo": "patchhub",
+        "latestToken": "tok-1",
+    }
+    assert result["terminalResetState"] == {
+        "mode": "patch",
+        "issueId": "",
+        "commitMsg": "",
+        "patchPath": "",
         "targetRepo": "patchhub",
         "latestToken": "tok-1",
     }
