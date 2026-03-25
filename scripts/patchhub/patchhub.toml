@@ -51,6 +51,10 @@ keep_count = 1
 filename_pattern = "audiomason2-main_*.zip"
 keep_count = 1
 
+[[repo_snapshot_cleanup.rules]]
+filename_pattern = "patched_issueFINALIZE_*.zip"
+keep_count = 1
+
 [ui]
 base_font_px = 24
 drop_overlay_enabled = true
