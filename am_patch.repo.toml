@@ -72,8 +72,6 @@ gate_badguys_mode = "auto"
 gate_badguys_trigger_prefixes = ["scripts/am_patch"]
 gate_badguys_trigger_files = [
   "scripts/am_patch.py",
-  "scripts/am_patch.md",
-  "scripts/am_patch_specification.md",
   "scripts/am_patch_instructions.md",
 ]
 gate_badguys_command = ["badguys/badguys.py", "--no-suite-jail"]

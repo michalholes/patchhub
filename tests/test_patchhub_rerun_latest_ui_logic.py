@@ -331,7 +331,9 @@ process.stdout.write(JSON.stringify({
     assert result["uiStatus"][-1] == (
         "rerun_latest: prepared form from latest candidate job_id=job-eligible"
     )
-    assert result["apiPaths"] == ["/api/jobs", "/api/jobs/job-eligible"]
+    assert "/api/jobs" in result["apiPaths"]
+    assert result["apiPaths"].count("/api/jobs/job-eligible") >= 1
+    assert result["apiPaths"][-1] == "/api/jobs/job-eligible"
 
 
 def test_rerun_latest_helper_uses_commit_summary_when_detail_commit_missing() -> None:

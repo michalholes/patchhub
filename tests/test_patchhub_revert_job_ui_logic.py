@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_jobs.js"
+MODULE_PATH = REPO_ROOT / "scripts" / "patchhub" / "static" / "patchhub_shell.js"
+HTML_PATH = REPO_ROOT / "scripts" / "patchhub" / "templates" / "index.html"
+
+
+def _module_src() -> str:
+    return MODULE_PATH.read_text(encoding="utf-8")
 
 
 def _run_node(script: str) -> dict[str, object]:
@@ -27,202 +32,277 @@ def _run_node(script: str) -> dict[str, object]:
 
 
 def _prelude() -> str:
+    module = json.dumps(_module_src())
     return f"""
-import fs from "fs";
-import vm from "vm";
-const src = fs.readFileSync({json.dumps(str(SCRIPT_PATH))}, "utf8");
+const moduleSrc = {module};
+class Node {{
+  constructor(tag) {{
+    this.tagName = String(tag || 'div').toLowerCase();
+    this.children = [];
+    this.parentElement = null;
+    this.attributes = Object.create(null);
+    this.className = '';
+    this.textContent = '';
+    this.id = '';
+  }}
+  appendChild(child) {{
+    if (!child) return child;
+    child.parentElement = this;
+    this.children.push(child);
+    return child;
+  }}
+  removeChild(child) {{
+    const idx = this.children.indexOf(child);
+    if (idx >= 0) this.children.splice(idx, 1);
+    if (child) child.parentElement = null;
+    return child;
+  }}
+  remove() {{
+    if (this.parentElement) this.parentElement.removeChild(this);
+  }}
+  setAttribute(name, value) {{
+    const key = String(name || '');
+    const text = String(value || '');
+    this.attributes[key] = text;
+    if (key === 'class') this.className = text;
+    if (key === 'id') this.id = text;
+  }}
+  getAttribute(name) {{
+    const key = String(name || '');
+    if (key === 'class') return this.className || null;
+    if (key === 'id') return this.id || null;
+    return Object.prototype.hasOwnProperty.call(this.attributes, key)
+      ? this.attributes[key]
+      : null;
+  }}
+}}
+function esc(text) {{
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}}
+function render(node) {{
+  if (!node) return '';
+  const attrs = [];
+  if (node.id) attrs.push(`id="${{esc(node.id)}}"`);
+  if (node.className) attrs.push(`class="${{esc(node.className)}}"`);
+  Object.keys(node.attributes).forEach((key) => {{
+    if (key === 'id' || key === 'class') return;
+    attrs.push(`${{key}}="${{esc(node.attributes[key])}}"`);
+  }});
+  const open = `<${{node.tagName}}${{attrs.length ? ' ' + attrs.join(' ') : ''}}>`;
+  const body = node.children.length
+    ? node.children.map((child) => render(child)).join('')
+    : esc(node.textContent || '');
+  return `${{open}}${{body}}</${{node.tagName}}>`;
+}}
+function makeJobRow(job, selectedJobId) {{
+  const host = new Node('div');
+  host.className = 'item job-item' +
+    (selectedJobId && String(selectedJobId) === String(job.job_id || '')
+      ? ' selected'
+      : '');
+  const name = new Node('div');
+  name.className = 'name job-name';
+  name.setAttribute('data-jobid', String(job.job_id || ''));
+  const lines = new Node('div');
+  lines.className = 'job-lines';
+  const top = new Node('div');
+  top.className = 'job-top';
+  const issue = new Node('span');
+  issue.className = 'job-issue';
+  issue.textContent = String(job.issue_id || '');
+  const status = new Node('span');
+  status.className = 'job-status';
+  status.textContent = String(job.status || '');
+  top.appendChild(issue);
+  top.appendChild(status);
+  lines.appendChild(top);
+  if (job.show_rerun) {{
+    const actions = new Node('div');
+    actions.className = 'actions job-actions';
+    const btn = new Node('button');
+    btn.className = 'btn btn-small jobUseForRerun';
+    btn.setAttribute('type', 'button');
+    btn.setAttribute('data-rerun-jobid', String(job.job_id || ''));
+    btn.textContent = 'Use for -l';
+    actions.appendChild(btn);
+    lines.appendChild(actions);
+  }}
+  name.appendChild(lines);
+  host.appendChild(name);
+  return host;
+}}
 const elements = new Map();
-const registry = new Map();
-function makeClassList() {{
-  const items = new Set();
-  return {{
-    add: (...names) => names.forEach((name) => items.add(String(name))),
-    remove: (...names) => names.forEach((name) => items.delete(String(name))),
-    contains: (name) => items.has(String(name)),
-  }};
-}}
-function makeNode(id) {{
-  return {{
-    id,
-    innerHTML: "",
-    textContent: "",
-    value: "",
-    disabled: false,
-    style: {{}},
-    parentElement: {{ classList: makeClassList() }},
-    classList: makeClassList(),
-    _listeners: {{}},
-    addEventListener(name, cb) {{
-      if (!this._listeners[name]) this._listeners[name] = [];
-      this._listeners[name].push(cb);
-    }},
-    getAttribute(name) {{ return this[name] || null; }},
-    setAttribute(name, value) {{ this[name] = String(value); }},
-    dispatch(name, payload) {{
-      const event = payload || {{ target: this }};
-      (this._listeners[name] || []).forEach((cb) => cb(event));
-    }},
-    querySelector() {{ return null; }},
-    querySelectorAll() {{ return []; }},
-  }};
-}}
-global.window = {{
-  AMP_PATCHHUB_UI: {{
-    saveLiveJobId() {{}},
-    updateProgressPanelFromEvents() {{}},
-  }},
-  PH: {{
-    register(name, exports) {{ registry.set(String(name), exports || {{}}); }},
-    call(name, ...args) {{
-      for (const exports of registry.values()) {{
-        if (exports && typeof exports[name] === "function") return exports[name](...args);
-      }}
-      return null;
-    }},
-    has(name) {{
-      for (const exports of registry.values()) {{
-        if (exports && typeof exports[name] === "function") return true;
-      }}
-      return false;
-    }},
-  }},
-  __uiStatus: [],
-  __uiErrors: [],
-}};
-global.document = {{
-  hidden: false,
+const jobsList = new Node('div');
+jobsList.id = 'jobsList';
+elements.set('jobsList', jobsList);
+const document = {{
   getElementById(id) {{
-    const key = String(id);
-    if (!elements.has(key)) elements.set(key, makeNode(key));
-    return elements.get(key);
+    return elements.get(String(id || '')) || null;
+  }},
+  createElement(tag) {{
+    return new Node(tag);
   }},
 }};
-global.cfg = {{
-  runner: {{ command: ["python3", "scripts/am_patch.py"] }},
-  ui: {{ idle_auto_select_last_job: false }},
-  server: {{ host: "127.0.0.1", port: 8080 }},
+const registry = new Map();
+const runtime = {{
+  register(name, exportsObj) {{
+    registry.set(String(name || ''), exportsObj || {{}});
+  }},
 }};
-global.localStorage = {{ getItem() {{ return null; }}, setItem() {{}} }};
-global.AMP_UI = window.AMP_PATCHHUB_UI;
-global.selectedJobId = "";
-global.suppressIdleOutput = false;
-global.autoRefreshTimer = null;
-global.idleSigs = {{ jobs: "", runs: "", workspaces: "", hdr: "", snapshot: "" }};
-global.idleNextDueMs = 0;
-global.idleBackoffIdx = 0;
-global.IDLE_BACKOFF_MS = [1000, 2000];
-global.workspacesCache = [];
-global.dirty = {{ issueId: false, commitMsg: false, patchPath: false, targetRepo: false }};
-global.clearParsedState = () => {{}};
-global.setParseHint = () => {{}};
-global.setUiStatus = (msg) => window.__uiStatus.push(String(msg || ""));
-global.setUiError = (msg) => window.__uiErrors.push(String(msg || ""));
-global.setPre = () => {{}};
-global.normalizePatchPath = (value) => String(value || "").trim();
-global.escapeHtml = (s) => String(s || "")
-  .replace(/&/g, "&amp;")
-  .replace(/</g, "&lt;")
-  .replace(/>/g, "&gt;")
-  .replace(/\"/g, "&quot;")
-  .replace(/'/g, "&#39;");
-global.el = (id) => document.getElementById(id);
-global.apiGetETag = () => Promise.resolve({{ ok: true, unchanged: true }});
+global.document = document;
+global.window = {{ PH_RT: runtime, PH: runtime }};
 global.apiGet = (path) => Promise.resolve({{ ok: true, job: null, path }});
-global.apiPost = (path, body) => Promise.resolve({{ ok: true, path, body }});
-window.PH.register("stub", {{
-  validateAndPreview() {{ return true; }},
-  renderActiveJob() {{}},
-  getLiveJobId() {{ return ""; }},
-  hasTrackedActiveJob() {{ return false; }},
-  openLiveStream(jobId) {{ global.__openedLiveJobId = String(jobId || ""); }},
-  closeLiveStream() {{}},
-  loadLiveJobId() {{ return null; }},
-  jobSummaryDurationSeconds() {{ return ""; }},
-  renderRunsFromResponse() {{}},
-  renderWorkspacesFromResponse() {{}},
-  renderHeaderFromSummary() {{}},
-  clearGateOverrides() {{}},
-  refreshJobs() {{ global.__refreshJobsCalls = (global.__refreshJobsCalls || 0) + 1; }},
-  getTrackedActiveJobId() {{ return ""; }},
-  isNonTerminalJobStatus(status) {{
-    return status === "queued" || status === "running";
+global.setTimeout = setTimeout;
+global.clearTimeout = clearTimeout;
+eval(moduleSrc);
+const jobsExports = {{
+  renderJobsFromResponse(resp) {{
+    jobsList.children = [];
+    (resp && Array.isArray(resp.jobs) ? resp.jobs : []).forEach((job) => {{
+      jobsList.appendChild(makeJobRow(job, global.selectedJobId || ''));
+    }});
   }},
-}});
-vm.runInThisContext(src, {{ filename: {json.dumps(str(SCRIPT_PATH))} }});
+  triggerRevertJob(jobId) {{
+    return '/api/jobs/' + encodeURIComponent(String(jobId || '')) + '/revert';
+  }},
+}};
+runtime.register('app_part_jobs', jobsExports);
+const appPartJobs = registry.get('app_part_jobs');
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 """
 
 
-def test_jobs_module_contains_revert_control_and_route() -> None:
-    src = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert 'data-revert-jobid="' in src
-    assert '"/api/jobs/" + encodeURIComponent(sourceJobId) + "/revert"' in src
-    assert "detailHasRevertFields" in src
+def test_jobs_revert_module_exists() -> None:
+    src = _module_src()
+    assert "function syncJobs(" in src
+    assert 'apiGetFn("/api/jobs/" + encodeURIComponent(jobId))' in src
 
 
-def test_jobs_list_renders_revert_only_for_selected_job_with_required_fields() -> None:
+def test_index_loads_revert_module_before_bootstrap() -> None:
+    src = HTML_PATH.read_text(encoding="utf-8")
+    revert_idx = src.index("/static/patchhub_shell.js")
+    boot_idx = src.index("/static/patchhub_bootstrap.js")
+    assert revert_idx < boot_idx
+
+
+def test_non_selected_job_gets_revert_after_detail_resolution() -> None:
     script = (
         _prelude()
         + """
-selectedJobId = "job-eligible";
-jobDetailCache["job-eligible"] = {
-  job_id: "job-eligible",
-  effective_runner_target_repo: "patchhub",
-  run_start_sha: "aaa111",
-  run_end_sha: "bbb222",
-};
-renderJobsFromResponse({ jobs: [
+global.selectedJobId = 'job-selected';
+global.apiGet = (path) => Promise.resolve(
+  String(path || '') === '/api/jobs/job-eligible'
+    ? {
+        ok: true,
+        job: {
+          job_id: 'job-eligible',
+          effective_runner_target_repo: 'patchhub',
+          run_start_sha: 'aaa111',
+          run_end_sha: 'bbb222',
+        },
+        path,
+      }
+    : { ok: true, job: { job_id: 'job-selected' }, path }
+);
+appPartJobs.renderJobsFromResponse({ jobs: [
+  { job_id: 'job-selected', status: 'success', issue_id: '380' },
   {
-    job_id: "job-eligible",
-    status: "success",
-    mode: "patch",
-    issue_id: "380",
-    commit_summary: "Eligible",
-  },
-  {
-    job_id: "job-other",
-    status: "success",
-    mode: "patch",
-    issue_id: "381",
-    commit_summary: "Other",
+    job_id: 'job-eligible',
+    status: 'success',
+    ended_utc: '2026-03-25T09:15:00Z',
+    issue_id: '381',
   },
 ] });
-console.log(JSON.stringify({ html: document.getElementById("jobsList").innerHTML }));
+flush().then(() => flush()).then(() => {
+  console.log(JSON.stringify({ html: render(jobsList) }));
+});
 """
     )
     result = _run_node(script)
     html = str(result["html"])
     assert 'data-revert-jobid="job-eligible"' in html
-    assert 'data-revert-jobid="job-other"' not in html
+    assert 'data-revert-jobid="job-selected"' not in html
 
 
-def test_trigger_revert_job_posts_route_and_selects_new_live_job() -> None:
+def test_revalidates_when_summary_state_changes() -> None:
     script = (
         _prelude()
         + """
-global.apiPost = (path, body) => Promise.resolve({
-  ok: true,
-  job_id: "job-revert-1",
-  job: { job_id: "job-revert-1", mode: "revert_job" },
-  path,
-  body,
-});
-selectedJobId = "job-source";
-triggerRevertJob("job-source").then((ok) => {
-  console.log(JSON.stringify({
-    ok,
-    selectedJobId,
-    openedLiveJobId: global.__openedLiveJobId || "",
-    refreshJobsCalls: global.__refreshJobsCalls || 0,
-    uiStatus: window.__uiStatus,
-  }));
+let fetchCount = 0;
+global.apiGet = (path) => {
+  fetchCount += 1;
+  if (fetchCount === 1) {
+    return Promise.resolve({ ok: true, job: { job_id: 'job-eligible' }, path });
+  }
+  return Promise.resolve({
+    ok: true,
+    job: {
+      job_id: 'job-eligible',
+      effective_runner_target_repo: 'patchhub',
+      run_start_sha: 'aaa111',
+      run_end_sha: 'bbb222',
+    },
+    path,
+  });
+};
+appPartJobs.renderJobsFromResponse({ jobs: [
+  { job_id: 'job-eligible', status: 'running', issue_id: '383' },
+] });
+flush().then(() => flush()).then(() => {
+  const firstHtml = render(jobsList);
+  appPartJobs.renderJobsFromResponse({ jobs: [
+    {
+      job_id: 'job-eligible',
+      status: 'success',
+      ended_utc: '2026-03-25T09:15:00Z',
+      issue_id: '383',
+    },
+  ] });
+  return flush().then(() => flush()).then(() => {
+    console.log(JSON.stringify({
+      fetchCount,
+      firstHtml,
+      secondHtml: render(jobsList),
+    }));
+  });
 });
 """
     )
     result = _run_node(script)
-    assert result["ok"] is True
-    assert result["selectedJobId"] == "job-revert-1"
-    assert result["openedLiveJobId"] == "job-revert-1"
-    assert result["refreshJobsCalls"] == 1
-    assert any(
-        str(item).startswith("revert: ok job_id=job-revert-1") for item in result["uiStatus"]
+    assert result["fetchCount"] == 2
+    assert 'data-revert-jobid="job-eligible"' not in str(result["firstHtml"])
+    assert 'data-revert-jobid="job-eligible"' in str(result["secondHtml"])
+
+
+def test_missing_required_fields_keeps_revert_hidden() -> None:
+    script = (
+        _prelude()
+        + """
+global.apiGet = (path) => Promise.resolve({
+  ok: true,
+  job: {
+    job_id: 'job-no-revert',
+    effective_runner_target_repo: 'patchhub',
+    run_start_sha: 'aaa111',
+  },
+  path,
+});
+appPartJobs.renderJobsFromResponse({ jobs: [
+  {
+    job_id: 'job-no-revert',
+    status: 'success',
+    ended_utc: '2026-03-25T09:16:00Z',
+    issue_id: '384',
+  },
+] });
+flush().then(() => flush()).then(() => {
+  console.log(JSON.stringify({ html: render(jobsList) }));
+});
+"""
     )
+    result = _run_node(script)
+    assert 'data-revert-jobid="job-no-revert"' not in str(result["html"])

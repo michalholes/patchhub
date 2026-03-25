@@ -1,32 +1,20 @@
-/**
- * @typedef {{
- *   call?: function(string, ...*): *,
- *   has?: function(string): boolean,
- *   register?: function(string, Object): void,
- * }} JobsRuntime
- * @typedef {Window & typeof globalThis & {
- *   AMP_PATCHHUB_UI?: {
- *     updateProgressPanelFromEvents?: function({ jobs: Array<Object> }): void,
- *   },
- *   PH?: JobsRuntime | null,
- * }} JobsWindow
- * @typedef {EventTarget & {
- *   getAttribute?: function(string): string | null,
- *   parentElement?: EventTarget | null,
- * }} JobsEventTarget
- */
 var jobsWindow = /** @type {JobsWindow} */ (window);
 var __ph_w = jobsWindow;
-var PH = jobsWindow.PH || null;
-var jobsCache = [];
-var jobDetailCache = {};
-var jobDetailInflight = {};
+var PH = /** @type {JobsRuntime | null} */ (jobsWindow.PH || null);
+var jobsCache = /** @type {PatchhubJob[]} */ ([]);
+var jobDetailCache = /** @type {Record<string, PatchhubJob | null>} */ (
+	Object.create(null)
+);
+var jobDetailInflight =
+	/** @type {Record<string, Promise<PatchhubJob | null>>} */ (
+		Object.create(null)
+	);
 var jobsListActionsWired = false;
 var rerunPrepareSeq = 0;
-var trackedJobDurationClock = null;
+var trackedJobDurationClock = /** @type {unknown | null} */ (null);
 var trackedJobDurationJobId = "";
 
-function phCall(name, ...args) {
+function phCall(/** @type {string} */ name, /** @type {unknown[]} */ ...args) {
 	if (!PH || typeof PH.call !== "function") return undefined;
 	return PH.call(name, ...args);
 }
@@ -36,7 +24,7 @@ function getVisibleDurationNowMs() {
 	return Number.isFinite(value) ? value : Date.now();
 }
 
-function formatVisibleDurationMs(ms) {
+function formatVisibleDurationMs(/** @type {number} */ ms) {
 	var text = phCall("formatVisibleDurationMs", ms);
 	var tenths = 0;
 	if (text || text === "0") return String(text);
@@ -45,8 +33,12 @@ function formatVisibleDurationMs(ms) {
 	return String((tenths / 10).toFixed(1));
 }
 
-function syncTrackedJobDurationClock(jobs) {
-	var tracked = phCall("getTrackedActiveJob", jobs || []);
+function syncTrackedJobDurationClock(
+	/** @type {PatchhubJob[] | null | undefined} */ jobs,
+) {
+	var tracked = /** @type {PatchhubJob | null} */ (
+		phCall("getTrackedActiveJob", jobs || [])
+	);
 	var startMs = NaN;
 	if (
 		tracked &&
@@ -67,9 +59,12 @@ function syncTrackedJobDurationClock(jobs) {
 	trackedJobDurationClock = null;
 }
 
-function getTrackedJobDurationLabel(job, tickNowMs) {
+function getTrackedJobDurationLabel(
+	/** @type {PatchhubJob | null | undefined} */ job,
+	/** @type {number} */ tickNowMs,
+) {
 	var jobId = "";
-	var runningElapsedMs = null;
+	var runningElapsedMs = /** @type {number | null} */ (null);
 	if (!job) return "";
 	if (job.started_utc && job.ended_utc) {
 		return String(
@@ -84,10 +79,12 @@ function getTrackedJobDurationLabel(job, tickNowMs) {
 		trackedJobDurationClock &&
 		phCall("isNonTerminalJobStatus", job.status)
 	) {
-		runningElapsedMs = phCall(
-			"readVisibleRuntimeElapsedMs",
-			trackedJobDurationClock,
-			Number.isFinite(tickNowMs) ? tickNowMs : getVisibleDurationNowMs(),
+		runningElapsedMs = /** @type {number | null} */ (
+			phCall(
+				"readVisibleRuntimeElapsedMs",
+				trackedJobDurationClock,
+				Number.isFinite(tickNowMs) ? tickNowMs : getVisibleDurationNowMs(),
+			)
 		);
 		if (Number.isFinite(runningElapsedMs)) {
 			return formatVisibleDurationMs(runningElapsedMs);
@@ -98,8 +95,10 @@ function getTrackedJobDurationLabel(job, tickNowMs) {
 	);
 }
 
-function getJobsDurationSignature(tickNowMs) {
-	var tracked = phCall("getTrackedActiveJob", jobsCache || []);
+function getJobsDurationSignature(/** @type {number} */ tickNowMs) {
+	var tracked = /** @type {PatchhubJob | null} */ (
+		phCall("getTrackedActiveJob", jobsCache || [])
+	);
 	var label = "";
 	if (
 		!tracked ||
@@ -125,19 +124,25 @@ function syncJobsDurationSurface() {
 	phCall("clearVisibleDurationSurface", "jobs_list_duration");
 }
 
-function isRerunLatestListCandidate(job) {
+function isRerunLatestListCandidate(
+	/** @type {PatchhubJob | null | undefined} */ job,
+) {
 	var mode = String((job && job.mode) || "").trim();
 	var issueId = String((job && job.issue_id) || "").trim();
 	var commit = String((job && job.commit_summary) || "").trim();
 	return (mode === "patch" || mode === "rerun_latest") && !!issueId && !!commit;
 }
 
-function getRerunLatestSummaryCandidates(jobs) {
+function getRerunLatestSummaryCandidates(
+	/** @type {PatchhubJob[] | null | undefined} */ jobs,
+) {
 	var items = Array.isArray(jobs) ? jobs : [];
 	return items.filter((job) => isRerunLatestListCandidate(job));
 }
 
-function findRerunLatestSummaryCandidateById(jobId) {
+function findRerunLatestSummaryCandidateById(
+	/** @type {string | null | undefined} */ jobId,
+) {
 	var wanted = String(jobId || "").trim();
 	if (!wanted) return null;
 	return (
@@ -154,7 +159,9 @@ function clearRerunLatestRawCommand() {
 	setParseHint("");
 }
 
-function clearRerunLatestFormFields(statusText) {
+function clearRerunLatestFormFields(
+	/** @type {string | null | undefined} */ statusText,
+) {
 	clearRerunLatestRawCommand();
 	el("issueId").value = "";
 	el("commitMsg").value = "";
@@ -168,7 +175,9 @@ function clearRerunLatestFormFields(statusText) {
 	phCall("validateAndPreview");
 }
 
-function resolveRerunLatestPatchPath(job) {
+function resolveRerunLatestPatchPath(
+	/** @type {PatchhubJob | null | undefined} */ job,
+) {
 	var detail = job || {};
 	var effective = String(detail.effective_patch_path || "").trim();
 	var original = String(detail.original_patch_path || "").trim();
@@ -193,7 +202,9 @@ function resolveRerunLatestPatchPath(job) {
 	return "";
 }
 
-function resolveRerunLatestTargetRepo(detail) {
+function resolveRerunLatestTargetRepo(
+	/** @type {PatchhubJob | null | undefined} */ detail,
+) {
 	var selected = String((detail && detail.selected_target_repo) || "").trim();
 	var effective = String(
 		(detail && detail.effective_runner_target_repo) || "",
@@ -203,7 +214,10 @@ function resolveRerunLatestTargetRepo(detail) {
 	return "";
 }
 
-function extractRerunLatestValues(job, summaryJob) {
+function extractRerunLatestValues(
+	/** @type {PatchhubJob | null | undefined} */ job,
+	/** @type {PatchhubJob | null | undefined} */ summaryJob,
+) {
 	var detail = job || {};
 	var summary = summaryJob || {};
 	var mode = String(detail.mode || summary.mode || "").trim();
@@ -244,7 +258,9 @@ function recordProtectedRerunLatestPrepare() {
 	return true;
 }
 
-function recordTrackedRerunLatestJobId(jobId) {
+function recordTrackedRerunLatestJobId(
+	/** @type {string | null | undefined} */ jobId,
+) {
 	if (!isProtectedRerunLatestLifecycleActive()) return false;
 	protectedRerunLatestState.trackedJobId = String(jobId || "").trim();
 	return !!protectedRerunLatestState.trackedJobId;
@@ -256,7 +272,9 @@ function clearProtectedRerunLatestLifecycle() {
 	return false;
 }
 
-function syncProtectedRerunLatestLifecycleFromJobs(jobs) {
+function syncProtectedRerunLatestLifecycleFromJobs(
+	/** @type {PatchhubJob[] | null | undefined} */ jobs,
+) {
 	var items = Array.isArray(jobs) ? jobs : [];
 	var trackedJobId = "";
 	var tracked = null;
@@ -279,7 +297,10 @@ function syncProtectedRerunLatestLifecycleFromJobs(jobs) {
 	return true;
 }
 
-function applyRerunLatestValues(values, sourceLabel) {
+function applyRerunLatestValues(
+	/** @type {RerunLatestValues} */ values,
+	/** @type {string | null | undefined} */ sourceLabel,
+) {
 	if (!values) return false;
 	clearRerunLatestRawCommand();
 	el("mode").value = "rerun_latest";
@@ -306,18 +327,22 @@ function applyRerunLatestValues(values, sourceLabel) {
 	return true;
 }
 
-function loadJobDetail(jobId) {
-	return apiGet("/api/jobs/" + encodeURIComponent(String(jobId || "")));
+function loadJobDetail(/** @type {string | null | undefined} */ jobId) {
+	return /** @type {Promise<JobDetailResponse>} */ (
+		apiGet("/api/jobs/" + encodeURIComponent(String(jobId || "")))
+	);
 }
 
-function cacheJobDetail(detail) {
+function cacheJobDetail(/** @type {PatchhubJob | null | undefined} */ detail) {
 	var jobId = String((detail && detail.job_id) || "").trim();
 	if (!jobId) return null;
 	jobDetailCache[jobId] = detail || null;
 	return detail || null;
 }
 
-function pruneJobDetailCache(jobs) {
+function pruneJobDetailCache(
+	/** @type {PatchhubJob[] | null | undefined} */ jobs,
+) {
 	var keep = Object.create(null);
 	(jobs || []).forEach((job) => {
 		var jobId = String((job && job.job_id) || "").trim();
@@ -337,7 +362,9 @@ function selectedJobDetail() {
 	return jobDetailCache[jobId] || null;
 }
 
-function detailHasRevertFields(detail) {
+function detailHasRevertFields(
+	/** @type {PatchhubJob | null | undefined} */ detail,
+) {
 	return !!(
 		String((detail && detail.effective_runner_target_repo) || "").trim() &&
 		String((detail && detail.run_start_sha) || "").trim() &&
@@ -363,7 +390,7 @@ function ensureSelectedJobDetailLoaded() {
 	return jobDetailInflight[jobId];
 }
 
-function reportRevertError(message) {
+function reportRevertError(/** @type {string | null | undefined} */ message) {
 	var text = String(message || "revert: failed");
 	if (typeof setUiError === "function") {
 		setUiError(text);
@@ -372,7 +399,9 @@ function reportRevertError(message) {
 	setUiStatus(text);
 }
 
-function applyRevertEnqueuedJob(jobId) {
+function applyRevertEnqueuedJob(
+	/** @type {string | null | undefined} */ jobId,
+) {
 	selectedJobId = String(jobId || "").trim();
 	if (!selectedJobId) return;
 	AMP_UI.saveLiveJobId(selectedJobId);
@@ -381,13 +410,12 @@ function applyRevertEnqueuedJob(jobId) {
 	phCall("openLiveStream", selectedJobId);
 }
 
-function triggerRevertJob(jobId) {
+function triggerRevertJob(/** @type {string | null | undefined} */ jobId) {
 	var sourceJobId = String(jobId || selectedJobId || "").trim();
 	if (!sourceJobId) return Promise.resolve(false);
 	setUiStatus("revert: started source_job_id=" + sourceJobId);
-	return apiPost(
-		"/api/jobs/" + encodeURIComponent(sourceJobId) + "/revert",
-		{},
+	return /** @type {Promise<RevertResponse>} */ (
+		apiPost("/api/jobs/" + encodeURIComponent(sourceJobId) + "/revert", {})
 	).then(
 		(resp) => {
 			var newJobId = "";
@@ -435,7 +463,10 @@ function initJobsListActions() {
 	});
 }
 
-function prepareRerunLatestFromJobId(jobId, opts) {
+function prepareRerunLatestFromJobId(
+	/** @type {string | null | undefined} */ jobId,
+	/** @type {RerunLatestOptions | null | undefined} */ opts,
+) {
 	opts = opts || {};
 	var seq = ++rerunPrepareSeq;
 	var sourceLabel = String(opts.sourceLabel || "selected");
@@ -500,7 +531,7 @@ function prepareRerunLatestFromJobId(jobId, opts) {
 function prepareRerunLatestFromLatestJob() {
 	var seq = ++rerunPrepareSeq;
 	setUiStatus("rerun_latest: resolving latest candidate");
-	return apiGet("/api/jobs")
+	return /** @type {Promise<JobsListResponse>} */ (apiGet("/api/jobs"))
 		.then((resp) => {
 			if (seq !== rerunPrepareSeq) return false;
 			if (String(el("mode").value || "") !== "rerun_latest") return false;
@@ -626,7 +657,7 @@ function renderJobsList() {
 	el("jobsList").innerHTML = html || '<div class="muted">(none)</div>';
 }
 
-function renderJobsFromResponse(r) {
+function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 	var jobs = r.jobs || [];
 	jobsCache = Array.isArray(jobs) ? jobs.slice() : [];
 	pruneJobDetailCache(jobsCache);
@@ -684,7 +715,7 @@ function renderJobsFromResponse(r) {
 	var idleAutoSelect = !!(cfg && cfg.ui && cfg.ui.idle_auto_select_last_job);
 
 	if (!selectedJobId) {
-		const saved = PH.call("loadLiveJobId");
+		const saved = /** @type {string | null} */ (PH.call("loadLiveJobId"));
 		if (saved) selectedJobId = saved;
 	}
 
@@ -720,7 +751,9 @@ function renderJobsFromResponse(r) {
 function refreshJobsIdle() {
 	var qs = "";
 	if (idleSigs.jobs) qs = "?since_sig=" + encodeURIComponent(idleSigs.jobs);
-	return apiGet("/api/jobs" + qs).then((r) => {
+	return /** @type {Promise<JobsListResponse>} */ (
+		apiGet("/api/jobs" + qs)
+	).then((r) => {
 		if (!r || r.ok === false) {
 			return { changed: false, sig: idleSigs.jobs };
 		}
@@ -739,7 +772,7 @@ function headerBaseLabel() {
 	return "";
 }
 
-function applyOverviewSnapshot(r) {
+function applyOverviewSnapshot(/** @type {OverviewResponse} */ r) {
 	if (!r || r.ok === false || r.unchanged) return false;
 	var sigs = r.sigs || {};
 	var snapSig = String(sigs.snapshot || "");
@@ -784,7 +817,8 @@ function idleRefreshTick() {
 	Promise.resolve(phCall("refreshOverviewSnapshot", { mode: "periodic" }))
 		.catch((_) => ({ changed: false }))
 		.then((res) => {
-			var changed = !!(res && res.changed);
+			var refreshResult = /** @type {{ changed?: boolean } | null} */ (res);
+			var changed = !!(refreshResult && refreshResult.changed);
 			if (changed) {
 				idleBackoffIdx = 0;
 			} else if (idleBackoffIdx < IDLE_BACKOFF_MS.length - 1) {
@@ -794,27 +828,29 @@ function idleRefreshTick() {
 		});
 }
 
-function refreshJobs(opts) {
+function refreshJobs(/** @type {{ mode?: string } | null | undefined} */ opts) {
 	opts = opts || {};
 	var mode = String(opts.mode || "user");
 	var sf = mode === "periodic";
-	apiGetETag("jobs_list", "/api/jobs", { mode: mode, single_flight: sf }).then(
-		(r) => {
-			if (!r || r.ok === false) {
-				jobsCache = [];
-				syncTrackedJobDurationClock([]);
-				syncJobsDurationSurface();
-				setPre("jobsList", r);
-				PH.call("renderActiveJob", []);
-				return;
-			}
-			if (r.unchanged) return;
-			renderJobsFromResponse(r);
-		},
-	);
+	/** @type {Promise<JobsListResponse>} */ (
+		apiGetETag("jobs_list", "/api/jobs", { mode: mode, single_flight: sf })
+	).then((r) => {
+		if (!r || r.ok === false) {
+			jobsCache = [];
+			syncTrackedJobDurationClock([]);
+			syncJobsDurationSurface();
+			setPre("jobsList", r);
+			PH.call("renderActiveJob", []);
+			return;
+		}
+		if (r.unchanged) return;
+		renderJobsFromResponse(r);
+	});
 }
 
-function ensureAutoRefresh(jobs) {
+function ensureAutoRefresh(
+	/** @type {PatchhubJob[] | null | undefined} */ jobs,
+) {
 	var id = PH.call("getLiveJobId");
 	var st = "";
 	if (id && jobs && jobs.length) {
@@ -840,12 +876,12 @@ function ensureAutoRefresh(jobs) {
 }
 
 function computeCanonicalPreview(
-	mode,
-	issueId,
-	commitMsg,
-	patchPath,
-	gateArgv,
-	targetRepo,
+	/** @type {string | null | undefined} */ mode,
+	/** @type {string | null | undefined} */ issueId,
+	/** @type {string | null | undefined} */ commitMsg,
+	/** @type {string | null | undefined} */ patchPath,
+	/** @type {string[] | null | undefined} */ gateArgv,
+	/** @type {string | null | undefined} */ targetRepo,
 ) {
 	var prefix =
 		cfg && cfg.runner && cfg.runner.command
@@ -854,7 +890,7 @@ function computeCanonicalPreview(
 	var argv = prefix.slice();
 
 	var gateTail = Array.isArray(gateArgv) ? gateArgv.slice() : [];
-	var targetTail = [];
+	var targetTail = /** @type {string[]} */ ([]);
 	if (String(targetRepo || "")) {
 		targetTail = ["--target-repo-name", String(targetRepo || "")];
 	}
