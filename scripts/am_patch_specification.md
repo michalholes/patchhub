@@ -44,7 +44,7 @@ Additional normative root model keys:
 - artifacts_root = null|string
 - target_repo_roots = []|list[str]
 - active_target_repo_root = null|string
-- target_repo_config_relpath = ".am_patch/am_patch.repo.toml"
+- target_repo_config_relpath = "am_patch.repo.toml"
 
 Normative semantics:
 
@@ -60,7 +60,7 @@ Normative semantics:
 - active_target_repo_root is the explicit path selector for the git repository patched by the current run.
 - If active_target_repo_root is null, target selection follows section 3.1.1.
 - target_repo_config_relpath is the bootstrap-owned relative path used to discover the repo-local config inside the selected target repo.
-- The built-in default value of target_repo_config_relpath is `.am_patch/am_patch.repo.toml`.
+- The built-in default value of target_repo_config_relpath is `am_patch.repo.toml`.
 - The resolved repo-local config path is always interpreted relative to the active repository tree root and MUST remain under that root.
 - The effective target root MUST resolve to exactly one configured binding root from `target_repo_roots`.
 - repo_root is a legacy backward-compatibility alias for active_target_repo_root. If repo_root selects a non-runner target, it is subject to the same registry rules as active_target_repo_root.
