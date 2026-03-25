@@ -1237,10 +1237,11 @@ This behavior applies to workspace promotion and `-w` /
 
 ### 7.3 Failure zip archive hygiene
 
-When building the failure zip, the runner excludes repository internals
-and tool/runtime caches from the archived
+When building the failure zip, the runner excludes repository internals,
+runner working directories, and tool/runtime caches from the archived
 `changed/touched subset (no full workspace)` tree:
 
+-   `.am_patch/`
 -   `.git/`
 -   `venv/`, `.venv/`
 -   `.mypy_cache/`, `.ruff_cache/`, `.pytest_cache/`
@@ -1412,7 +1413,8 @@ Runner MUST log `issue_diff_base_sha` and `issue_diff_paths_count` before writin
 -   Repository remains dirty.
 -   Staging rules:
     -   In `--finalize-live` (aka `-f`) mode, the runner stages the
-        entire live working tree before commit.
+        live working tree before commit, excluding paths under
+        `.am_patch/`.
     -   In `workspace` and `-w` / `--finalize-workspace` modes, the
         runner commits only the paths it has promoted (those paths are
         staged explicitly during promotion). Any unrelated dirty changes
