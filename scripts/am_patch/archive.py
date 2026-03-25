@@ -123,6 +123,11 @@ def archive_patch(logger: Logger, patch_script: Path, dest_dir: Path) -> Path:
     return dest
 
 
+def _is_am_patch_path(rel_path: str) -> bool:
+    path = rel_path.strip().lstrip("/")
+    return path == ".am_patch" or path.startswith(".am_patch/")
+
+
 def make_failure_zip(
     logger: Logger,
     zip_path: Path,
@@ -153,7 +158,7 @@ def make_failure_zip(
     files: list[str] = []
     for rel_str in include_repo_files:
         rp = rel_str.strip().lstrip("/")
-        if not rp or rp in seen:
+        if not rp or _is_am_patch_path(rp) or rp in seen:
             continue
         seen.add(rp)
         files.append(rp)

@@ -90,18 +90,76 @@ def unified_diff_since(logger: Logger, repo: Path, base_sha: str, rel_path: str)
     return r.stdout or ""
 
 
+def _normalize_git_relpath(raw: str) -> str:
+    path = str(raw).replace("\\", "/").strip()
+    while path.startswith("./"):
+        path = path[2:]
+    return path.strip("/")
+
+
+def _is_am_patch_path(rel_path: str) -> bool:
+    path = _normalize_git_relpath(rel_path)
+    return path == ".am_patch" or path.startswith(".am_patch/")
+
+
+def _status_dirty_paths_z(stdout: str) -> list[str]:
+    items = [item for item in stdout.split("\0") if item]
+    paths: list[str] = []
+    i = 0
+    while i < len(items):
+        entry = items[i]
+        if len(entry) < 4:
+            i += 1
+            continue
+        status = entry[:2]
+        path = _normalize_git_relpath(entry[3:])
+        if path:
+            paths.append(path)
+        i += 1
+        if "R" in status or "C" in status:
+            if i < len(items):
+                extra = _normalize_git_relpath(items[i])
+                if extra:
+                    paths.append(extra)
+            i += 1
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        out.append(path)
+    return out
+
+
 def commit(logger: Logger, repo: Path, message: str, *, stage_all: bool = True) -> str:
     if stage_all:
         r1 = logger.run_logged(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--untracked-files=all", "-z"],
             cwd=repo,
             timeout_stage="PROMOTION",
         )
         if r1.returncode != 0:
             raise RunnerError("PROMOTION", "GIT", "git status failed")
-        if not (r1.stdout or "").strip():
+        dirty_paths = _status_dirty_paths_z(r1.stdout or "")
+        stage_paths = [path for path in dirty_paths if not _is_am_patch_path(path)]
+        if not stage_paths:
             raise RunnerError("PROMOTION", "NOOP", "no changes to commit")
-        r2 = logger.run_logged(["git", "add", "-A"], cwd=repo, timeout_stage="PROMOTION")
+
+        r_reset = logger.run_logged(
+            ["git", "reset", "--mixed"],
+            cwd=repo,
+            timeout_stage="PROMOTION",
+        )
+        if r_reset.returncode != 0:
+            raise RunnerError("PROMOTION", "GIT", "git reset failed")
+
+        r2 = logger.run_logged(
+            ["git", "add", "-A", "--", *stage_paths],
+            cwd=repo,
+            timeout_stage="PROMOTION",
+        )
         if r2.returncode != 0:
             raise RunnerError("PROMOTION", "GIT", "git add failed")
     else:
