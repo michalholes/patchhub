@@ -1041,6 +1041,7 @@ Main-screen control rules:
   - finalize_live (-f)
   - finalize_workspace (-w)
   - rerun_latest (-l)
+  - rollback
 - The same mode row MUST include a Gate options button on the right side.
 - Approved compact layout MAY colocate patchPath on the same mode row while
   keeping Gate options right-aligned.
@@ -1051,6 +1052,7 @@ Main-screen control rules:
   - finalize_live
   - finalize_workspace
   - rerun_latest
+- Gate options MUST be unavailable for rollback mode.
 - finalize_live gate overrides are transient only and MUST flow through the same
   gate_argv canonicalization and enqueue contract as the other supported modes.
 - The modal renders one row per gate with exactly one visible interactive state surface:
@@ -1063,6 +1065,14 @@ Main-screen control rules:
   AMP config.
 - After successful enqueue, terminal mode reset, or autofill token change, the
   UI MUST clear transient gate overrides.
+- The Start form is the primary rollback workspace.
+- Entering rollback mode MUST NOT execute any repository mutation.
+- Rollback mode MAY hide or disable Start-form fields that are not
+  authoritative for rollback, but it MUST NOT hide the rollback source
+  summary, rollback scope summary, or target selection state.
+- In rollback mode, target selection state MUST remain visible, but it MUST be
+  authority-derived from the selected source job and MUST NOT become an
+  alternate user-controlled target switch.
 
 Live retention and clipboard rules:
 - The live event view MUST retain at least 20000 events for the tracked job.
@@ -1407,19 +1417,21 @@ Quick action rules:
 - If the detail fetch fails or returns no JobRecord, the UI MUST leave the Start
   form unchanged and MUST show an explicit operator-visible status.
 
-Revert control rules:
-- The Jobs list MUST render a Revert control.
-- The UI MUST fetch GET /api/jobs/<job_id> and MUST use the returned JobRecord
-  detail as the only availability source for the Revert control.
-- The UI MUST determine Revert availability only by the required field
+Roll-back control rules:
+- The Jobs list MUST render a `Roll-back` control.
+- The UI MUST fetch `GET /api/jobs/<job_id>` and MUST use the returned JobRecord
+  detail as the only availability source for the `Roll-back` control.
+- The UI MUST determine `Roll-back` availability only by the rollback-authority
   presence rule defined in Section 7.2.9B.
-- The UI MUST NOT apply any additional eligibility heuristic, fallback, or
-  client-side derivation.
-- If the source job is revertable under Section 7.2.9B, the Revert control MAY
-  trigger POST /api/jobs/<job_id>/revert.
-- If any required field is missing, the UI MUST NOT expose the Revert control
-  for that job.
-- The Runs panel MUST NOT expose a Revert control.
+- The UI MUST NOT apply any additional eligibility heuristic, fallback,
+  backfill, or client-side derivation.
+- Clicking `Roll-back` MUST NOT directly enqueue rollback execution and MUST NOT
+  directly mutate repository state.
+- Clicking `Roll-back` MUST only establish Start-form rollback entry for the
+  selected source job and MUST start guided rollback preflight.
+- If any required rollback-authority field is missing, the UI MUST NOT expose
+  the `Roll-back` control for that job.
+- The Runs panel MUST NOT expose a `Roll-back` control.
 
 Forbidden in visible item text:
 - job_id (may exist only as an internal data attribute for selection)
@@ -2147,31 +2159,55 @@ Detail-only additive fields for patch/repair jobs:
 GET /api/jobs remains the thin list endpoint defined elsewhere in this spec;
 these fields are detail-only and MUST NOT be added to list items.
 
-7.2.9B revert data contract
+7.2.9B rollback authority contract
 
-The following JobRecord fields are first-class persisted fields:
+The following JobRecord fields are first-class persisted fields for
+rollback-capable source jobs:
 - run_start_sha: "<string|null>"
 - run_end_sha: "<string|null>"
-- revert_source_job_id: "<string|null>"
+- rollback_scope_manifest_rel_path: "<string|null>"
+- rollback_scope_manifest_hash: "<string|null>"
+- rollback_authority_kind: "<string|null>"
+- rollback_authority_source_ref: "<string|null>"
+- rollback_source_job_id: "<string|null>"
 
 Authoritative rules:
 - PatchHub owns capture of run_start_sha and run_end_sha.
 - run_start_sha MUST equal the live HEAD of the effective target repository
-  immediately before the job begins execution.
+  immediately before the source job begins execution.
 - run_end_sha MUST equal the live HEAD of the same target repository
-  immediately after terminal completion of the job.
-- PatchHub MUST NOT read these fields from AMP events, AMP stdout, raw logs,
-  canonical_command, patch archive metadata, workspace metadata, or any
-  historical fallback source.
-- PatchHub MUST NOT compute or persist any separate revert-eligibility flag.
-- Revert availability MUST be determined exclusively by presence of:
+  immediately after terminal completion of the source job.
+- PatchHub owns persistence of the immutable rollback_scope_manifest for
+  rollback-capable source jobs.
+- rollback_scope_manifest is PatchHub-owned authority. It MUST NOT be derived
+  later from AMP events, AMP stdout, raw logs, canonical_command, patch archive
+  metadata, workspace metadata, applied_files, or local target-repository .git
+  history.
+- Rollback availability MUST be determined exclusively by presence of:
   - effective_runner_target_repo
   - run_start_sha
   - run_end_sha
-- If any required field is missing, the source job is non-revertable.
+  - rollback_scope_manifest_rel_path
+  - rollback_scope_manifest_hash
+  - rollback_authority_kind
+  - rollback_authority_source_ref
+- If any required rollback-authority field is missing, the source job is
+  non-rollbackable.
 - No backfill is permitted.
-- Older rows that predate these fields remain non-revertable.
-- revert_source_job_id is populated only for mode = "revert_job".
+- Older rows that predate these fields remain non-rollbackable.
+- rollback_source_job_id is populated only for rollback jobs created from a
+  selected source job.
+
+rollback_scope_manifest minimum contract:
+- exactly one immutable manifest per rollback-capable source job
+- one entry per authoritative source-scope lifecycle unit
+- lifecycle kind per entry: add | modify | delete | rename
+- old_path and new_path fields sufficient to evaluate lifecycle semantics
+- source-side authority descriptor sufficient to re-identify the source scope
+  later
+
+applied_files and applied_files_source are explicitly non-authoritative for
+rollback intent derivation.
 
 7.2.9A GET /api/patches/zip_manifest?path=<string>
 Output:
@@ -2448,7 +2484,7 @@ Errors:
 
 7.3.2 POST /api/jobs/enqueue
 Input JSON fields (minimum accepted by app_api_jobs.py):
-- mode: "patch" | "repair" | "finalize_live" | "finalize_workspace" | "rerun_latest"
+- mode: "patch" | "repair" | "finalize_live" | "finalize_workspace" | "rerun_latest" | "rollback"
 - issue_id: "<string>"           (optional for patch/repair; auto-allocated if missing)
 - commit_message: "<string>"     (required for patch/repair unless raw_command provides)
 - patch_path: "<string>"         (required for patch/repair unless raw_command provides)
@@ -2457,6 +2493,10 @@ Input JSON fields (minimum accepted by app_api_jobs.py):
 - target_repo: "<string>"        (optional; structured patch/finalize_live/finalize_workspace/rerun_latest only;
                                   see Section 5.3.1)
 - selected_patch_entries: ["<zip member>", ...] (optional; patch/repair zip subset only)
+- rollback_source_job_id: "<string>" (required for rollback)
+- rollback_scope_kind: "full" | "subset" (required for rollback)
+- rollback_selected_repo_paths: ["<repo path>", ...] (required only when rollback_scope_kind = "subset")
+- rollback_preflight_token: "<string>" (required for rollback execute after successful guided preflight)
 
 Behavior:
 - If raw_command is present:
@@ -2487,6 +2527,21 @@ Behavior:
 - Gate options in the main UI are transient only; they feed gate_argv for the
   current enqueue request and MUST NOT mutate AMP config.
 - Target field semantics are defined only in Section 5.3.1.
+- rollback mode MUST require rollback_source_job_id, rollback_scope_kind, and rollback_preflight_token.
+- rollback mode MUST NOT consume raw_command.
+- rollback mode MUST NOT derive source scope from patch_path.
+- rollback mode MUST enqueue only after successful guided preflight and second-validation readiness.
+- Subset selection normalization rules:
+  - rollback_selected_repo_paths is path-based input only.
+  - PatchHub MUST normalize subset selection into an authoritative selected-entry set before helper actions, preview, token issuance, or execution.
+  - For lifecycle add, modify, and delete, one authoritative entry corresponds to one authoritative repo path.
+  - For lifecycle rename, one authoritative entry corresponds to the pair old_path and new_path.
+  - If rollback_selected_repo_paths contains either old_path or new_path of a rename entry, PatchHub MUST treat the whole rename entry as selected.
+  - If both old_path and new_path are present, they MUST collapse to one selected rename entry.
+  - Partial rename selection is forbidden.
+  - Any selected path that does not resolve to an authoritative source-scope entry MUST fail validation.
+  - Duplicate raw selected paths MUST NOT affect authoritative selected-entry semantics.
+  - rollback_preflight_token MUST bind to the normalized authoritative selected-entry set, not to raw path order or duplicate raw path values.
 - Zip subset semantics for patch/repair:
   - No-subset branch is unchanged: if selected_patch_entries is absent, empty, or
     selects all selectable entries, PatchHub runs the original zip path.
@@ -2511,7 +2566,7 @@ JobRecord JSON schema (models.JobRecord):
 {
   "job_id": "<string>",
   "created_utc": "<UTC ISO Z string>",
-  "mode": "patch|repair|finalize_live|finalize_workspace|rerun_latest|revert_job",
+  "mode": "patch|repair|finalize_live|finalize_workspace|rerun_latest|rollback",
   "issue_id": "<string>",
   "commit_message": "<string>",
   "commit_summary": "<string>",
@@ -2537,7 +2592,11 @@ JobRecord JSON schema (models.JobRecord):
   "selected_repo_paths": ["<string>", ...],
   "run_start_sha": "<string|null>",
   "run_end_sha": "<string|null>",
-  "revert_source_job_id": "<string|null>"
+  "rollback_source_job_id": "<string|null>",
+  "rollback_scope_manifest_rel_path": "<string|null>",
+  "rollback_scope_manifest_hash": "<string|null>",
+  "rollback_authority_kind": "<string|null>",
+  "rollback_authority_source_ref": "<string|null>"
 }
 
 Notes:
@@ -2547,9 +2606,10 @@ Notes:
 - For new rows created after this feature, effective_runner_target_repo MUST be
   persisted as an explicit resolved token even when the runner would otherwise
   use the default target.
-- Semantics of run_start_sha, run_end_sha, revert_source_job_id, revert
-  availability, and fallback/backfill prohibition are defined only in
-  Section 7.2.9B.
+- Semantics of run_start_sha, run_end_sha, rollback_source_job_id,
+  rollback authority availability, subset normalization, and
+  fallback/backfill prohibition are defined only in Section 7.2.9B and
+  Section 7.3.2B.
 
 JobListItem JSON schema (used by Section 7.2.8 GET /api/jobs):
 {
@@ -2591,77 +2651,76 @@ UI contract for zip subset controls:
 - Preview remains collapsed-by-default; zip subset selection MUST NOT require Preview
   to be opened.
 
-7.3.2A POST /api/jobs/<job_id>/revert
-Output (success):
-{ "ok": true, "job_id": "<string>", "job": <JobRecord JSON> }
+UI contract for rollback helper modal:
+- The helper modal is auxiliary and MUST NOT replace the Start form as the
+  primary rollback workspace.
+- The helper modal MUST explain the concrete blocker, advice, or confirmation
+  state.
+- The helper modal MUST present concrete next actions.
+- Helper modal action families MUST include at minimum:
+  - refresh / re-check
+  - scope narrowing / expansion
+  - stash-like preservation
+  - discard / restore
+  - sync against authority
+  - execute rollback
+  - commit-producing rollback-support actions when applicable
+- If the UI renders a rename entry in subset selection, it MUST present it as
+  one logical rollback unit.
+- The UI MUST NOT present old_path and new_path as two independently
+  rollbackable units.
+- The transport may remain path-based, but the user-facing semantics for
+  rename MUST remain entry-atomic.
+- If helper UI reuses existing modal infrastructure that contains explicit any,
+  cleanup of the touched reusable modal files is in scope and MUST NOT be
+  deferred.
 
-Errors:
-- 404 if the source job does not exist in the active backend mode
-- 409 if the source job is non-revertable under Section 7.2.9B
+7.3.2A rollback entry and guided preflight
 
-Route contract:
-- PatchHub MUST create a new internal JobRecord with:
-  - mode = "revert_job"
-  - revert_source_job_id = "<source job_id>"
-  - issue_id copied from the source job
-  - effective_runner_target_repo copied from the source job
-- This route MUST NOT modify the Start form contract.
-- This route MUST NOT extend the Runs panel contract.
-- Source-job data validity for this route MUST be determined only by
-  Section 7.2.9B.
-- Revert execution semantics are defined only by Section 7.3.2B.
-- Live observability semantics for revert_job are defined only by
-  Section 7.1.3A.
+User-facing rollback entry does not execute repository mutation.
+- The `Roll-back` Jobs-list action establishes source-job rollback context in
+  the Start form and starts guided rollback preflight.
+- Guided preflight MUST begin immediately at rollback entry for both full and
+  subset rollback.
+- Guided preflight MUST compute:
+  - authoritative source scope
+  - lifecycle classification for each scope entry
+  - overlap-aware dirty-state analysis
+  - live-vs-authority sync status
+  - newer-overlap rollback chain requirements
+- If guided preflight finds blockers or actionable advice, PatchHub MUST open
+  a helper modal and MUST NOT proceed on doomed assumptions.
 
-7.3.2B revert_job execution contract
+7.3.2B guided helper actions and rollback execution contract
 
-Source of truth:
-- PatchHub MUST read the source job only from persisted first-class fields.
-- PatchHub MUST use:
-  - source.effective_runner_target_repo
-  - source.run_end_sha
-- PatchHub MUST NOT use AMP events, AMP stdout, raw logs, canonical_command,
-  patch archive metadata, workspace metadata, or any fallback source.
-
-Repository resolution:
-- PatchHub MUST resolve the live target repository exclusively from
-  revert_job.effective_runner_target_repo.
-
-Preflight:
-- Immediately before revert execution, PatchHub MUST capture
-  revert_job.run_start_sha as the live HEAD of the resolved target repository.
-- PatchHub MUST require a clean tracked working tree/index before attempting
-  revert.
-- If the tracked working tree/index is not clean, the revert_job MUST fail
-  without invoking git revert.
-
-Execution:
-- PatchHub MUST execute exactly:
-  git revert --no-edit <source.run_end_sha>
-
-Failure handling:
-- If git revert exits non-zero and a revert state is active, PatchHub MUST
-  execute:
-  git revert --abort
-- PatchHub MUST NOT auto-resolve conflicts.
-- PatchHub MUST NOT translate this operation into rollback, reset, checkout,
-  cherry-pick, rebase, or any other repository mutation.
-
-Postconditions on failure:
-- A failed revert_job MUST leave the repository HEAD equal to
-  revert_job.run_start_sha.
-- A failed revert_job MUST leave the tracked working tree/index clean.
-
-Postconditions on success:
-- On success, PatchHub MUST capture revert_job.run_end_sha as the live HEAD
-  after the revert commit is created.
-- On success, revert_job.run_end_sha MUST differ from revert_job.run_start_sha.
-- On success, the repository MUST contain exactly one new revert commit
-  created by the git revert operation.
-
-Scope lock:
-- This contract applies only to reverting one concrete source job.
-- It does not define rollback-to-before-job semantics.
+- Helper actions are rollback-support operations surfaced by PatchHub UI.
+- Helper actions MAY be non-mutating or commit-producing.
+- Commit-producing helper actions are allowed only as explicit
+  rollback-support operations.
+- Guided sync flow and guided rollback-chain flow are part of the rollback
+  architecture and MUST remain in UI.
+- Final rollback execution MUST be scope-based, not exact-single-commit-based.
+- Immediately before any rollback mutation, PatchHub MUST run a second
+  authoritative pre-execute validation.
+- If state changed after preview, PatchHub MUST abort execution on stale
+  assumptions and MUST return to guided handling.
+- The legacy user-facing contract `git revert --no-edit <source.run_end_sha>`
+  is removed or superseded for rollback.
+- Full rollback means rollback of the full authoritative source scope of the
+  selected source job.
+- File-scoped rollback means rollback of an explicit selected subset of the
+  authoritative source scope of the selected source job.
+- Deterministic lifecycle semantics for `add`, `modify`, `delete`, and
+  `rename` MUST be authoritative for both full and subset rollback.
+- Subset rollback operates on authoritative normalized selected entries, not on
+  raw submitted path strings.
+- For lifecycle `rename`, selecting either authoritative path representation
+  selects the whole rename entry.
+- Rollback helper flows, blocker analysis, sync analysis, rollback-chain
+  analysis, execution planning, tokening, and final execution MUST use the
+  same normalized selected-entry set.
+- User-visible selected-scope counts and summaries MUST count normalized
+  authoritative selected entries, not raw submitted path strings.
 
 7.3.3 POST /api/jobs/<job_id>/cancel
 Output (success):
