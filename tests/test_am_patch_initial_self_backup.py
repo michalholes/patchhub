@@ -273,6 +273,160 @@ def test_startup_context_calls_self_backup_before_ensure_workspace(
     ctx.status.stop()
 
 
+def test_startup_context_keeps_workspace_repo_config_content(monkeypatch, tmp_path: Path) -> None:
+    from am_patch.config import Policy
+    from am_patch.startup_context import build_paths_and_logger
+
+    workspace_repo = tmp_path / "workspace-repo"
+    workspace_repo.mkdir(parents=True)
+    live_repo = tmp_path / "live"
+    live_repo.mkdir(parents=True)
+    relpath = "am_patch.repo.toml"
+    _touch(live_repo, relpath, "from_live = true\n")
+    _touch(workspace_repo, relpath, "from_workspace = true\n")
+
+    class _Logger(_FakeLogger):
+        def close(self) -> None:
+            return
+
+    fake_logger = _Logger()
+
+    monkeypatch.setattr(
+        "am_patch.startup_context.resolve_patch_plan",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.resolve_root_model",
+        lambda *args, **kwargs: SimpleNamespace(
+            live_target_root=live_repo,
+            patch_root=tmp_path / "patches",
+            effective_target_repo_name="patchhub",
+            runner_root=tmp_path,
+            artifacts_root=tmp_path / "artifacts",
+        ),
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.build_startup_logger_and_ipc",
+        lambda *args, **kwargs: SimpleNamespace(logger=fake_logger, ipc=None),
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.git_ops.head_sha",
+        lambda *args, **kwargs: "base-sha",
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.maybe_create_initial_self_backup",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.ensure_workspace",
+        lambda *args, **kwargs: SimpleNamespace(repo=workspace_repo),
+    )
+
+    seen: dict[str, Path] = {}
+
+    def _load_repo_local_config(*, active_repository_tree_root: Path, **kwargs):
+        seen["root"] = active_repository_tree_root
+        return ({}, None, None)
+
+    monkeypatch.setattr(
+        "am_patch.startup_context.load_repo_local_config",
+        _load_repo_local_config,
+    )
+
+    policy = Policy()
+    policy.patch_dir = str(tmp_path / "patches")
+    policy.current_log_symlink_enabled = False
+    policy.verbosity = "quiet"
+    policy.log_level = "quiet"
+    policy.json_out = False
+    policy.ipc_socket_enabled = False
+    cli = SimpleNamespace(issue_id="364", mode="workspace", finalize_from_cwd=False)
+    cfg = tmp_path / "am_patch.toml"
+    cfg.write_text("", encoding="utf-8")
+
+    ctx = build_paths_and_logger(cli, policy, cfg, "test")
+    assert seen["root"] == workspace_repo
+    assert (workspace_repo / relpath).read_text(encoding="utf-8") == ("from_workspace = true\n")
+    ctx.status.stop()
+
+
+def test_startup_context_uses_workspace_root_for_repo_config_without_live_fallback(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from am_patch.config import Policy
+    from am_patch.startup_context import build_paths_and_logger
+
+    workspace_repo = tmp_path / "workspace-repo"
+    workspace_repo.mkdir(parents=True)
+    live_repo = tmp_path / "live"
+    live_repo.mkdir(parents=True)
+    relpath = "am_patch.repo.toml"
+    _touch(live_repo, relpath, "from_live = true\n")
+
+    class _Logger(_FakeLogger):
+        def close(self) -> None:
+            return
+
+    fake_logger = _Logger()
+
+    monkeypatch.setattr(
+        "am_patch.startup_context.resolve_patch_plan",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.resolve_root_model",
+        lambda *args, **kwargs: SimpleNamespace(
+            live_target_root=live_repo,
+            patch_root=tmp_path / "patches",
+            effective_target_repo_name="patchhub",
+            runner_root=tmp_path,
+            artifacts_root=tmp_path / "artifacts",
+        ),
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.build_startup_logger_and_ipc",
+        lambda *args, **kwargs: SimpleNamespace(logger=fake_logger, ipc=None),
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.git_ops.head_sha",
+        lambda *args, **kwargs: "base-sha",
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.maybe_create_initial_self_backup",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "am_patch.startup_context.ensure_workspace",
+        lambda *args, **kwargs: SimpleNamespace(repo=workspace_repo),
+    )
+
+    def _load_repo_local_config(*, active_repository_tree_root: Path, **kwargs):
+        cfg_path = active_repository_tree_root / relpath
+        assert active_repository_tree_root == workspace_repo
+        assert not cfg_path.exists()
+        return ({}, None, None)
+
+    monkeypatch.setattr(
+        "am_patch.startup_context.load_repo_local_config",
+        _load_repo_local_config,
+    )
+
+    policy = Policy()
+    policy.patch_dir = str(tmp_path / "patches")
+    policy.current_log_symlink_enabled = False
+    policy.verbosity = "quiet"
+    policy.log_level = "quiet"
+    policy.json_out = False
+    policy.ipc_socket_enabled = False
+    cli = SimpleNamespace(issue_id="364", mode="workspace", finalize_from_cwd=False)
+    cfg = tmp_path / "am_patch.toml"
+    cfg.write_text("", encoding="utf-8")
+
+    ctx = build_paths_and_logger(cli, policy, cfg, "test")
+    assert not (workspace_repo / relpath).exists()
+    ctx.status.stop()
+
+
 def test_execution_context_calls_self_backup_before_ensure_workspace(
     monkeypatch, tmp_path: Path
 ) -> None:

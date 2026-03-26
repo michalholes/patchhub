@@ -70,23 +70,6 @@ class RunContext:
             self.active_repository_tree_root = self.repo_root
 
 
-def _sync_repo_local_config_to_workspace_clone(
-    *,
-    live_target_root: Path,
-    workspace_repo_root: Path,
-    target_repo_config_relpath: str,
-) -> None:
-    relpath = str(target_repo_config_relpath or ".am_patch/am_patch.repo.toml").strip()
-    if not relpath:
-        return
-    src = live_target_root / relpath
-    if not src.is_file():
-        return
-    dst = workspace_repo_root / relpath
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
-
-
 def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: str) -> RunContext:
     runner_root = Path(__file__).resolve().parents[2]
     _, patch_root = resolve_patch_root(policy, runner_root=runner_root)
@@ -269,11 +252,6 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
                 if preopened_workspace is not None:
                     ctx.preopened_workspace = preopened_workspace
                     ctx.active_repository_tree_root = preopened_workspace.repo
-                    _sync_repo_local_config_to_workspace_clone(
-                        live_target_root=live_target_root,
-                        workspace_repo_root=ctx.active_repository_tree_root,
-                        target_repo_config_relpath=policy.target_repo_config_relpath,
-                    )
         elif cli.mode == "finalize_workspace" and cli.issue_id is not None:
             preopened_workspace = open_existing_workspace(
                 logger,
