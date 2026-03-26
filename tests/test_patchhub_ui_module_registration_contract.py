@@ -61,7 +61,11 @@ def test_wire_init_restores_live_autoscroll_state() -> None:
 def test_status_bar_uses_bounded_history_buffer() -> None:
     src = _read("scripts/patchhub/static/app.js")
     assert "UI_STATUS_LIMIT = 20" in src
-    assert "var uiStatusLines = [];" in src
+    assert re.search(
+        r"var\s+uiStatusLines\s*=\s*(?:/\*\*\s*@type\s*\{string\[\]\}\s*\*/\s*)?"
+        r"(?:\[\s*\]|\(\s*\[\s*\]\s*\))\s*;",
+        src,
+    )
     assert "payload.status.forEach((line) => {" in src
     assert "uiStatusLines.splice(0, uiStatusLines.length - UI_STATUS_LIMIT);" in src
 

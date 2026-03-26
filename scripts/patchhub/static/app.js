@@ -19,7 +19,7 @@
  *   value?: string, disabled?: boolean, checked?: boolean, files?: FileList | null,
  * }} PatchHubUiElement
  * @typedef {Window & typeof globalThis & {
- *   AMP_PATCHHUB_UI?: Object,
+ *   AMP_PATCHHUB_UI?: PatchhubUiBridge,
  *   PH?: PatchHubRuntime | null,
  *   PH_BOOT?: { bootLog?: function(string, string): void },
  *   PH_APP_SHOW_DEGRADED?: function(string): void,
@@ -31,24 +31,36 @@ var appWindow = /** @type {PatchHubWindow} */ (window);
 var appPhRuntime = appWindow.PH || null;
 
 appWindow.AMP_PATCHHUB_UI = appWindow.AMP_PATCHHUB_UI || {};
-const AMP_UI = appWindow.AMP_PATCHHUB_UI;
+var AMP_UI = /** @type {PatchhubUiBridge} */ (appWindow.AMP_PATCHHUB_UI);
 
-var activeJobId = null;
-var autoRefreshTimer = null;
+var activeJobId = /** @type {string | null} */ (null);
+var autoRefreshTimer = /** @type {ReturnType<typeof setInterval> | null} */ (
+	null
+);
 
 var UI_STATUS_LIMIT = 20;
-var uiStatusLines = [];
-var degradedNotes = [];
-var infoPoolHints = { upload: "", enqueue: "", fs: "", parse: "" };
-var infoPoolHintSeq = { upload: 0, enqueue: 0, fs: 0, parse: 0 };
+var uiStatusLines = /** @type {string[]} */ ([]);
+var degradedNotes = /** @type {string[]} */ ([]);
+var infoPoolHints = /** @type {PHStrMap} */ ({
+	upload: "",
+	enqueue: "",
+	fs: "",
+	parse: "",
+});
+var infoPoolHintSeq = /** @type {PHNumMap} */ ({
+	upload: 0,
+	enqueue: 0,
+	fs: 0,
+	parse: 0,
+});
 var infoPoolSeq = 0;
 /** @type {OperatorInfoSnapshot} */
 var backendOperatorInfo = { cleanup_recent_status: [] };
 
-var selectedJobId = null;
-var liveStreamJobId = null;
-var liveES = null;
-var liveEvents = [];
+var selectedJobId = /** @type {string | null} */ (null);
+var liveStreamJobId = /** @type {string | null} */ (null);
+var liveES = /** @type {EventSource | null} */ (null);
+var liveEvents = /** @type {unknown[]} */ ([]);
 var liveLevel = "normal";
 
 var previewVisible = false;
@@ -59,7 +71,7 @@ var jobsVisible = false;
 var patchesCache = [];
 var workspacesCache = [];
 
-function appLog(kind, message) {
+function appLog(/** @type {string} */ kind, /** @type {string} */ message) {
 	var msg = String(message || "");
 	try {
 		if (appWindow.PH_BOOT && typeof appWindow.PH_BOOT.bootLog === "function") {
@@ -86,7 +98,7 @@ function canRenderInfoPoolUi() {
 	);
 }
 
-function rememberDegraded(message) {
+function rememberDegraded(/** @type {string} */ message) {
 	var msg = String(message || "").trim();
 	if (!msg) return;
 	if (degradedNotes.indexOf(msg) < 0) degradedNotes.push(msg);
@@ -102,14 +114,14 @@ function rememberDegraded(message) {
 
 appWindow.PH_APP_SHOW_DEGRADED = rememberDegraded;
 
-async function loadParts(rt) {
+async function loadParts(/** @type {PatchHubRuntime} */ rt) {
 	appPhRuntime = rt;
 	var PH = appPhRuntime;
 	if (!PH) {
 		appLog("error", "PH runtime missing");
 		throw new Error("PH runtime missing");
 	}
-	function noteLoad(ok, note) {
+	function noteLoad(/** @type {boolean} */ ok, /** @type {string} */ note) {
 		if (!ok) rememberDegraded(note);
 		return ok;
 	}
@@ -139,6 +151,13 @@ async function loadParts(rt) {
 	noteLoad(
 		await PH.loadScript("/static/app_part_jobs.js", "app_part_jobs"),
 		"jobs module missing",
+	);
+	noteLoad(
+		await PH.loadScript(
+			"/static/app_part_jobs_revert.js",
+			"app_part_jobs_revert",
+		),
+		"jobs revert module missing",
 	);
 	noteLoad(
 		await PH.loadScript(
@@ -222,7 +241,9 @@ async function loadParts(rt) {
 }
 
 // Called by bootstrap.
-appWindow.PH_APP_MAIN = async function PH_APP_MAIN(rt) {
+appWindow.PH_APP_MAIN = async function PH_APP_MAIN(
+	/** @type {PatchHubRuntime} */ rt,
+) {
 	await loadParts(rt);
 	var PH = appPhRuntime;
 	if (!PH || typeof PH.call !== "function") {
@@ -247,7 +268,7 @@ var idleSigs = {
 	snapshot: "",
 };
 
-function setPreviewVisible(v) {
+function setPreviewVisible(/** @type {unknown} */ v) {
 	previewVisible = !!v;
 	var wrap = el("previewWrapRight");
 	var btn1 = el("previewToggle");
@@ -258,7 +279,10 @@ function setPreviewVisible(v) {
 	if (btn2) btn2.textContent = t;
 }
 
-function isNearBottom(node, slack) {
+function isNearBottom(
+	/** @type {PHElRef} */ node,
+	/** @type {PHNumRef} */ slack,
+) {
 	if (!node) return true;
 	slack = slack == null ? 20 : slack;
 	return node.scrollTop + node.clientHeight >= node.scrollHeight - slack;
@@ -272,14 +296,17 @@ function el(id) {
 	return document.getElementById(id);
 }
 
-function normalizeUiStatusLines(message) {
+function normalizeUiStatusLines(/** @type {string} */ message) {
 	return String(message || "")
 		.split(/\r?\n/)
 		.map((line) => line.replace(/\s+/g, " ").trim())
 		.filter((line) => !!line);
 }
 
-function setLegacyPooledNode(id, message) {
+function setLegacyPooledNode(
+	/** @type {string} */ id,
+	/** @type {string} */ message,
+) {
 	var node = el(id);
 	if (!node) return;
 	var text = String(message || "").trim();
@@ -316,10 +343,14 @@ function getInfoPoolSnapshot() {
 }
 
 /** @returns {OperatorInfoSnapshot} */
-function normalizeOperatorInfoSnapshot(payload) {
-	var info = payload && typeof payload === "object" ? payload : {};
+function normalizeOperatorInfoSnapshot(/** @type {unknown} */ payload) {
+	var info = /** @type {OperatorInfoSnapshot} */ (
+		payload && typeof payload === "object" ? payload : {}
+	);
 	var cleanup = Array.isArray(info.cleanup_recent_status)
-		? info.cleanup_recent_status.map((item) => ({ ...item }))
+		? info.cleanup_recent_status.map(
+				(/** @type {CleanupRecentStatusItem} */ item) => ({ ...item }),
+			)
 		: [];
 	return { cleanup_recent_status: cleanup };
 }
@@ -329,12 +360,15 @@ function getOperatorInfoSnapshot() {
 	return normalizeOperatorInfoSnapshot(backendOperatorInfo);
 }
 
-function setOperatorInfoSnapshot(payload) {
+function setOperatorInfoSnapshot(/** @type {unknown} */ payload) {
 	backendOperatorInfo = normalizeOperatorInfoSnapshot(payload);
 	if (canRenderInfoPoolUi()) appPhRuntime.call("renderInfoPoolUi");
 }
 
-function setInfoPoolHint(source, message) {
+function setInfoPoolHint(
+	/** @type {string} */ source,
+	/** @type {string} */ message,
+) {
 	var key = String(source || "");
 	if (!Object.hasOwn(infoPoolHints, key)) return;
 	var text = String(message || "").trim();
@@ -362,10 +396,10 @@ function renderUiStatusLines() {
 	node.textContent = uiStatusLines.join("\n");
 }
 
-function pushUiStatusLine(message) {
+function pushUiStatusLine(/** @type {string} */ message) {
 	var lines = normalizeUiStatusLines(message);
 	if (!lines.length) return;
-	lines.forEach((line) => {
+	lines.forEach((/** @type {string} */ line) => {
 		uiStatusLines.push(line);
 	});
 	if (uiStatusLines.length > UI_STATUS_LIMIT) {
@@ -374,15 +408,15 @@ function pushUiStatusLine(message) {
 	renderUiStatusLines();
 }
 
-function setUiStatus(message) {
+function setUiStatus(/** @type {string} */ message) {
 	pushUiStatusLine(message);
 }
 
-function setUiError(errorText) {
+function setUiError(/** @type {string} */ errorText) {
 	pushUiStatusLine(`ERROR: ${String(errorText || "")}`);
 }
 
-function pushApiStatus(payload) {
+function pushApiStatus(/** @type {PatchhubStatusPayload} */ payload) {
 	if (!payload) return;
 	if (payload.ok === false && payload.error) {
 		setUiError(String(payload.error || ""));
@@ -399,7 +433,7 @@ function pushApiStatus(payload) {
 	});
 }
 
-function setPre(id, obj) {
+function setPre(/** @type {string} */ id, /** @type {unknown} */ obj) {
 	var node = el(id);
 	if (!node) return;
 	if (typeof obj === "string") {
@@ -413,13 +447,13 @@ function setPre(id, obj) {
 	}
 }
 
-function setText(id, text) {
+function setText(/** @type {string} */ id, /** @type {unknown} */ text) {
 	var node = el(id);
 	if (!node) return;
 	node.textContent = String(text || "");
 }
 
-function formatLocalTime(isoUtc) {
+function formatLocalTime(/** @type {string | null | undefined} */ isoUtc) {
 	if (!isoUtc) return "";
 	var d = new Date(String(isoUtc));
 	if (isNaN(d.getTime())) return String(isoUtc);
@@ -433,7 +467,7 @@ function formatLocalTime(isoUtc) {
 	});
 }
 
-function apiGet(path) {
+function apiGet(/** @type {string} */ path) {
 	return fetch(path, { headers: { Accept: "application/json" } }).then((r) =>
 		r.text().then((t) => {
 			try {
@@ -450,11 +484,11 @@ function apiGet(path) {
 	);
 }
 
-var __phEtagCache = {};
-var __phInFlight = {};
-var __phAborters = {};
+var __phEtagCache = /** @type {PHStrMap} */ ({});
+var __phInFlight = /** @type {Record<string, Promise<unknown> | null>} */ ({});
+var __phAborters = /** @type {Record<string, AbortController | null>} */ ({});
 
-function apiAbortKey(key) {
+function apiAbortKey(/** @type {string} */ key) {
 	key = String(key || "");
 	var ctl = null;
 	try {
@@ -465,7 +499,11 @@ function apiAbortKey(key) {
 	__phInFlight[key] = null;
 }
 
-function apiGetETag(key, path, opts) {
+function apiGetETag(
+	/** @type {string} */ key,
+	/** @type {string} */ path,
+	/** @type {PatchhubGetEtagOpts} */ opts,
+) {
 	key = String(key || "");
 	path = String(path || "");
 	opts = opts || {};
@@ -473,10 +511,10 @@ function apiGetETag(key, path, opts) {
 	// Request policy:
 	// - mode="periodic": MUST NOT start a second request if one is in-flight.
 	// - mode="user" or "latest": abort prior request (deterministic: latest wins).
-	var mode = String(opts.mode || "latest")
+	var mode = String((opts && opts.mode) || "latest")
 		.trim()
 		.toLowerCase();
-	var singleFlight = !!opts.single_flight;
+	var singleFlight = !!(opts && opts.single_flight);
 
 	var cur = __phInFlight[key];
 	if (cur && (mode === "periodic" || singleFlight)) return cur;
@@ -488,7 +526,7 @@ function apiGetETag(key, path, opts) {
 	var ctl = new AbortController();
 	__phAborters[key] = ctl;
 
-	var hdr = { Accept: "application/json" };
+	var hdr = /** @type {PHStrMap} */ ({ Accept: "application/json" });
 	var et = __phEtagCache[key];
 	if (et) hdr["If-None-Match"] = String(et);
 
@@ -517,7 +555,10 @@ function apiGetETag(key, path, opts) {
 	});
 }
 
-function apiPost(path, body) {
+function apiPost(
+	/** @type {string} */ path,
+	/** @type {Record<string, unknown>} */ body,
+) {
 	return fetch(path, {
 		method: "POST",
 		headers: {
@@ -541,7 +582,7 @@ function apiPost(path, body) {
 	);
 }
 
-function joinRel(a, b) {
+function joinRel(/** @type {string} */ a, /** @type {string} */ b) {
 	a = String(a || "").replace(/\/+$/, "");
 	b = String(b || "").replace(/^\/+/, "");
 	if (!a) return b;
@@ -549,14 +590,14 @@ function joinRel(a, b) {
 	return `${a}/${b}`;
 }
 
-function parentRel(p) {
+function parentRel(/** @type {string} */ p) {
 	p = String(p || "").replace(/\/+$/, "");
 	var idx = p.lastIndexOf("/");
 	if (idx < 0) return "";
 	return p.slice(0, idx);
 }
 
-function escapeHtml(s) {
+function escapeHtml(/** @type {string} */ s) {
 	return String(s || "")
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
@@ -565,13 +606,13 @@ function escapeHtml(s) {
 		.replace(/'/g, "&#39;");
 }
 
-var cfg = null;
-var issueRegex = null;
+var cfg = /** @type {PatchhubConfig | null} */ (null);
+var issueRegex = /** @type {RegExp | null} */ (null);
 var fsSelected = "";
-var fsChecked = {};
-var fsLastRels = [];
-var runsCache = [];
-var selectedRun = null;
+var fsChecked = /** @type {Record<string, boolean>} */ ({});
+var fsLastRels = /** @type {string[]} */ ([]);
+var runsCache = /** @type {unknown[]} */ ([]);
+var selectedRun = /** @type {unknown | null} */ (null);
 var tailLines = 200;
 
 var dirty = {
@@ -582,14 +623,14 @@ var dirty = {
 };
 var latestToken = "";
 var lastAutofillClearedToken = "";
-var autofillTimer = null;
+var autofillTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
 
 var suppressIdleOutput = false;
 
 var lastParsedRaw = "";
-var lastParsed = null;
+var lastParsed = /** @type {Record<string, unknown> | null} */ (null);
 var parseInFlight = false;
-var parseTimer = null;
+var parseTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
 var parseSeq = 0;
 
 function patchesRootRel() {
@@ -600,7 +641,7 @@ function patchesRootRel() {
 	return p.replace(/\/+$/, "");
 }
 
-function stripPatchesPrefix(path) {
+function stripPatchesPrefix(/** @type {string} */ path) {
 	var pfx = patchesRootRel();
 	var p = String(path || "").replace(/^\/+/, "");
 	if (p === pfx) return "";
@@ -608,7 +649,7 @@ function stripPatchesPrefix(path) {
 	return p;
 }
 
-function normalizePatchPath(p) {
+function normalizePatchPath(/** @type {string} */ p) {
 	p = String(p || "")
 		.trim()
 		.replace(/^\/+/, "");
@@ -620,7 +661,7 @@ function normalizePatchPath(p) {
 	return joinRel(pfx, p);
 }
 
-function setFsHint(msg) {
+function setFsHint(/** @type {string} */ msg) {
 	setInfoPoolHint("fs", msg || "");
 }
 
@@ -681,7 +722,7 @@ function fsDownloadSelected() {
 		});
 }
 
-function setParseHint(msg) {
+function setParseHint(/** @type {string} */ msg) {
 	setInfoPoolHint("parse", msg || "");
 }
 
@@ -697,7 +738,7 @@ function clearParsedState() {
 	parseInFlight = false;
 }
 
-function triggerParse(raw) {
+function triggerParse(/** @type {string} */ raw) {
 	raw = String(raw || "").trim();
 	if (!raw) {
 		clearParsedState();
@@ -715,7 +756,8 @@ function triggerParse(raw) {
 
 	parseSeq += 1;
 	var mySeq = parseSeq;
-	apiPost("/api/parse_command", { raw: raw }).then((r) => {
+	apiPost("/api/parse_command", { raw: raw }).then((resp) => {
+		var r = /** @type {PatchhubParseCommandResponse} */ (resp);
 		if (mySeq !== parseSeq) return;
 		parseInFlight = false;
 
@@ -749,7 +791,7 @@ function triggerParse(raw) {
 	});
 }
 
-function scheduleParseDebounced(raw) {
+function scheduleParseDebounced(/** @type {string} */ raw) {
 	if (parseTimer) {
 		clearTimeout(parseTimer);
 		parseTimer = null;
@@ -761,8 +803,9 @@ function scheduleParseDebounced(raw) {
 }
 
 function refreshFs() {
-	var path = el("fsPath").value || "";
-	apiGet(`/api/fs/list?path=${encodeURIComponent(path)}`).then((r) => {
+	var path = String(el("fsPath").value || "");
+	apiGet(`/api/fs/list?path=${encodeURIComponent(path)}`).then((resp) => {
+		var r = /** @type {PatchhubFsListResponse} */ (resp);
 		if (!r || r.ok === false) {
 			setPre("fsList", r);
 			return;
@@ -770,49 +813,53 @@ function refreshFs() {
 		var items = r.items || [];
 		fsLastRels = [];
 		var html = items
-			.map((it) => {
-				var name = it.name;
-				var isDir = !!it.is_dir;
-				var rel = joinRel(path, name);
-				fsLastRels.push(rel);
+			.map(
+				(
+					/** @type {{ name?: string, is_dir?: boolean, size?: number }} */ it,
+				) => {
+					var name = it.name;
+					var isDir = !!it.is_dir;
+					var rel = joinRel(path, name);
+					fsLastRels.push(rel);
 
-				var displayName = isDir ? `${name}/` : name;
-				var isSelected = fsSelected === rel;
-				var cls = `item fsitem${isSelected ? " selected" : ""}`;
-				var checked = fsChecked[rel] ? " checked" : "";
+					var displayName = isDir ? `${name}/` : name;
+					var isSelected = fsSelected === rel;
+					var cls = `item fsitem${isSelected ? " selected" : ""}`;
+					var checked = fsChecked[rel] ? " checked" : "";
 
-				var dl = "";
-				if (!isDir) {
-					dl =
-						'<button class="btn btn-small btn-inline fsDl" data-rel="' +
+					var dl = "";
+					if (!isDir) {
+						dl =
+							'<button class="btn btn-small btn-inline fsDl" data-rel="' +
+							escapeHtml(rel) +
+							'">Download</button>';
+					}
+
+					return (
+						'<div class="' +
+						cls +
+						'" data-rel="' +
 						escapeHtml(rel) +
-						'">Download</button>';
-				}
-
-				return (
-					'<div class="' +
-					cls +
-					'" data-rel="' +
-					escapeHtml(rel) +
-					'" data-isdir="' +
-					(isDir ? "1" : "0") +
-					'">' +
-					'<input class="fsChk" type="checkbox" data-rel="' +
-					escapeHtml(rel) +
-					'" aria-label="Select" ' +
-					checked +
-					" />" +
-					'<span class="name">' +
-					escapeHtml(displayName) +
-					"</span>" +
-					'<span class="actions"><span class="muted">' +
-					String(it.size || 0) +
-					"</span>" +
-					dl +
-					"</span>" +
-					"</div>"
-				);
-			})
+						'" data-isdir="' +
+						(isDir ? "1" : "0") +
+						'">' +
+						'<input class="fsChk" type="checkbox" data-rel="' +
+						escapeHtml(rel) +
+						'" aria-label="Select" ' +
+						checked +
+						" />" +
+						'<span class="name">' +
+						escapeHtml(displayName) +
+						"</span>" +
+						'<span class="actions"><span class="muted">' +
+						String(it.size || 0) +
+						"</span>" +
+						dl +
+						"</span>" +
+						"</div>"
+					);
+				},
+			)
 			.join("");
 
 		el("fsList").innerHTML = html || '<div class="muted">(empty)</div>';

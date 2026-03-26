@@ -248,8 +248,50 @@ declare global {
 		textContent: string;
 	}
 
+	type PatchhubStringMap = Record<string, string>;
+	type PatchhubNumberMap = Record<string, number>;
+	type PatchhubMaybeElement = HTMLElement | null | undefined;
+	type PatchhubMaybeNumber = number | null | undefined;
+	type PHStrMap = PatchhubStringMap;
+	type PHNumMap = PatchhubNumberMap;
+	type PHElRef = PatchhubMaybeElement;
+	type PHNumRef = PatchhubMaybeNumber;
+	type PatchhubStatusPayload =
+		| {
+				ok?: boolean;
+				error?: string;
+				status?: string[];
+		  }
+		| null
+		| undefined;
+	type PatchhubGetEtagOpts =
+		| {
+				mode?: string;
+				single_flight?: boolean;
+		  }
+		| null
+		| undefined;
+	type PatchhubParseCommandResponse = {
+		ok?: boolean;
+		error?: string;
+		parsed?: {
+			mode?: string;
+			issue_id?: string;
+			commit_message?: string;
+			patch_path?: string;
+		};
+	};
+	type PatchhubFsListResponse = {
+		ok?: boolean;
+		items?: Array<{ name?: string; is_dir?: boolean; size?: number }>;
+	};
+
 	interface PatchhubUiBridge {
-		saveLiveJobId(jobId: string): void;
+		saveLiveJobId?(jobId: string): void;
+		savePatchesVisible?(): void;
+		saveWorkspacesVisible?(): void;
+		saveRunsVisible?(): void;
+		saveJobsVisible?(): void;
 		updateProgressPanelFromEvents?(payload: {
 			jobs: Array<Record<string, unknown>>;
 		}): void;
@@ -259,6 +301,7 @@ declare global {
 		runner?: { command?: string[] };
 		ui?: { idle_auto_select_last_job?: boolean };
 		server?: { host?: string; port?: string | number };
+		paths?: { patches_root?: string };
 	}
 
 	interface PatchhubDirtyFlags {
@@ -293,6 +336,7 @@ declare global {
 	function setParseHint(message: string): void;
 	function setUiStatus(message: string): void;
 	function setUiError(message: string): void;
+	function validateAndPreview(): unknown;
 	function normalizePatchPath(value: string): string;
 	function escapeHtml(value: string): string;
 	function apiGet(path: string): Promise<unknown>;

@@ -356,40 +356,6 @@ function pruneJobDetailCache(
 	});
 }
 
-function selectedJobDetail() {
-	var jobId = String(selectedJobId || "").trim();
-	if (!jobId) return null;
-	return jobDetailCache[jobId] || null;
-}
-
-function detailHasRevertFields(
-	/** @type {PatchhubJob | null | undefined} */ detail,
-) {
-	return !!(
-		String((detail && detail.effective_runner_target_repo) || "").trim() &&
-		String((detail && detail.run_start_sha) || "").trim() &&
-		String((detail && detail.run_end_sha) || "").trim()
-	);
-}
-
-function ensureSelectedJobDetailLoaded() {
-	var jobId = String(selectedJobId || "").trim();
-	if (!jobId) return Promise.resolve(null);
-	if (jobDetailCache[jobId]) return Promise.resolve(jobDetailCache[jobId]);
-	if (jobDetailInflight[jobId]) return jobDetailInflight[jobId];
-	jobDetailInflight[jobId] = loadJobDetail(jobId)
-		.then((resp) => {
-			if (!resp || resp.ok === false || !resp.job) return null;
-			cacheJobDetail(resp.job);
-			if (String(selectedJobId || "").trim() === jobId) renderJobsList();
-			return resp.job;
-		})
-		.finally(() => {
-			delete jobDetailInflight[jobId];
-		});
-	return jobDetailInflight[jobId];
-}
-
 function reportRevertError(/** @type {string | null | undefined} */ message) {
 	var text = String(message || "revert: failed");
 	if (typeof setUiError === "function") {
@@ -571,7 +537,6 @@ function renderJobsList() {
 	var jobs = Array.isArray(jobsCache) ? jobsCache.slice() : [];
 	var trackedActiveId = String(phCall("getTrackedActiveJobId", jobs) || "");
 	var tickNowMs = getVisibleDurationNowMs();
-	var selectedDetail = selectedJobDetail();
 	var html = jobs
 		.map((j) => {
 			var jobId = String(j.job_id || "");
@@ -609,11 +574,7 @@ function renderJobsList() {
 			var meta = metaParts.join(" | ");
 			var commit = String(j.commit_summary || "").trim();
 			var showRerun = isRerunLatestListCandidate(j);
-			var showRevert = !!(
-				isSel &&
-				selectedDetail &&
-				detailHasRevertFields(selectedDetail)
-			);
+			var showRevert = !!phCall("shouldShowJobsRevert", j);
 
 			var line = '<div class="' + cls + '">';
 			line +=
@@ -744,7 +705,7 @@ function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 	syncTrackedJobDurationClock(jobs);
 	ensureAutoRefresh(jobs);
 	renderJobsList();
-	ensureSelectedJobDetailLoaded();
+	phCall("syncJobsRevertState", jobsCache, renderJobsList);
 	syncJobsDurationSurface();
 }
 
