@@ -1,5 +1,5 @@
 verbosity = "normal" # debug | verbose | normal | quiet
-log_level = "normal" # quiet | normal | warning | verbose | debug
+log_level = "quiet" # quiet | normal | warning | verbose | debug
 console_color = "auto" # auto | always | never
 runner_subprocess_timeout_s = 1800
 json_out = false
@@ -78,9 +78,6 @@ gate_badguys_mode = "auto"
 gate_badguys_trigger_prefixes = ["scripts/am_patch"]
 gate_badguys_trigger_files = [
   "scripts/am_patch.py",
-  "scripts/am_patch.md",
-  "scripts/am_patch_specification.md",
-  "scripts/am_patch_instructions.md",
 ]
 gate_badguys_command = ["badguys/badguys.py", "-q"]
 
