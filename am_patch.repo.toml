@@ -147,7 +147,7 @@ audit_rubric_guard = false
 gate_ruff_mode = "auto"
 gate_mypy_mode = "auto"
 gate_pytest_mode = "auto"
-gate_pytest_py_prefixes = ["badguys", "scripts", "tests"]
+gate_pytest_py_prefixes = ["governance", "badguys", "scripts", "tests"]
 gate_pytest_js_prefixes = ["scripts/patchhub/static"]
 pytest_routing_mode = "bucketed"
 pytest_full_suite_prefixes = [
@@ -158,9 +158,9 @@ pytest_full_suite_prefixes = [
   "tests/e2e/_server_patchhub.py",
   "tests/e2e/_asset_inventory.py",
 ]
-ruff_targets = ["badguys", "scripts", "tests"]
+ruff_targets = ["badguys", "scripts", "governance", "tests"]
 pytest_targets = ["tests"]
-mypy_targets = ["scripts", "badguys"]
+mypy_targets = ["scripts", "badguys", "governance"]
 
 [pytest_roots]
 "amp.*" = "scripts/am_patch/"
