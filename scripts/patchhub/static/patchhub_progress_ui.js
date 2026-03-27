@@ -803,7 +803,7 @@
 	}
 
 	function updateProgressPanelFromEvents(opts) {
-		var hasJobs = !!opts && Object.prototype.hasOwnProperty.call(opts, "jobs");
+		var hasJobs = !!opts && Object.hasOwn(opts, "jobs");
 		var jobs = hasJobs
 			? Array.isArray(opts.jobs)
 				? opts.jobs

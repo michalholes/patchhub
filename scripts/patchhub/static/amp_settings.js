@@ -103,12 +103,10 @@
 		var o = p || {};
 		var type = o && o.type != null ? String(o.type) : "";
 		var defv =
-			o && Object.prototype.hasOwnProperty.call(o, "default")
-				? JSON.stringify(o.default)
-				: "";
+			o && Object.hasOwn(o, "default") ? JSON.stringify(o.default) : "";
 		var sec = o && o.section != null ? String(o.section) : "";
 		var ro = "";
-		if (o && Object.prototype.hasOwnProperty.call(o, "read_only")) {
+		if (o && Object.hasOwn(o, "read_only")) {
 			ro = o.read_only ? "true" : "false";
 		}
 		return (
@@ -278,7 +276,7 @@
 				let ro = "";
 				if (kind === "list_str")
 					ro = cloneListValue(values[key]).map(listDisplayValue).join(", ");
-				else if (kind === "bool") ro = !!values[key] ? "true" : "false";
+				else if (kind === "bool") ro = values[key] ? "true" : "false";
 				else ro = String(values[key] == null ? "" : values[key]);
 				ctl.appendChild(mk("span", "amp-readonly-value", ro));
 				row.appendChild(ctl);
@@ -375,10 +373,7 @@
 			var out = {};
 			Object.keys(fieldKinds).forEach((k) => {
 				var kind = fieldKinds[k];
-				var v =
-					src && Object.prototype.hasOwnProperty.call(src, k)
-						? src[k]
-						: undefined;
+				var v = src && Object.hasOwn(src, k) ? src[k] : undefined;
 				if (kind === "list_str") {
 					out[k] = cloneListValue(v);
 				} else if (kind === "bool") {

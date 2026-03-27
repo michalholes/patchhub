@@ -1,4 +1,4 @@
-(function () {
+(() => {
 	/** @typedef {{scope_kind?: string, selected_repo_paths?: string[],
 	 * selected_entry_ids?: string[], selected_entry_count?: number,
 	 * rollback_preflight_token?: string, can_execute?: boolean,

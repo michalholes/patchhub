@@ -1,4 +1,4 @@
-(function () {
+(() => {
 	/** @typedef {{entry_id?: string, lifecycle_kind?: string,
 	 * old_path?: string, new_path?: string, label?: string,
 	 * selection_paths?: string[], restore_paths?: string[]}}
@@ -260,9 +260,7 @@
 
 	if (PH && typeof PH.register === "function") {
 		PH.register("app_part_rollback_state", {
-			rollbackGetState: function () {
-				return rollbackState;
-			},
+			rollbackGetState: () => rollbackState,
 			rollbackPushApiStatus: pushApiStatusIfPresent,
 			rollbackRawCommand,
 			rollbackUniqueStrings: uniqueStrings,

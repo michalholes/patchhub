@@ -1,4 +1,4 @@
-(function () {
+(() => {
 	var patchWatchdogWindow = /** @type {Window & typeof globalThis & {
 	 *   PH?: {
 	 *     register?: function(string, Object): void,
