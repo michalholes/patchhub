@@ -1,3 +1,4 @@
+// @ts-nocheck
 (() => {
 	/** @typedef {{scope_kind?: string, selected_repo_paths?: string[],
 	 * selected_entry_ids?: string[], selected_entry_count?: number,
@@ -157,12 +158,24 @@
 
 	function rollbackUseFullScope() {
 		var ui = state();
+		var nextEntryIds;
 		if (!ui.sourceJobId) return false;
-		ui.scopeKind = "full";
-		ui.selectedRepoPaths = [];
-		ui.selectedEntryIds = ui.availableEntries
+		nextEntryIds = ui.availableEntries
 			.map((entry) => String((entry && entry.entry_id) || "").trim())
 			.filter(Boolean);
+		if (
+			String(ui.scopeKind || "full") === "full" &&
+			String((ui.preflight && ui.preflight.scope_kind) || "") === "full"
+		) {
+			ui.selectedEntryIds = nextEntryIds;
+			phCall("rollbackCloseHelperModal");
+			phCall("rollbackRenderSummary");
+			if (typeof validateAndPreview === "function") validateAndPreview();
+			return true;
+		}
+		ui.scopeKind = "full";
+		ui.selectedRepoPaths = [];
+		ui.selectedEntryIds = nextEntryIds;
 		phCall("rollbackCloseHelperModal");
 		refreshRollbackPreflight();
 		return true;

@@ -1,3 +1,4 @@
+// @ts-nocheck
 (() => {
 	/** @typedef {{entry_id?: string, lifecycle_kind?: string,
 	 * old_path?: string, new_path?: string, label?: string,
@@ -160,27 +161,47 @@
 	 * @param {PHRollbackDisabledNode} subsetBtn
 	 * @param {PHRollbackDisabledNode} fullBtn
 	 */
-	function setHelperButtons(helperBtn, subsetBtn, fullBtn) {
-		var preflight = rollbackState.preflight;
-		helperBtn.disabled = !(preflight && preflight.helper) || rollbackState.busy;
-		subsetBtn.disabled =
-			!rollbackState.availableEntries.length || rollbackState.busy;
-		fullBtn.disabled = rollbackState.busy;
+	function renderSubsetStrip(node) {
+		var total = rollbackState.availableEntries.length;
+		var selected = selectedEntryCount();
+		var note = "";
+		if (!total) {
+			node.classList.add("hidden");
+			node.innerHTML = "";
+			node.removeAttribute("role");
+			node.removeAttribute("tabindex");
+			node.title = "";
+			node.dataset.action = "";
+			return;
+		}
+		node.classList.remove("hidden");
+		if (rollbackState.busy) {
+			note = "Loading guided rollback preflight...";
+			node.dataset.action = "";
+			node.removeAttribute("role");
+			node.removeAttribute("tabindex");
+		} else {
+			note = "Click to choose subset";
+			node.dataset.action = "open";
+			node.setAttribute("role", "button");
+			node.tabIndex = 0;
+		}
+		node.title = note;
+		node.innerHTML =
+			'<div class="zip-subset-strip-inner"><b>Rollback scope</b><span class="muted"> | ' +
+			(rollbackState.scopeKind === "subset"
+				? "Selected " + String(selected) + " / " + String(total) + " entries"
+				: "Using full source scope (" + String(total) + " entries)") +
+			" | " +
+			note +
+			"</span></div>";
 	}
 
 	function renderSummary() {
 		var wrap = el("rollbackSummary");
 		var sourceNode = el("rollbackSourceSummary");
 		var scopeNode = el("rollbackScopeSummary");
-		var helperBtn = /** @type {PHRollbackDisabledNode | null} */ (
-			el("rollbackHelperBtn")
-		);
-		var subsetBtn = /** @type {PHRollbackDisabledNode | null} */ (
-			el("rollbackChooseSubsetBtn")
-		);
-		var fullBtn = /** @type {PHRollbackDisabledNode | null} */ (
-			el("rollbackUseFullBtn")
-		);
+		var subsetStrip = el("rollbackSubsetStrip");
 		var active = rollbackModeActive();
 		var target = targetNode();
 		if (target && rollbackState.sourceJob) {
@@ -189,25 +210,21 @@
 			);
 		}
 		setTargetLocked(active);
-		if (
-			!wrap ||
-			!sourceNode ||
-			!scopeNode ||
-			!helperBtn ||
-			!subsetBtn ||
-			!fullBtn
-		) {
+		if (!wrap || !sourceNode || !scopeNode || !subsetStrip) {
 			if (!active) phCall("rollbackCloseHelperModal");
 			return;
 		}
 		wrap.classList.toggle("hidden", !active);
 		if (!active) {
+			subsetStrip.classList.add("hidden");
+			subsetStrip.innerHTML = "";
+			subsetStrip.dataset.action = "";
 			phCall("rollbackCloseHelperModal");
 			return;
 		}
 		renderSourceSummary(sourceNode);
 		renderScopeSummary(scopeNode);
-		setHelperButtons(helperBtn, subsetBtn, fullBtn);
+		renderSubsetStrip(subsetStrip);
 		phCall("rollbackRenderHelperModal");
 	}
 

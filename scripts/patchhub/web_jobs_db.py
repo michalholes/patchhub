@@ -164,6 +164,37 @@ class WebJobsDatabase:
             ).fetchall()
         return [self._store._row_to_job_json(row) for row in rows]
 
+    def list_rollback_candidate_job_jsons(
+        self,
+        *,
+        target_repo: str,
+        created_after_unix_ms: int,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        with self._store._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                  FROM web_jobs
+                 WHERE status = ?
+                   AND effective_runner_target_repo = ?
+                   AND created_unix_ms > ?
+                   AND rollback_scope_manifest_rel_path IS NOT NULL
+                   AND rollback_scope_manifest_rel_path != ''
+                   AND rollback_scope_manifest_hash IS NOT NULL
+                   AND rollback_scope_manifest_hash != ''
+                 ORDER BY created_unix_ms DESC, job_id DESC
+                 LIMIT ?
+                """,
+                (
+                    "success",
+                    str(target_repo),
+                    int(created_after_unix_ms),
+                    max(1, int(limit)),
+                ),
+            ).fetchall()
+        return [self._store._row_to_job_json(row) for row in rows]
+
     def jobs_signature(self) -> tuple[int, int]:
         with self._store._connect() as conn:
             meta = conn.execute("SELECT jobs_rev FROM web_jobs_meta WHERE singleton = 1").fetchone()

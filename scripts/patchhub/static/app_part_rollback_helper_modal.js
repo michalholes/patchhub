@@ -351,22 +351,22 @@ function rollbackHandleAction(action) {
 }
 
 /** @returns {void} */
+function handleSubsetStripAction(target) {
+	var box =
+		target && typeof target.closest === "function"
+			? target.closest("#rollbackSubsetStrip")
+			: null;
+	if (!box) return false;
+	if (String(box.dataset.action || "") !== "open") return false;
+	rollbackOpenSubsetPicker();
+	return true;
+}
+
 function bindRollbackUiEvents() {
 	document.addEventListener("click", (ev) => {
 		var target = ev && ev.target instanceof HTMLElement ? ev.target : null;
 		if (!target) return;
-		if (target.id === "rollbackUseFullBtn") {
-			rollbackHelperPhCall("rollbackUseFullScope");
-			return;
-		}
-		if (target.id === "rollbackChooseSubsetBtn") {
-			rollbackOpenSubsetPicker();
-			return;
-		}
-		if (target.id === "rollbackHelperBtn") {
-			rollbackOpenHelperModal();
-			return;
-		}
+		if (handleSubsetStripAction(target)) return;
 		if (target.id === "rollbackHelperCloseBtn") {
 			rollbackCloseHelperModal();
 			return;
@@ -379,6 +379,13 @@ function bindRollbackUiEvents() {
 			target.getAttribute("data-rollback-action") || "",
 		).trim();
 		if (action) rollbackHandleAction(action);
+	});
+	document.addEventListener("keydown", (ev) => {
+		var target = ev && ev.target instanceof HTMLElement ? ev.target : null;
+		if (!target) return;
+		if (ev.key !== "Enter" && ev.key !== " ") return;
+		if (!handleSubsetStripAction(target)) return;
+		ev.preventDefault();
 	});
 	var helperModal = el("rollbackHelperModal");
 	if (helperModal) {

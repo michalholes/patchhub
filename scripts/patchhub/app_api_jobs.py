@@ -19,6 +19,7 @@ from .issue_alloc import allocate_next_issue_id
 from .job_ids import new_job_id
 from .job_record_lookup import (
     list_job_records_any_sync,
+    list_rollback_relevant_job_records_sync,
     load_job_record_any_sync,
     load_job_record_from_persistence,
 )
@@ -402,8 +403,14 @@ def _queue_block_reason(self) -> str | None:
     return None
 
 
-def _all_job_records_for_rollback(self, *, limit: int = 5000) -> list[JobRecord]:
-    return list_job_records_any_sync(
+def _all_job_records_for_rollback(
+    self,
+    source_job: JobRecord,
+    *,
+    limit: int = 5000,
+) -> list[JobRecord]:
+    return list_rollback_relevant_job_records_sync(
+        source_job=source_job,
         current_jobs=getattr(self.queue, "_jobs", {}).values(),
         job_db=getattr(self, "web_jobs_db", None),
         jobs_root=_legacy_jobs_root(self),
@@ -454,7 +461,7 @@ def _run_source_job_preflight(
         source_manifest_hash=manifest_hash,
         scope_kind=scope_kind,
         selected_repo_paths=selected_repo_paths,
-        all_jobs=_all_job_records_for_rollback(self),
+        all_jobs=_all_job_records_for_rollback(self, source_job),
     )
 
 
@@ -896,7 +903,7 @@ def api_rollback_helper_action(self, body: dict[str, Any]) -> tuple[int, bytes]:
             source_job=source_job,
             scope_kind=_rollback_scope_kind_from_body(body),
             selected_repo_paths=_rollback_selected_paths_from_body(body),
-            all_jobs=_all_job_records_for_rollback(self),
+            all_jobs=_all_job_records_for_rollback(self, source_job),
         )
     except (RollbackHelperActionError, RollbackPreflightError, ValueError) as exc:
         return _err(str(exc), status=409)
