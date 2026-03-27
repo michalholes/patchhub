@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import subprocess
 import sys
 import tempfile
@@ -76,6 +78,116 @@ def _write_zip(path: Path, members: dict[str, bytes]) -> None:
             zf.writestr(name, data)
 
 
+def _spec_bytes() -> bytes:
+    objects = [
+        {"type": "meta", "id": "meta-1"},
+        {"type": "binding_meta", "id": "binding-meta-1"},
+        {"type": "oracle", "id": "oracle-1"},
+        {
+            "type": "obligation_binding",
+            "id": "pack-rule-1",
+            "binding_type": "constraint_pack",
+            "match": {"phase": "final", "target": "implementation_scope"},
+            "symbol_role": "constraint_pack",
+            "authoritative_semantics": "constraint pack enforcement",
+            "peer_renderers": [],
+            "shared_contract_refs": [],
+            "downstream_consumers": [],
+            "exception_state_refs": [],
+            "required_wiring": [],
+            "forbidden": [],
+            "required_validation": [],
+            "verification_mode": "machine",
+            "verification_method": "validator",
+            "semantic_group": "constraint_pack",
+            "conflict_policy": "fail_closed",
+            "oracle_ref": "oracle-1",
+        },
+    ]
+    payload = "\n".join(json.dumps(obj, sort_keys=True, ensure_ascii=True) for obj in objects)
+    return (payload + "\n").encode("utf-8")
+
+
+def _pack_bytes(
+    spec_raw: bytes,
+    *,
+    mode: str = "final",
+    scope: str = "implementation_scope",
+) -> bytes:
+    active_binding = {
+        "type": "obligation_binding",
+        "id": "pack-rule-1",
+        "binding_type": "constraint_pack",
+        "match": {"phase": "final", "target": "implementation_scope"},
+        "symbol_role": "constraint_pack",
+        "authoritative_semantics": "constraint pack enforcement",
+        "peer_renderers": [],
+        "shared_contract_refs": [],
+        "downstream_consumers": [],
+        "exception_state_refs": [],
+        "required_wiring": [],
+        "forbidden": [],
+        "required_validation": [],
+        "verification_mode": "machine",
+        "verification_method": "validator",
+        "semantic_group": "constraint_pack",
+        "conflict_policy": "fail_closed",
+        "oracle_ref": "oracle-1",
+    }
+    pack = {
+        "target_symbol": None,
+        "target_scope": scope,
+        "mode": mode,
+        "spec_fingerprint": hashlib.sha256(spec_raw).hexdigest(),
+        "binding_meta_id": "binding-meta-1",
+        "active_bindings": [active_binding],
+        "active_rule_ids": ["pack-rule-1"],
+        "full_rule_text": {"pack-rule-1": "constraint pack enforcement"},
+        "match_basis": {"pack-rule-1": {"phase": "final", "target": "implementation_scope"}},
+        "authoritative_sources": ["docs/specification.jsonl"],
+        "shared_contracts": [],
+        "downstream_consumers": [],
+        "exception_state_refs": [],
+        "required_wiring": [],
+        "forbidden_strategies": [],
+        "required_validation": [],
+        "verification_mode_per_rule": {"pack-rule-1": "machine"},
+        "verification_method_per_rule": {"pack-rule-1": "validator"},
+        "oracle_refs": {"pack-rule-1": "oracle-1"},
+        "aggregate_scope_metadata": {
+            "binding_count": 1,
+            "mode": mode,
+            "target_scope": scope,
+        },
+    }
+    return (json.dumps(pack, indent=2, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
+
+
+def _instructions_zip(
+    path: Path,
+    *,
+    mode: str = "final",
+    scope: str = "implementation_scope",
+) -> Path:
+    spec_raw = _spec_bytes()
+    pack_raw = _pack_bytes(spec_raw, mode=mode, scope=scope)
+    _write_zip(
+        path,
+        {
+            "HANDOFF.md": b"SPEC CONTEXT\nPM version used: resolver-generated\n",
+            "constraint_pack.json": pack_raw,
+            "hash_pack.txt": (hashlib.sha256(pack_raw).hexdigest() + "\n").encode("ascii"),
+        },
+    )
+    return path
+
+
+def _with_spec(members: dict[str, bytes]) -> dict[str, bytes]:
+    out = dict(members)
+    out.setdefault("docs/specification.jsonl", _spec_bytes())
+    return out
+
+
 def _patch_zip(
     path: Path,
     members: dict[str, bytes],
@@ -99,12 +211,16 @@ def _overlay_zip(
     *,
     target: str = DEFAULT_TARGET,
 ) -> None:
-    _write_zip(path, {**members, "target.txt": (target + "\n").encode("utf-8")})
+    _write_zip(path, {**_with_spec(members), "target.txt": (target + "\n").encode("utf-8")})
 
 
-def _run(*args: str) -> subprocess.CompletedProcess[str]:
+def _snapshot_zip(path: Path, members: dict[str, bytes]) -> None:
+    _write_zip(path, _with_spec(members))
+
+
+def _run(instructions_zip: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
+        [sys.executable, str(SCRIPT), *args, str(instructions_zip)],
         capture_output=True,
         text=True,
         check=False,
@@ -133,13 +249,22 @@ def test_initial_mode_passes(tmp_path: Path) -> None:
     after = "def value():\n    return 2\n"
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "RESULT: PASS" in proc.stdout
     assert "RULE MONOLITH: PASS" in proc.stdout
+    assert "RULE PACK_RECOMPUTE: PASS - recompute_match" in proc.stdout
 
 
 def test_initial_mode_passes_with_target_file(tmp_path: Path) -> None:
@@ -148,13 +273,21 @@ def test_initial_mode_passes_with_target_file(tmp_path: Path) -> None:
     after = "def value():\n    return 2\n"
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(
         patch_zip,
         {_safe_member(relpath): _git_patch(relpath, before, after)},
     )
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert f"RULE TARGET_FILE: PASS - {DEFAULT_TARGET}" in proc.stdout
 
@@ -165,14 +298,22 @@ def test_initial_mode_without_target_file_fails(tmp_path: Path) -> None:
     after = "def value():\n    return 2\n"
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(
         patch_zip,
         {_safe_member(relpath): _git_patch(relpath, before, after)},
         target=None,
     )
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert "RULE TARGET_FILE: FAIL - missing_target_file" in proc.stdout
 
@@ -183,10 +324,18 @@ def test_initial_mode_rejects_invalid_snapshot_basename(tmp_path: Path) -> None:
     after = "def value():\n    return 2\n"
     snapshot = tmp_path / "workspace.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert (
         "RULE INITIAL_TARGET_SOURCE: FAIL - "
@@ -200,14 +349,22 @@ def test_initial_mode_rejects_target_mismatch(tmp_path: Path) -> None:
     after = "def value():\n    return 2\n"
     snapshot = tmp_path / f"{ALT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(
         patch_zip,
         {_safe_member(relpath): _git_patch(relpath, before, after)},
         target=DEFAULT_TARGET,
     )
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert (
         f"RULE INITIAL_TARGET_MATCH: FAIL - expected={ALT_TARGET}:actual={DEFAULT_TARGET}"
@@ -221,7 +378,8 @@ def test_target_file_rejects_crlf_newlines(tmp_path: Path) -> None:
     after = "def value():\n    return 2\n"
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _write_zip(
         patch_zip,
         {
@@ -232,7 +390,14 @@ def test_target_file_rejects_crlf_newlines(tmp_path: Path) -> None:
         },
     )
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert "RULE TARGET_FILE: FAIL - target_must_use_lf_newlines" in proc.stdout
 
@@ -243,7 +408,8 @@ def test_target_file_rejects_multiple_lines(tmp_path: Path) -> None:
     after = "def value():\n    return 2\n"
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _write_zip(
         patch_zip,
         {
@@ -254,7 +420,14 @@ def test_target_file_rejects_multiple_lines(tmp_path: Path) -> None:
         },
     )
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert "RULE TARGET_FILE: FAIL - target_must_have_exactly_one_line" in proc.stdout
 
@@ -265,10 +438,18 @@ def test_repair_overlay_only_passes(tmp_path: Path) -> None:
     after = "def value():\n    return 3\n"
     overlay = tmp_path / "patched_issue601_v1.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
     _overlay_zip(overlay, {relpath: before.encode("utf-8")})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
-    proc = _run("601", COMMIT, str(patch_zip), "--repair-overlay", str(overlay))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--repair-overlay",
+        str(overlay),
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "RESULT: PASS" in proc.stdout
     assert "RULE GIT_APPLY_CHECK:patches/per_file/scripts__sample.py.patch: PASS" in proc.stdout
@@ -281,11 +462,13 @@ def test_repair_supplemental_file_is_supported(tmp_path: Path) -> None:
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     overlay = tmp_path / "patched_issue601_v1.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _overlay_zip(overlay, {"scripts/sample.py": b"def value():\n    return 2\n"})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
     proc = _run(
+        instructions_zip,
         "601",
         COMMIT,
         str(patch_zip),
@@ -307,11 +490,13 @@ def test_repair_without_required_supplemental_file_fails(tmp_path: Path) -> None
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     overlay = tmp_path / "patched_issue601_v1.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _overlay_zip(overlay, {})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
     proc = _run(
+        instructions_zip,
         "601",
         COMMIT,
         str(patch_zip),
@@ -333,6 +518,7 @@ def test_repair_rejects_target_mismatch(tmp_path: Path) -> None:
     after = "def value():\n    return 3\n"
     overlay = tmp_path / "patched_issue601_v1.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
     _overlay_zip(overlay, {relpath: before.encode("utf-8")}, target=ALT_TARGET)
     _patch_zip(
         patch_zip,
@@ -340,7 +526,14 @@ def test_repair_rejects_target_mismatch(tmp_path: Path) -> None:
         target=DEFAULT_TARGET,
     )
 
-    proc = _run("601", COMMIT, str(patch_zip), "--repair-overlay", str(overlay))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--repair-overlay",
+        str(overlay),
+    )
     assert proc.returncode == 1
     assert (
         f"RULE REPAIR_TARGET_MATCH: FAIL - expected={ALT_TARGET}:actual={DEFAULT_TARGET}"
@@ -355,7 +548,8 @@ def test_repair_rejects_overlay_snapshot_target_mismatch(tmp_path: Path) -> None
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     overlay = tmp_path / "patched_issue601_v1.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _overlay_zip(overlay, {}, target=ALT_TARGET)
     _patch_zip(
         patch_zip,
@@ -364,6 +558,7 @@ def test_repair_rejects_overlay_snapshot_target_mismatch(tmp_path: Path) -> None
     )
 
     proc = _run(
+        instructions_zip,
         "601",
         COMMIT,
         str(patch_zip),
@@ -384,6 +579,7 @@ def test_repair_rejects_overlay_snapshot_target_mismatch(tmp_path: Path) -> None
 def test_monolith_hub_growth_is_reported(tmp_path: Path) -> None:
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
     base_files = {
         "scripts/am_patch/importer_a.py": "def run() -> None:\n    return None\n",
         "scripts/am_patch/importer_b.py": "def run() -> None:\n    return None\n",
@@ -391,7 +587,7 @@ def test_monolith_hub_growth_is_reported(tmp_path: Path) -> None:
         "tests/test_importer_a.py": "def test_a() -> None:\n    return None\n",
         "tests/test_importer_b.py": "def test_b() -> None:\n    return None\n",
     }
-    _write_zip(snapshot, {path: text.encode("utf-8") for path, text in base_files.items()})
+    _snapshot_zip(snapshot, {path: text.encode("utf-8") for path, text in base_files.items()})
 
     hub_body = "\n".join(
         [
@@ -441,7 +637,14 @@ def test_monolith_hub_growth_is_reported(tmp_path: Path) -> None:
     }
     _patch_zip(patch_zip, members)
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert "RULE MONOLITH: FAIL" in proc.stdout
     assert "hub_signal_fanin:scripts/am_patch/hub.py" in proc.stdout
@@ -453,17 +656,26 @@ def test_initial_mode_fails_on_non_ascii_commit_message(tmp_path: Path) -> None:
     after = "def value():\n    return 2\n"
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _write_zip(
         patch_zip,
         {
             "COMMIT_MESSAGE.txt": ("Align PM validator monolith checks e\u0301\n".encode()),
             "ISSUE_NUMBER.txt": b"601\n",
+            "target.txt": (DEFAULT_TARGET + "\n").encode("utf-8"),
             _safe_member(relpath): _git_patch(relpath, before, after),
         },
     )
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert "RULE COMMIT_MESSAGE_FILE: FAIL - missing_or_non_ascii_commit_message" in proc.stdout
 
@@ -474,10 +686,18 @@ def test_initial_mode_fails_on_non_ascii_patch_text(tmp_path: Path) -> None:
     after = 'def value():\n    return "e\u0301"\n'
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert "RULE PATCH_ASCII: FAIL" in proc.stdout
     assert "non_ascii_patch_text" in proc.stdout
@@ -487,7 +707,8 @@ def test_initial_mode_fails_on_non_ascii_patch_member_path(tmp_path: Path) -> No
     relpath = "scripts/sample.py"
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: b"def value():\n    return 1\n"})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: b"def value():\n    return 1\n"})
     _patch_zip(
         patch_zip,
         {
@@ -498,7 +719,14 @@ def test_initial_mode_fails_on_non_ascii_patch_member_path(tmp_path: Path) -> No
         },
     )
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert "RULE PATCH_MEMBER_PATHS: FAIL - non_ascii_member:" in proc.stdout
 
@@ -509,10 +737,18 @@ def test_monolith_threshold_crossing_to_large_fails(tmp_path: Path) -> None:
     after = _module_text(exports=13, values=987)
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert "RULE MONOLITH: FAIL" in proc.stdout
     assert "large_file_growth:scripts/threshold_large.py" in proc.stdout
@@ -526,10 +762,18 @@ def test_monolith_threshold_crossing_to_large_within_allowance_passes(
     after = _module_text(exports=12, values=880)
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "RESULT: PASS" in proc.stdout
     assert "RULE MONOLITH: PASS" in proc.stdout
@@ -541,10 +785,18 @@ def test_monolith_threshold_crossing_to_huge_fails_on_growth(tmp_path: Path) -> 
     after = _module_text(exports=10, values=1280)
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert "RULE MONOLITH: FAIL" in proc.stdout
     assert "huge_file_growth:scripts/threshold_huge.py" in proc.stdout
@@ -556,10 +808,18 @@ def test_monolith_drop_below_large_threshold_passes(tmp_path: Path) -> None:
     after = _module_text(exports=12, values=872)
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "RESULT: PASS" in proc.stdout
     assert "RULE MONOLITH: PASS" in proc.stdout
@@ -571,13 +831,20 @@ def test_initial_mode_rejects_unexpected_root_entry(tmp_path: Path) -> None:
     after = "def value():\n    return 2\n"
     snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
     patch_zip = tmp_path / "issue_601_v2.zip"
-    _write_zip(snapshot, {relpath: before.encode("utf-8")})
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
     _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
     with ZipFile(patch_zip, "a", compression=ZIP_DEFLATED) as zf:
-        zf.writestr("target.txt", (DEFAULT_TARGET + "\n").encode("utf-8"))
         zf.writestr("notes.txt", b"x\n")
 
-    proc = _run("601", COMMIT, str(patch_zip), "--workspace-snapshot", str(snapshot))
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
     assert proc.returncode == 1
     assert f"RULE TARGET_FILE: PASS - {DEFAULT_TARGET}" in proc.stdout
     assert "RULE PER_FILE_LAYOUT: FAIL - extra_entries=['notes.txt']" in proc.stdout
