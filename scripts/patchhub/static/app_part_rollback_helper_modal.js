@@ -23,6 +23,7 @@
  *   selected_entry_count?: number,
  * }} RollbackPreflight
  * @typedef {{
+ *   sourceJob?: {job_id?: string, commit_summary?: string} | null,
  *   availableEntries: RollbackEntrySummary[],
  *   scopeKind: string,
  *   selectedRepoPaths: string[],
@@ -223,6 +224,17 @@ function rollbackCloseSubsetPicker() {
 	rollbackHelperPhCall("closeZipSubsetModalView");
 }
 
+function rollbackSubsetSourceLabel(state) {
+	var sourceJob = state && state.sourceJob ? state.sourceJob : null;
+	var commitSummary = String(
+		(sourceJob && sourceJob.commit_summary) || "",
+	).trim();
+	var jobId = String((sourceJob && sourceJob.job_id) || "").trim();
+	if (commitSummary) return commitSummary;
+	if (jobId) return "rollback source " + jobId;
+	return "selected rollback source";
+}
+
 /** @returns {void} */
 function rollbackRenderSubsetPicker() {
 	var state = rollbackHelperState();
@@ -230,12 +242,13 @@ function rollbackRenderSubsetPicker() {
 	var selectedCount = 0;
 	entries.forEach((entry) => {
 		var entryId = String((entry && entry.entry_id) || "").trim();
-		if (state && entryId && state.subsetDraft[entryId] === true)
+		if (state && entryId && state.subsetDraft[entryId] === true) {
 			selectedCount += 1;
+		}
 	});
 	rollbackHelperPhCall("openZipSubsetModalView", {
-		title: "Select rollback scope",
-		subtitle: "Authoritative source scope of selected job",
+		title: "Select target files (" + String(entries.length) + ")",
+		subtitle: "Contents of " + rollbackSubsetSourceLabel(state),
 		selection_count:
 			"Selected " + String(selectedCount) + " / " + String(entries.length),
 		apply_disabled: selectedCount <= 0,

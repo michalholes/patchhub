@@ -15,7 +15,8 @@
 	 * availableEntries: PHRollbackEntrySummary[], scopeKind: string,
 	 * selectedRepoPaths: string[], selectedEntryIds: string[],
 	 * preflight: PHRollbackPreflight | null, busy: boolean,
-	 * helperOpen: boolean, subsetDraft: Record<string, boolean>}}
+	 * helperOpen: boolean, subsetDraft: Record<string, boolean>,
+	 * lastSourceStatus: string, lastScopeStatus: string}}
 	 * PHRollbackUiState */
 	/** @typedef {{call?: (name: string, ...args: unknown[]) => unknown,
 	 * register?: (name: string, exportsObj: Record<string, unknown>) => void}}
@@ -43,6 +44,8 @@
 			busy: false,
 			helperOpen: false,
 			subsetDraft: Object.create(null),
+			lastSourceStatus: "",
+			lastScopeStatus: "",
 		};
 		rollbackWindow.__PH_ROLLBACK_STATE = rollbackState;
 	}
@@ -119,24 +122,24 @@
 		);
 	}
 
-	/** @param {PatchhubUiValueNode} node */
-	function renderSourceSummary(node) {
+	function sourceSummaryText() {
 		/** @type {string[]} */
 		var parts = [];
 		var sourceJob = rollbackState.sourceJob;
 		if (sourceJob) {
 			parts.push("Job " + String(sourceJob.job_id || ""));
-			if (sourceJob.issue_id)
+			if (sourceJob.issue_id) {
 				parts.push("issue " + String(sourceJob.issue_id || ""));
-			if (sourceJob.commit_summary)
+			}
+			if (sourceJob.commit_summary) {
 				parts.push(String(sourceJob.commit_summary || ""));
+			}
 		}
-		if (!parts.length) parts.push("Select Roll-back from the Jobs list");
-		node.textContent = parts.join(" | ");
+		if (!parts.length) return "Select Roll-back from the Jobs list";
+		return parts.join(" | ");
 	}
 
-	/** @param {PatchhubUiValueNode} node */
-	function renderScopeSummary(node) {
+	function scopeSummaryText() {
 		var preflight = rollbackState.preflight;
 		/** @type {string[]} */
 		var parts = [
@@ -151,20 +154,41 @@
 		if (preflight && preflight.sync_paths?.length) {
 			parts.push("Authority sync required");
 		}
-		if (preflight && preflight.chain_required)
+		if (preflight && preflight.chain_required) {
 			parts.push("Rollback chain required");
-		node.textContent = parts.join(" | ");
+		}
+		return parts.join(" | ");
 	}
 
-	/**
-	 * @param {PHRollbackDisabledNode} helperBtn
-	 * @param {PHRollbackDisabledNode} subsetBtn
-	 * @param {PHRollbackDisabledNode} fullBtn
-	 */
+	function logSummaryToOperatorInfo(active) {
+		var sourceText =
+			active && rollbackState.sourceJob
+				? "rollback source: " + sourceSummaryText()
+				: "";
+		var scopeText =
+			active && rollbackState.sourceJob
+				? "rollback scope: " + scopeSummaryText()
+				: "";
+		if (sourceText && sourceText !== rollbackState.lastSourceStatus) {
+			rollbackState.lastSourceStatus = sourceText;
+			rollbackStatus(sourceText);
+		}
+		if (scopeText && scopeText !== rollbackState.lastScopeStatus) {
+			rollbackState.lastScopeStatus = scopeText;
+			rollbackStatus(scopeText);
+		}
+		if (!active) {
+			rollbackState.lastSourceStatus = "";
+			rollbackState.lastScopeStatus = "";
+		}
+	}
+
 	function renderSubsetStrip(node) {
 		var total = rollbackState.availableEntries.length;
 		var selected = selectedEntryCount();
+		var detail = "";
 		var note = "";
+		var primary = "Rollback source scope";
 		if (!total) {
 			node.classList.add("hidden");
 			node.innerHTML = "";
@@ -175,6 +199,13 @@
 			return;
 		}
 		node.classList.remove("hidden");
+		if (rollbackState.scopeKind === "subset") {
+			primary = "Selected target files";
+			detail =
+				"Selected " + String(selected) + " / " + String(total) + " entries";
+		} else {
+			detail = "Using full source scope (" + String(total) + " entries)";
+		}
 		if (rollbackState.busy) {
 			note = "Loading guided rollback preflight...";
 			node.dataset.action = "";
@@ -186,21 +217,17 @@
 			node.setAttribute("role", "button");
 			node.tabIndex = 0;
 		}
-		node.title = note;
+		node.title = [primary, detail, note].filter(Boolean).join(" | ");
 		node.innerHTML =
-			'<div class="zip-subset-strip-inner"><b>Rollback scope</b><span class="muted"> | ' +
-			(rollbackState.scopeKind === "subset"
-				? "Selected " + String(selected) + " / " + String(total) + " entries"
-				: "Using full source scope (" + String(total) + " entries)") +
-			" | " +
-			note +
+			'<div class="zip-subset-strip-inner"><b>' +
+			primary +
+			'</b><span class="muted"> | ' +
+			detail +
+			(note ? " | " + note : "") +
 			"</span></div>";
 	}
 
 	function renderSummary() {
-		var wrap = el("rollbackSummary");
-		var sourceNode = el("rollbackSourceSummary");
-		var scopeNode = el("rollbackScopeSummary");
 		var subsetStrip = el("rollbackSubsetStrip");
 		var active = rollbackModeActive();
 		var target = targetNode();
@@ -210,21 +237,21 @@
 			);
 		}
 		setTargetLocked(active);
-		if (!wrap || !sourceNode || !scopeNode || !subsetStrip) {
+		if (!subsetStrip) {
 			if (!active) phCall("rollbackCloseHelperModal");
+			logSummaryToOperatorInfo(active);
 			return;
 		}
-		wrap.classList.toggle("hidden", !active);
 		if (!active) {
 			subsetStrip.classList.add("hidden");
 			subsetStrip.innerHTML = "";
 			subsetStrip.dataset.action = "";
 			phCall("rollbackCloseHelperModal");
+			logSummaryToOperatorInfo(false);
 			return;
 		}
-		renderSourceSummary(sourceNode);
-		renderScopeSummary(scopeNode);
 		renderSubsetStrip(subsetStrip);
+		logSummaryToOperatorInfo(true);
 		phCall("rollbackRenderHelperModal");
 	}
 

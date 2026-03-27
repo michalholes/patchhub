@@ -149,15 +149,6 @@
           <select id="targetRepo" class="input start-run-target"></select>
           <button type="button" id="enqueueBtn" class="btn btn-danger btn-start" disabled>Start</button>
         </div>
-
-        <div id="rollbackSummary" class="hidden">
-          <div id="rollbackSourceSummary" class="muted">No rollback source selected.</div>
-          <div id="rollbackScopeSummary" class="muted">
-            Select Roll-back from the Jobs list to start guided rollback.
-          </div>
-          <div id="rollbackSubsetStrip" class="zip-subset-strip hidden"></div>
-        </div>
-
         <div id="uiDegradedBanner" class="statusbar hidden" aria-live="polite"></div>
         <div
           id="uiStatusBar"
@@ -173,6 +164,7 @@
         <div class="row">
           <label class="lbl">Level</label>
           <select id="liveLevel" class="input live-log-level">
+          <div id="rollbackSubsetStrip" class="zip-subset-strip hidden"></div>
             <option value="quiet">quiet</option>
             <option value="normal">normal</option>
             <option value="warning">warning</option>

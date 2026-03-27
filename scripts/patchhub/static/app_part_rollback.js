@@ -9,7 +9,8 @@
 	/** @typedef {{sourceJob: PatchhubJob | null, sourceJobId: string,
 	 * availableEntries: Array<{entry_id?: string}>, scopeKind: string,
 	 * selectedRepoPaths: string[], selectedEntryIds: string[],
-	 * preflight: PHRollbackPreflight | null, busy: boolean}}
+	 * preflight: PHRollbackPreflight | null, busy: boolean,
+	 * lastSourceStatus?: string, lastScopeStatus?: string}}
 	 * PHRollbackUiState */
 	/** @typedef {{call?: (name: string, ...args: unknown[]) => unknown,
 	 * register?: (name: string, exportsObj: Record<string, unknown>) => void}}
@@ -262,6 +263,8 @@
 		ui.busy = false;
 		ui.helperOpen = false;
 		ui.subsetDraft = Object.create(null);
+		ui.lastSourceStatus = "";
+		ui.lastScopeStatus = "";
 		phCall("rollbackCloseSubsetPicker");
 		phCall("rollbackCloseHelperModal");
 		phCall("rollbackRenderSummary");
