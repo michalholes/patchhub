@@ -243,12 +243,7 @@ def _collect_patch_members(
         name for name in non_dirs if name.startswith(PATCH_PREFIX) and name.endswith(PATCH_SUFFIX)
     ]
     if not members:
-        return (
-            results + [RuleResult("PER_FILE_LAYOUT", "FAIL", "entries=0")],
-            [],
-            [],
-            None,
-        )
+        return results + [RuleResult("PER_FILE_LAYOUT", "FAIL", "entries=0")], [], [], None
     allowed = {"COMMIT_MESSAGE.txt", "ISSUE_NUMBER.txt", TARGET_FILE_NAME, *members}
     extras = sorted(name for name in non_dirs if name not in allowed)
     if extras:
@@ -262,36 +257,16 @@ def _collect_patch_members(
         repo_path = _member_repo_path(member)
         if repo_path is None:
             detail = f"invalid_member:{member}"
-            return (
-                results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)],
-                [],
-                [],
-                None,
-            )
+            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
         if not _is_ascii_text(member):
             detail = f"non_ascii_member:{member}"
-            return (
-                results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)],
-                [],
-                [],
-                None,
-            )
+            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
         if not _is_ascii_text(repo_path):
             detail = f"non_ascii_repo_path:{repo_path}"
-            return (
-                results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)],
-                [],
-                [],
-                None,
-            )
+            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
         if repo_path in seen:
             detail = f"duplicate_repo_path:{repo_path}"
-            return (
-                results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)],
-                [],
-                [],
-                None,
-            )
+            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
         seen.add(repo_path)
         if not _is_ascii_bytes(items[member]):
             detail = f"{member}:non_ascii_patch_text"
@@ -300,22 +275,12 @@ def _collect_patch_members(
         header_err = _validate_patch_headers(repo_path, text)
         if header_err is not None:
             detail = f"{member}:{header_err}"
-            return (
-                results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)],
-                [],
-                [],
-                None,
-            )
+            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
         if Path(repo_path).suffix in LINE_EXTS:
             line_err = _check_line_lengths(text)
             if line_err is not None:
                 detail = f"{member}:{line_err}"
-                return (
-                    results + [RuleResult("LINE_LENGTH", "FAIL", detail)],
-                    [],
-                    [],
-                    None,
-                )
+                return results + [RuleResult("LINE_LENGTH", "FAIL", detail)], [], [], None
         patch_members.append((member, items[member]))
         decision_paths.append(repo_path)
     results.append(RuleResult("PATCH_MEMBER_PATHS", "PASS", f"paths={len(decision_paths)}"))
@@ -781,8 +746,45 @@ def _monolith(root: Path, baseline: dict[str, bytes], decision_paths: list[str])
     return RuleResult("MONOLITH", "PASS", "gate_passed")
 
 
+INSTRUCTIONS_REQUIRED = {"HANDOFF.md", "constraint_pack.json", "hash_pack.txt"}
+HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+SUPPORTED_BINDING_TYPES = {"resolver_contract", "constraint_pack"}
+BINDING_REQUIRED_FIELDS = (
+    "id",
+    "binding_type",
+    "match",
+    "symbol_role",
+    "authoritative_semantics",
+    "peer_renderers",
+    "shared_contract_refs",
+    "downstream_consumers",
+    "exception_state_refs",
+    "required_wiring",
+    "forbidden",
+    "required_validation",
+    "verification_mode",
+    "verification_method",
+    "semantic_group",
+    "conflict_policy",
+)
+AUTHORITY_ONLY_PATHS = {
+    "docs/instructions_project_chats.txt",
+    "docs/am_patch_instructions.md",
+    "docs/pm_spec.md",
+    "docs/specification.jsonl",
+    "docs/validate_master_spec_v2.py",
+    "scripts/rc_resolver.py",
+}
+
+
+from pm_validator_pack_contract import (
+    _pack_rules,
+)
+
+
 def _format(results: list[RuleResult]) -> str:
-    overall = "FAIL" if any(item.status == "FAIL" for item in results) else "PASS"
+    hard_fail_statuses = {"FAIL", "UNVERIFIED_ENVIRONMENT", "MANUAL_REVIEW_REQUIRED"}
+    overall = "FAIL" if any(item.status in hard_fail_statuses for item in results) else "PASS"
     lines = [f"RESULT: {overall}"]
     lines.extend(f"RULE {item.rule_id}: {item.status} - {item.detail}" for item in results)
     return "\n".join(lines) + "\n"
@@ -793,6 +795,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("issue_id")
     parser.add_argument("commit_message")
     parser.add_argument("patch")
+    parser.add_argument("instructions_zip")
     parser.add_argument(
         "--workspace-snapshot",
         help="Workspace snapshot zip for initial mode or supplemental files.",
@@ -815,6 +818,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not Path(args.patch).is_file():
             raise ValidationError("patch_not_found")
+        if not Path(args.instructions_zip).is_file():
+            raise ValidationError("instructions_zip_not_found")
         if args.repair_overlay:
             if not Path(args.repair_overlay).is_file():
                 raise ValidationError("repair_overlay_not_found")
@@ -825,6 +830,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.supplemental_file and not args.repair_overlay:
             raise ValidationError("supplemental_file_requires_repair_mode")
         patch_path = Path(args.patch).resolve()
+        instructions_path = Path(args.instructions_zip).resolve()
         results = [_validate_basename(patch_path, args.issue_id)]
         more, patch_members, decision_paths, patch_target = _collect_patch_members(
             patch_path,
@@ -842,17 +848,12 @@ def main(argv: list[str] | None = None) -> int:
             results.append(repair_rule)
             if overlay_target is not None:
                 results.append(
-                    _target_match_rule(
-                        "REPAIR_TARGET_MATCH",
-                        overlay_target,
-                        patch_target,
-                    )
+                    _target_match_rule("REPAIR_TARGET_MATCH", overlay_target, patch_target)
                 )
                 if args.workspace_snapshot:
                     results.append(
                         _repair_snapshot_consistency_rule(
-                            Path(args.workspace_snapshot),
-                            overlay_target,
+                            Path(args.workspace_snapshot), overlay_target
                         )
                     )
         else:
@@ -868,6 +869,17 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(_format(results))
             return 1
         results.append(_docs_gate(decision_paths))
+        patch_member_names = [member for member, _data in patch_members]
+        pack_results, _pack = _pack_rules(
+            args, instructions_path, decision_paths, patch_member_names
+        )
+        results.extend(pack_results)
+        if any(
+            item.status in {"FAIL", "UNVERIFIED_ENVIRONMENT", "MANUAL_REVIEW_REQUIRED"}
+            for item in results
+        ):
+            sys.stdout.write(_format(results))
+            return 1
         baseline, _mode = _authority_files(args, decision_paths)
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -884,7 +896,14 @@ def main(argv: list[str] | None = None) -> int:
                 ]
             )
         sys.stdout.write(_format(results))
-        return 0 if all(item.status != "FAIL" for item in results) else 1
+        return (
+            0
+            if all(
+                item.status not in {"FAIL", "UNVERIFIED_ENVIRONMENT", "MANUAL_REVIEW_REQUIRED"}
+                for item in results
+            )
+            else 1
+        )
     except ValidationError as exc:
         sys.stdout.write(_format([RuleResult("VALIDATION_ERROR", "FAIL", str(exc))]))
         return 1

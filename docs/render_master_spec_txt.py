@@ -47,7 +47,10 @@ def index_by_type(objs):
 def fmt_source(rule):
     migration_source = rule.get("migration_source")
     if isinstance(migration_source, dict):
-        return f"{migration_source.get('file', '?')}#L{migration_source.get('line', '?')}"
+        return (
+            f"{migration_source.get('file', '?')}"
+            f"#L{migration_source.get('line', '?')}"
+        )
     return ""
 
 
@@ -147,13 +150,17 @@ def render(path_in: Path, path_out: Path):
         for implementation_id in sorted(impls):
             implementation = impls[implementation_id]
             out.append(f"[{implementation_id}]")
-            out.append(f"  implements_route: {implementation.get('implements_route', '')}")
+            out.append(
+                f"  implements_route: {implementation.get('implements_route', '')}"
+            )
             providers_available = implementation.get("providers_available", [])
             out.append(f"  providers_available ({len(providers_available)}):")
             for provider_id in providers_available:
                 out.append(f"    - {provider_id}")
             declared_capabilities = implementation.get("declared_capabilities", [])
-            out.append(f"  declared_capabilities ({len(declared_capabilities)}):")
+            out.append(
+                f"  declared_capabilities ({len(declared_capabilities)}):"
+            )
             for capability_id in sorted(declared_capabilities):
                 out.append(f"    - {capability_id}")
             out.append("")
