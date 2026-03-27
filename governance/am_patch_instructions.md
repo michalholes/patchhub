@@ -23,7 +23,7 @@ This manual defines what an implementation chat must produce so that the user ca
 
 1. This file is pm_implementation.
 2. pm_implementation is implementation-only.
-3. Controller-only authority work is governed by docs/pm_spec.md.
+3. Controller-only authority work is governed by governance/pm_spec.md.
 4. Implementation chats MUST NOT require RC or pm_spec.
 5. The implementation input contract is:
    - pm_implementation,
@@ -445,15 +445,15 @@ Canonical invocation formats (NO REPO-BOUND VARIANTS):
 
 Initial patch:
 
-    python3 scripts/pm_validator.py ISSUE_ID "commit message" PATCH INSTRUCTIONS_ZIP --workspace-snapshot WORKSPACE_SNAPSHOT_ZIP
+    python3 governance/pm_validator.py ISSUE_ID "commit message" PATCH INSTRUCTIONS_ZIP --workspace-snapshot WORKSPACE_SNAPSHOT_ZIP
 
 Repair patch:
 
-    python3 scripts/pm_validator.py ISSUE_ID "commit message" PATCH INSTRUCTIONS_ZIP --repair-overlay PATCHED_ISSUE_ZIP [--workspace-snapshot WORKSPACE_SNAPSHOT_ZIP --supplemental-file REPO_PATH ...]
+    python3 governance/pm_validator.py ISSUE_ID "commit message" PATCH INSTRUCTIONS_ZIP --repair-overlay PATCHED_ISSUE_ZIP [--workspace-snapshot WORKSPACE_SNAPSHOT_ZIP --supplemental-file REPO_PATH ...]
 
 Where:
 
--   `scripts/pm_validator.py` means the filesystem path to the single-file PM validator authority artifact.
+-   `governance/pm_validator.py` means the filesystem path to the single-file PM validator authority artifact.
 -   `PATCH` means the patch zip artifact `issue_<ISSUE>_v<N>.zip`.
 -   `INSTRUCTIONS_ZIP` means the authoritative `instructions_issue<ISSUE>.zip` artifact.
 -   `WORKSPACE_SNAPSHOT_ZIP` means the authoritative full workspace snapshot artifact.

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import NoReturn
 from zipfile import ZipFile
 
-SPEC_PATH = "docs/specification.jsonl"
+SPEC_PATH = "governance/specification.jsonl"
 UNBOUND = "RULE RESOLVER: FAIL - unbound_target"
 CONFLICT = "RULE RESOLVER: FAIL - conflicting_obligations"
 REQUIRED_FIELDS = (
@@ -104,7 +104,7 @@ def resolve_symbol(entries: dict[str, bytes], repo_path: str, symbol: str | None
 
 
 def target_scope(repo_path: str) -> str:
-    if repo_path.startswith(("docs/", "scripts/")):
+    if repo_path.startswith("governance/"):
         return "authority_scope"
     return "implementation_scope"
 

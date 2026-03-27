@@ -73,9 +73,7 @@ def validate_rule_links(rules, caps):
     for capability_id, capability in caps.items():
         for rule_id in capability.get("triggers_rules", []):
             if rule_id not in rules:
-                fail(
-                    f"capability {capability_id} references missing rule {rule_id}"
-                )
+                fail(f"capability {capability_id} references missing rule {rule_id}")
             rule_refs[rule_id] += 1
     for rule_id in rules:
         if rule_refs[rule_id] == 0:
@@ -87,9 +85,7 @@ def validate_routes(caps, providers, routes):
     for route_id, route in routes.items():
         for capability_id in route.get("covers_capabilities", []):
             if capability_id not in caps:
-                fail(
-                    f"route {route_id} references missing capability {capability_id}"
-                )
+                fail(f"route {route_id} references missing capability {capability_id}")
             cap_route_refs[capability_id] += 1
     for capability_id, capability in caps.items():
         if not capability.get("triggers_rules"):
@@ -103,11 +99,7 @@ def validate_routes(caps, providers, routes):
         seen = set()
         for provider_id in chain:
             if provider_id in seen:
-                fail(
-                    "route "
-                    f"{route_id} provider_chain contains duplicate provider "
-                    f"{provider_id}"
-                )
+                fail(f"route {route_id} provider_chain contains duplicate provider {provider_id}")
             seen.add(provider_id)
             if provider_id not in providers:
                 fail(f"route {route_id} references missing provider {provider_id}")
@@ -124,18 +116,14 @@ def validate_surfaces(routes, surfaces):
         if not surface.get("requires_capabilities"):
             fail(f"surface without requires_capabilities {surface_id}")
         if surface["route_ref"] not in routes:
-            fail(
-                f"surface {surface_id} references missing route {surface['route_ref']}"
-            )
+            fail(f"surface {surface_id} references missing route {surface['route_ref']}")
 
 
 def validate_implementations(impls, routes):
     for implementation_id, implementation in impls.items():
         route_id = implementation.get("implements_route")
         if route_id not in routes:
-            fail(
-                f"implementation {implementation_id} references missing route {route_id}"
-            )
+            fail(f"implementation {implementation_id} references missing route {route_id}")
         required = set(routes[route_id].get("covers_capabilities", []))
         declared = set(implementation.get("declared_capabilities", []))
         missing = sorted(required - declared)
@@ -199,11 +187,7 @@ def main(path):
                 if field not in obj:
                     fail(f"binding {binding_id} missing field {field}")
             if obj["binding_type"] not in SUPPORTED_BINDING_TYPES:
-                fail(
-                    "binding "
-                    f"{binding_id} has unsupported binding_type "
-                    f"{obj['binding_type']}"
-                )
+                fail(f"binding {binding_id} has unsupported binding_type {obj['binding_type']}")
             for field in (
                 "verification_mode",
                 "verification_method",

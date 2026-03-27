@@ -223,7 +223,7 @@ def _build_pack_from_spec_bytes(spec_raw, mode, target_scope):
         "active_rule_ids": [binding["id"] for binding in active],
         "full_rule_text": _bm(active, "id", "authoritative_semantics"),
         "match_basis": {binding["id"]: binding.get("match", {}) for binding in active},
-        "authoritative_sources": ["docs/specification.jsonl"],
+        "authoritative_sources": ["governance/specification.jsonl"],
         "shared_contracts": _su(active, "shared_contract_refs"),
         "downstream_consumers": _su(active, "downstream_consumers"),
         "exception_state_refs": _su(active, "exception_state_refs"),
@@ -244,7 +244,7 @@ def _build_pack_from_spec_bytes(spec_raw, mode, target_scope):
 
 
 def _authority_spec_bytes(args):
-    spec = "docs/specification.jsonl"
+    spec = "governance/specification.jsonl"
     if not args.repair_overlay:
         snap = _iz(Path(args.workspace_snapshot))
         return snap.get(spec), None if spec in snap else "missing_spec_in_workspace_snapshot"

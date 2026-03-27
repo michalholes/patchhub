@@ -125,9 +125,9 @@ def forbid_second_truth(repo_root: Path) -> None:
     legacy = repo_root / "scripts/authority_resolver.py"
     if legacy.exists():
         fail("SECOND_TRUTH", "legacy scripts/authority_resolver.py still exists")
-    text = (repo_root / "scripts/rc_resolver.py").read_text(encoding="utf-8")
+    text = (repo_root / "governance/rc_resolver.py").read_text(encoding="utf-8")
     if "scripts/authority_resolver.py" in text:
-        fail("SECOND_TRUTH", "legacy reference remains in scripts/rc_resolver.py")
+        fail("SECOND_TRUTH", "legacy reference remains in governance/rc_resolver.py")
 
 
 def main(argv: list[str]) -> None:

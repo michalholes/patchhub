@@ -7,8 +7,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, cast
 from zipfile import ZipFile
 
 PATCH_RE = re.compile(r"^issue_(?P<issue>\d+)_v(?P<version>[1-9]\d*)\.zip$")
@@ -768,13 +771,29 @@ BINDING_REQUIRED_FIELDS = (
     "conflict_policy",
 )
 AUTHORITY_ONLY_PATHS = {
-    "docs/instructions_project_chats.txt",
-    "docs/am_patch_instructions.md",
-    "docs/pm_spec.md",
-    "docs/specification.jsonl",
-    "docs/validate_master_spec_v2.py",
-    "scripts/rc_resolver.py",
+    "governance/instructions_project_chats.txt",
+    "governance/am_patch_instructions.md",
+    "governance/pm_spec.md",
+    "governance/specification.jsonl",
+    "governance/validate_master_spec_v2.py",
+    "governance/rc_resolver.py",
 }
+
+if TYPE_CHECKING:
+    PackRulesFn = Callable[
+        [argparse.Namespace, Path, list[str], list[str]],
+        tuple[list[RuleResult], object | None],
+    ]
+else:
+    PackRulesFn = object
+
+
+def _load_pack_rules() -> PackRulesFn:
+    module_name = "pm_validator_pack_contract"
+    if __package__:
+        module_name = f"{__package__}.pm_validator_pack_contract"
+    module = import_module(module_name)
+    return cast(PackRulesFn, module._pack_rules)
 
 
 def _run_pack_rules(
@@ -783,9 +802,7 @@ def _run_pack_rules(
     decision_paths: list[str],
     patch_member_names: list[str],
 ) -> tuple[list[RuleResult], object | None]:
-    from pm_validator_pack_contract import _pack_rules
-
-    return _pack_rules(args, instructions_path, decision_paths, patch_member_names)
+    return _load_pack_rules()(args, instructions_path, decision_paths, patch_member_names)
 
 
 def _format(results: list[RuleResult]) -> str:

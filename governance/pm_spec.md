@@ -17,7 +17,7 @@ This manual defines what a controller chat must produce so that an authority pat
    - authority validation,
    - final resolver evidence before implementation freeze.
 3. pm_spec does NOT govern implementation patch delivery.
-4. Implementation patch delivery is governed only by docs/am_patch_instructions.md.
+4. Implementation patch delivery is governed only by governance/am_patch_instructions.md.
 
 ------------------------------------------------------------------------
 
@@ -90,8 +90,8 @@ This artifact is the only authority bridge from controller-only workflow to impl
 ## Controller-only tooling (HARD)
 
 Before delivering any authority patch, the controller chat MUST run:
-- scripts/pm_spec_validator.py for authority patch validation
-- scripts/rc_resolver.py as the final resolver after successful authority patching and before implementation freeze
+- governance/pm_spec_validator.py for authority patch validation
+- governance/rc_resolver.py as the final resolver after successful authority patching and before implementation freeze
 
 Delivery is forbidden unless authority validation reports PASS.
 

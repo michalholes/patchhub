@@ -1,10 +1,10 @@
 # AM Patch Runner - Functional Specification v11 (UPDATED)
 
 Status: DERIVED MIRROR ONLY
-Authoritative source: docs/specification.jsonl
+Authoritative source: governance/specification.jsonl
 
 This document is a human-readable subsystem mirror for the AM Patch Runner contract.
-In any conflict, docs/specification.jsonl wins.
+In any conflict, governance/specification.jsonl wins.
 
 ------------------------------------------------------------------------
 
@@ -1035,7 +1035,7 @@ These flags override the effective value of their mapped keys according to secti
         -   A changed path matches when it is equal to a configured
             prefix or is nested under `<prefix>/`.
     -   `gate_badguys_trigger_files = list[str] | CSV string`
-        (default: `["scripts/am_patch.py", "scripts/am_patch.md", "scripts/am_patch_specification.md", "scripts/am_patch_instructions.md"]`)
+        (default: `["scripts/am_patch.py", "scripts/am_patch.md", "governance/am_patch_specification.md", "governance/am_patch_instructions.md"]`)
         -   Repo-relative exact file matches.
     -   `gate_badguys_command = list[str] | str` (default:
         `["badguys/badguys.py", "-q"]`)

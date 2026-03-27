@@ -4,13 +4,12 @@
 
 1. Chat nesmie pouzivat medzichatovu pamat ako zdroj informacii.
 2. Pred akoukolvek implementaciou je povinne precitat vsetky relevantne subory v project files a riadit sa nimi.
-3. Pri vytvarani patchov je povinne striktne dodrziavat `pm_implementation`, ktory je autoritativne neseny v `docs/am_patch_instructions.md`.
-4. Primarnym authority vstupom je:
-   - `docs/am_patch_instructions.md` (`pm_implementation`)
-   - `docs/instructions_implementation_chats.txt`
-   - `instructions_issue<ISSUE>.zip`
-   - authoritative workspace snapshot alebo authoritative repair overlay
-5. `docs/instructions_project_chats.txt` a `docs/pm_spec.md` nie su issue-specific authority vstupy pre implementacny chat.
+3. Pri vytvarani patchov je povinne striktne dodrziavat `pm_implementation`, ktory je autoritativne neseny v `governance/am_patch_instructions.md`.
+4. Autoritativne vstupy pre implementacny chat su:
+   - `governance/am_patch_instructions.md` (`pm_implementation`)
+   - `governance/instructions_implementation_chats.txt`
+   - issue-specific `instructions_issue<ISSUE>.zip`
+5. `governance/instructions_project_chats.txt` a `governance/pm_spec.md` nie su issue-specific authority vstupy pre implementacny chat.
 6. Ak su vstupy neuplne, neaktualne alebo nekonzistentne, implementacia sa nesmie zacat.
 
 ## 2. IMPLEMENTATION WORKFLOW (HARD)
