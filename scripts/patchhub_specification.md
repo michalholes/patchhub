@@ -1131,20 +1131,20 @@ Primary parsing source (static client modules):
   - Tail text MUST NOT replace structured event/state sources during ACTIVE.
   - Tail endpoints MUST NOT participate in automatic idle refresh.
 
-7.1.3A revert_job live-observability contract
+7.1.3A rollback live-observability contract
 
-- revert_job is a first-class PatchHub job mode.
-- revert_job MUST use the same persisted structured event stream model as
+- rollback is a first-class PatchHub job mode.
+- rollback MUST use the same persisted structured event stream model as
   other PatchHub jobs.
-- The main-screen live log view MUST display revert_job through the existing
+- The main-screen live log view MUST display rollback through the existing
   selected-job live view.
-- The top-right Progress card and Active job surface MUST consume revert_job
+- The top-right Progress card and Active job surface MUST consume rollback
   from the same persisted SSE event source model used for other jobs.
-- PatchHub MUST NOT introduce a revert-specific live view, revert-specific SSE
-  endpoint, revert-specific tail source, or any parallel observability surface.
-- The canonical live SSE endpoint for revert_job remains:
+- PatchHub MUST NOT introduce a rollback-specific live view, rollback-specific SSE
+  endpoint, rollback-specific tail source, or any parallel observability surface.
+- The canonical live SSE endpoint for rollback remains:
   GET /api/jobs/<job_id>/events
-- Terminal SSE trailer semantics for revert_job are unchanged from the shared
+- Terminal SSE trailer semantics for rollback are unchanged from the shared
   job-completion contract.
 
 - Step transitions are derived from persisted event payloads corresponding to runner
@@ -2618,7 +2618,7 @@ JobListItem JSON schema (used by Section 7.2.8 GET /api/jobs):
   "created_utc": "<UTC ISO Z string>",
   "started_utc": "<UTC ISO Z string|null>",
   "ended_utc": "<UTC ISO Z string|null>",
-  "mode": "patch|repair|finalize_live|finalize_workspace|rerun_latest|revert_job",
+  "mode": "patch|repair|finalize_live|finalize_workspace|rerun_latest|rollback",
   "issue_id": "<string>",
   "commit_summary": "<string>",
   "patch_basename": "<string|null>"
