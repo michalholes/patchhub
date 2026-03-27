@@ -1,9 +1,10 @@
 # AM Patch Runner - Functional Specification v11 (UPDATED)
 
-This document is **authoritative** for the AM Patch Runner contract.
+Status: DERIVED MIRROR ONLY
+Authoritative source: docs/specification.jsonl
 
-It defines the normative runner behavior, including rollback policy,
-even when implementation updates land in a later issue.
+This document is a human-readable subsystem mirror for the AM Patch Runner contract.
+In any conflict, docs/specification.jsonl wins.
 
 ------------------------------------------------------------------------
 

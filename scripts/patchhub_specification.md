@@ -1,10 +1,12 @@
 # PatchHub Specification (scripts/patchhub)
-Status: AUTHORITATIVE SPECIFICATION
+Status: DERIVED MIRROR ONLY
 Applies to: scripts/patchhub/*
 Language: ENGLISH (ASCII ONLY)
 
+Authoritative source: docs/specification.jsonl
 Specification Version: 1.15.0-spec
 Code Baseline: audiomason2-main.zip (as provided in this chat)
+Mirror role: human-readable subsystem mirror; docs/specification.jsonl wins on conflict.
 
 -------------------------------------------------------------------------------
 
