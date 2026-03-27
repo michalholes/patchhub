@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable, Coroutine
 from pathlib import Path
 from typing import Any, cast
@@ -25,6 +26,15 @@ from .models import (
 )
 from .patch_inventory import derive_patch_metadata
 from .pm_validation_runtime import build_patch_zip_pm_validation
+from .rollback_helper_actions import (
+    RollbackHelperActionError,
+    run_helper_action,
+)
+from .rollback_preflight import (
+    RollbackPreflightError,
+    run_rollback_preflight,
+    validate_source_job_authority,
+)
 from .run_applied_files import collect_job_applied_files
 from .targeting import resolve_targeting_runtime, validate_selected_target_repo
 from .web_jobs_db import WebJobsDatabase
@@ -124,11 +134,11 @@ def _load_job_record_any(self, job_id: str) -> JobRecord | None:
 
 
 def _job_has_revert_fields(job: JobRecord) -> bool:
-    return bool(
-        str(job.effective_runner_target_repo or "").strip()
-        and str(job.run_start_sha or "").strip()
-        and str(job.run_end_sha or "").strip()
-    )
+    try:
+        validate_source_job_authority(job)
+    except RollbackPreflightError:
+        return False
+    return True
 
 
 def _parsed_canonical_command(job: JobRecord) -> ParsedCommand | None:
@@ -389,6 +399,140 @@ def _queue_block_reason(self) -> str | None:
     return None
 
 
+def _all_job_records_for_rollback(self, *, limit: int = 5000) -> list[JobRecord]:
+    mem = list(getattr(self.queue, "_jobs", {}).values())
+    mem_by_id = {j.job_id: j for j in mem}
+    source = getattr(self, "web_jobs_db", None)
+    if isinstance(source, WebJobsDatabase):
+        disk_raw = source.list_job_jsons(limit=limit)
+    else:
+        jobs_root = _legacy_jobs_root(self)
+        disk_raw = [] if jobs_root is None else list_legacy_job_jsons(jobs_root, limit=limit)
+    disk: list[JobRecord] = []
+    for row in disk_raw:
+        jid = str(row.get("job_id", ""))
+        if not jid or jid in mem_by_id:
+            continue
+        job = self._load_job_from_disk(jid)
+        if job is not None:
+            disk.append(job)
+    return mem + disk
+
+
+def _rollback_scope_kind_from_body(body: dict[str, Any]) -> str:
+    return str(body.get("rollback_scope_kind", "")).strip()
+
+
+def _rollback_selected_paths_from_body(body: dict[str, Any]) -> list[str]:
+    raw = body.get("rollback_selected_repo_paths")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("rollback_selected_repo_paths must be a JSON array")
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def _write_rollback_request(job_dir: Path, payload: dict[str, Any]) -> None:
+    job_dir.mkdir(parents=True, exist_ok=True)
+    path = job_dir / "rollback_request.json"
+    path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+
+
+def _run_source_job_preflight(
+    self,
+    source_job: JobRecord,
+    *,
+    scope_kind: str,
+    selected_repo_paths: list[str],
+) -> dict[str, Any]:
+    rel_path, manifest_hash, _kind, _source_ref = validate_source_job_authority(source_job)
+    return run_rollback_preflight(
+        jobs_root=self.jobs_root,
+        target_repo_roots=dict(getattr(self.queue, "_target_repo_roots", {})),
+        source_job=source_job,
+        source_manifest_rel_path=rel_path,
+        source_manifest_hash=manifest_hash,
+        scope_kind=scope_kind,
+        selected_repo_paths=selected_repo_paths,
+        all_jobs=_all_job_records_for_rollback(self),
+    )
+
+
+def _api_jobs_enqueue_rollback(self, body: dict[str, Any]) -> tuple[int, bytes]:
+    if str(body.get("raw_command", "")).strip():
+        return _err("rollback mode MUST NOT consume raw_command", status=400)
+    source_job_id = str(body.get("rollback_source_job_id", "")).strip()
+    token = str(body.get("rollback_preflight_token", "")).strip()
+    scope_kind = _rollback_scope_kind_from_body(body)
+    try:
+        selected_repo_paths = _rollback_selected_paths_from_body(body)
+    except ValueError as exc:
+        return _err(str(exc), status=400)
+    if not source_job_id:
+        return _err("Missing rollback_source_job_id", status=400)
+    if not token:
+        return _err("Missing rollback_preflight_token", status=400)
+    source_job = _load_job_record_any(self, source_job_id)
+    if source_job is None:
+        return _err("Source job not found", status=404)
+    try:
+        preflight = _run_source_job_preflight(
+            self,
+            source_job,
+            scope_kind=scope_kind,
+            selected_repo_paths=selected_repo_paths,
+        )
+    except (RollbackPreflightError, ValueError) as exc:
+        return _err(str(exc), status=409)
+    if str(preflight.get("rollback_preflight_token") or "") != token:
+        return _err("rollback state changed after preview", status=409)
+    if not bool(preflight.get("can_execute")):
+        return _err("rollback cannot execute until guided blockers are resolved", status=409)
+    job_id = new_job_id()
+    issue_id = str(source_job.issue_id or "")
+    commit_summary = compute_commit_summary(
+        f"Roll-back {source_job.job_id}: {source_job.commit_summary}"
+    )
+    if not commit_summary:
+        commit_summary = f"Roll-back {source_job.job_id}"
+    job_dir = self.jobs_root / job_id
+    try:
+        _write_rollback_request(
+            job_dir,
+            {
+                "source_job_id": source_job_id,
+                "scope_kind": str(preflight.get("scope_kind") or ""),
+                "selected_repo_paths": list(preflight.get("selected_repo_paths") or []),
+                "rollback_preflight_token": token,
+            },
+        )
+    except Exception:
+        return _err("Cannot persist rollback request", status=500)
+    job = JobRecord(
+        job_id=job_id,
+        created_utc=_utc_now(),
+        mode="rollback",
+        issue_id=issue_id,
+        commit_summary=commit_summary,
+        commit_message=f"Roll-back {source_job.job_id}",
+        patch_basename=None,
+        raw_command=f"patchhub rollback {source_job.job_id}",
+        canonical_command=["patchhub", "rollback", source_job.job_id],
+        effective_runner_target_repo=str(source_job.effective_runner_target_repo or ""),
+        rollback_source_job_id=source_job.job_id,
+    )
+    _run_queue_enqueue_sync(self.queue.enqueue, job)
+    return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})
+
+
 def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
     blocked = _queue_block_reason(self)
     if blocked is not None:
@@ -400,6 +544,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
         "finalize_live",
         "finalize_workspace",
         "rerun_latest",
+        "rollback",
     ):
         return _err("Invalid mode", status=400)
     mode: JobMode = cast(JobMode, mode_s)
@@ -426,6 +571,9 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
     selected_target_repo: str | None = target_repo or None
     effective_runner_target_repo: str | None = None
     target_mismatch = False
+
+    if mode == "rollback":
+        return _api_jobs_enqueue_rollback(self, body)
 
     if raw_command and selected_patch_entries:
         return _err("raw_command cannot be combined with selected_patch_entries", status=400)
@@ -718,31 +866,66 @@ def api_jobs_revert(self, job_id: str) -> tuple[int, bytes]:
     source_job = _load_job_record_any(self, job_id)
     if source_job is None:
         return _err("Not found", status=404)
-    if not _job_has_revert_fields(source_job):
-        return _err("Source job is not revertable", status=409)
+    try:
+        preflight = _run_source_job_preflight(
+            self,
+            source_job,
+            scope_kind="full",
+            selected_repo_paths=[],
+        )
+    except (RollbackPreflightError, ValueError) as exc:
+        return _err(str(exc), status=409)
+    return _ok({"job": _job_detail_json(self, source_job), "rollback": preflight})
 
-    revert_job_id = new_job_id()
-    commit_message = f"Revert job {source_job.job_id}"
-    commit_summary = compute_commit_summary(
-        f"Revert job {source_job.job_id}: {source_job.commit_summary}"
-    )
-    if not commit_summary:
-        commit_summary = f"Revert job {source_job.job_id}"
-    job = JobRecord(
-        job_id=revert_job_id,
-        created_utc=_utc_now(),
-        mode="revert_job",
-        issue_id=str(source_job.issue_id or ""),
-        commit_summary=commit_summary,
-        commit_message=commit_message,
-        patch_basename=None,
-        raw_command=f"patchhub revert_job {source_job.job_id}",
-        canonical_command=["patchhub", "revert_job", source_job.job_id],
-        effective_runner_target_repo=str(source_job.effective_runner_target_repo or ""),
-        revert_source_job_id=source_job.job_id,
-    )
-    _run_queue_enqueue_sync(self.queue.enqueue, job)
-    return _ok({"job_id": revert_job_id, "job": _job_detail_json(self, job)})
+
+def api_rollback_preflight(self, body: dict[str, Any]) -> tuple[int, bytes]:
+    blocked = _queue_block_reason(self)
+    if blocked is not None:
+        return _err(blocked, status=409)
+    source_job_id = str(body.get("rollback_source_job_id", "")).strip()
+    if not source_job_id:
+        return _err("Missing rollback_source_job_id", status=400)
+    source_job = _load_job_record_any(self, source_job_id)
+    if source_job is None:
+        return _err("Source job not found", status=404)
+    try:
+        preflight = _run_source_job_preflight(
+            self,
+            source_job,
+            scope_kind=_rollback_scope_kind_from_body(body),
+            selected_repo_paths=_rollback_selected_paths_from_body(body),
+        )
+    except (RollbackPreflightError, ValueError) as exc:
+        return _err(str(exc), status=409)
+    return _ok({"rollback": preflight, "job": _job_detail_json(self, source_job)})
+
+
+def api_rollback_helper_action(self, body: dict[str, Any]) -> tuple[int, bytes]:
+    blocked = _queue_block_reason(self)
+    if blocked is not None:
+        return _err(blocked, status=409)
+    source_job_id = str(body.get("rollback_source_job_id", "")).strip()
+    action = str(body.get("action", "")).strip()
+    if not source_job_id:
+        return _err("Missing rollback_source_job_id", status=400)
+    if not action:
+        return _err("Missing rollback helper action", status=400)
+    source_job = _load_job_record_any(self, source_job_id)
+    if source_job is None:
+        return _err("Source job not found", status=404)
+    try:
+        preflight = run_helper_action(
+            action=action,
+            jobs_root=self.jobs_root,
+            target_repo_roots=dict(getattr(self.queue, "_target_repo_roots", {})),
+            source_job=source_job,
+            scope_kind=_rollback_scope_kind_from_body(body),
+            selected_repo_paths=_rollback_selected_paths_from_body(body),
+            all_jobs=_all_job_records_for_rollback(self),
+        )
+    except (RollbackHelperActionError, RollbackPreflightError, ValueError) as exc:
+        return _err(str(exc), status=409)
+    return _ok({"rollback": preflight, "job": _job_detail_json(self, source_job)})
 
 
 def _run_queue_bool_sync(

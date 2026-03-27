@@ -1,15 +1,27 @@
-var jobsRevertWindow = /** @type {JobsWindow} */ (window);
-var jobsRevertPh = /** @type {JobsRuntime | null} */ (
+/**
+ * @typedef {PatchhubJob & {
+ *   rollback_scope_manifest_rel_path?: string,
+ *   rollback_scope_manifest_hash?: string,
+ *   rollback_authority_kind?: string,
+ *   rollback_authority_source_ref?: string,
+ * }} RollbackAwareJob
+ * @typedef {{
+ *   call?: (name: string, ...args: unknown[]) => unknown,
+ *   register?: (name: string, exportsObj: Record<string, unknown>) => void,
+ * }} JobsRevertRuntime
+ * @typedef {Window & typeof globalThis & { PH?: JobsRevertRuntime | null }} JobsRevertWindow
+ */
+var jobsRevertWindow = /** @type {JobsRevertWindow} */ (window);
+var jobsRevertPh = /** @type {JobsRevertRuntime | null} */ (
 	jobsRevertWindow.PH || null
 );
-var jobsRevertDetailCache = /** @type {Record<string, PatchhubJob | null>} */ (
-	Object.create(null)
-);
+var jobsRevertDetailCache =
+	/** @type {Record<string, RollbackAwareJob | null>} */ (Object.create(null));
 var jobsRevertDetailSig = /** @type {Record<string, string>} */ (
 	Object.create(null)
 );
 var jobsRevertInflight =
-	/** @type {Record<string, Promise<PatchhubJob | null>>} */ (
+	/** @type {Record<string, Promise<RollbackAwareJob | null>>} */ (
 		Object.create(null)
 	);
 var jobsRevertInflightSig = /** @type {Record<string, string>} */ (
@@ -19,41 +31,45 @@ var jobsRevertSeq = /** @type {Record<string, number>} */ (Object.create(null));
 var jobsRevertRender = /** @type {(() => void) | null} */ (null);
 var jobsRevertRenderQueued = false;
 
-function jobsRevertOwn(
-	/** @type {Record<string, unknown>} */ obj,
-	/** @type {string} */ key,
-) {
-	return Object.prototype.hasOwnProperty.call(obj, key);
+/** @param {string} name @param {...unknown} args @returns {unknown} */
+function jobsRevertPhCall(name, ...args) {
+	if (!jobsRevertPh || typeof jobsRevertPh.call !== "function")
+		return undefined;
+	return jobsRevertPh.call(name, ...args);
 }
 
-function jobsRevertSummarySig(
-	/** @type {PatchhubJob | null | undefined} */ job,
-) {
+/** @param {PatchhubJob | null | undefined} job @returns {string} */
+function jobsRevertSummarySig(job) {
 	return [
 		String((job && job.status) || "").trim(),
 		String((job && job.ended_utc) || "").trim(),
 	].join("|");
 }
 
-function jobsRevertHasFields(
-	/** @type {PatchhubJob | null | undefined} */ detail,
-) {
+/** @param {RollbackAwareJob | null | undefined} detail @returns {boolean} */
+function rollbackRequiredAuthorityPresent(detail) {
 	return !!(
 		String((detail && detail.effective_runner_target_repo) || "").trim() &&
 		String((detail && detail.run_start_sha) || "").trim() &&
-		String((detail && detail.run_end_sha) || "").trim()
+		String((detail && detail.run_end_sha) || "").trim() &&
+		String((detail && detail.rollback_scope_manifest_rel_path) || "").trim() &&
+		String((detail && detail.rollback_scope_manifest_hash) || "").trim() &&
+		String((detail && detail.rollback_authority_kind) || "").trim() &&
+		String((detail && detail.rollback_authority_source_ref) || "").trim()
 	);
 }
 
-function jobsRevertDrop(/** @type {string} */ jobId) {
+/** @param {string} jobId @returns {void} */
+function jobsRevertDrop(jobId) {
 	delete jobsRevertDetailCache[jobId];
 	delete jobsRevertDetailSig[jobId];
 	delete jobsRevertInflight[jobId];
 	delete jobsRevertInflightSig[jobId];
 }
 
-function jobsRevertPrune(/** @type {PatchhubJob[] | null | undefined} */ jobs) {
-	var keep = Object.create(null);
+/** @param {PatchhubJob[] | null | undefined} jobs @returns {void} */
+function jobsRevertPrune(jobs) {
+	var keep = /** @type {Record<string, boolean>} */ (Object.create(null));
 	(jobs || []).forEach((job) => {
 		var jobId = String((job && job.job_id) || "").trim();
 		if (jobId) keep[jobId] = true;
@@ -63,24 +79,34 @@ function jobsRevertPrune(/** @type {PatchhubJob[] | null | undefined} */ jobs) {
 	});
 }
 
+/** @returns {void} */
 function jobsRevertScheduleRender() {
 	if (jobsRevertRenderQueued) return;
 	jobsRevertRenderQueued = true;
 	Promise.resolve().then(() => {
 		jobsRevertRenderQueued = false;
 		if (typeof jobsRevertRender === "function") jobsRevertRender();
+		jobsRevertPhCall("syncRollbackUiFromInputs");
 	});
 }
 
-function jobsRevertLoadDetail(
-	/** @type {PatchhubJob | null | undefined} */ job,
-) {
+/** @param {RollbackAwareJob | null | undefined} job @returns {void} */
+function rememberRollbackSourceJobDetail(job) {
+	var jobId = String((job && job.job_id) || "").trim();
+	if (!jobId) return;
+	jobsRevertDetailCache[jobId] = job || null;
+	jobsRevertDetailSig[jobId] = jobsRevertSummarySig(job);
+	jobsRevertScheduleRender();
+}
+
+/** @param {PatchhubJob | null | undefined} job @returns {Promise<RollbackAwareJob | null>} */
+function jobsRevertLoadDetail(job) {
 	var jobId = String((job && job.job_id) || "").trim();
 	var sig = jobsRevertSummarySig(job);
 	var seq = 0;
 	if (!jobId) return Promise.resolve(null);
 	if (jobsRevertDetailSig[jobId] !== sig) jobsRevertDrop(jobId);
-	if (jobsRevertOwn(jobsRevertDetailCache, jobId)) {
+	if (Object.hasOwn(jobsRevertDetailCache, jobId)) {
 		jobsRevertDetailSig[jobId] = sig;
 		return Promise.resolve(jobsRevertDetailCache[jobId]);
 	}
@@ -102,7 +128,7 @@ function jobsRevertLoadDetail(
 			return jobsRevertDetailCache[jobId];
 		})
 		.catch(
-			/** @returns {PatchhubJob | null} */ () => {
+			/** @returns {RollbackAwareJob | null} */ () => {
 				if (Number(jobsRevertSeq[jobId] || 0) !== seq) return null;
 				jobsRevertDetailSig[jobId] = sig;
 				jobsRevertDetailCache[jobId] = null;
@@ -118,32 +144,35 @@ function jobsRevertLoadDetail(
 	return jobsRevertInflight[jobId];
 }
 
-function syncJobsRevertState(
-	/** @type {PatchhubJob[] | null | undefined} */ jobs,
-	/** @type {(() => void) | null | undefined} */ renderFn,
-) {
+/**
+ * @param {PatchhubJob[] | null | undefined} jobs
+ * @param {(() => void) | null | undefined} renderFn
+ * @returns {boolean}
+ */
+function syncJobsRevertState(jobs, renderFn) {
 	jobsRevertRender =
 		typeof renderFn === "function" ? renderFn : jobsRevertRender;
 	jobsRevertPrune(jobs);
 	(jobs || []).forEach((job) => {
 		jobsRevertLoadDetail(job);
 	});
+	jobsRevertScheduleRender();
 	return true;
 }
 
-function shouldShowJobsRevert(
-	/** @type {PatchhubJob | null | undefined} */ job,
-) {
+/** @param {PatchhubJob | null | undefined} job @returns {boolean} */
+function shouldShowJobsRevert(job) {
 	var jobId = String((job && job.job_id) || "").trim();
 	var sig = jobsRevertSummarySig(job);
 	if (!jobId) return false;
 	if (jobsRevertDetailSig[jobId] !== sig) return false;
-	return jobsRevertHasFields(jobsRevertDetailCache[jobId]);
+	return rollbackRequiredAuthorityPresent(jobsRevertDetailCache[jobId]);
 }
 
 if (jobsRevertPh && typeof jobsRevertPh.register === "function") {
 	jobsRevertPh.register("app_part_jobs_revert", {
 		syncJobsRevertState,
 		shouldShowJobsRevert,
+		rememberRollbackSourceJobDetail,
 	});
 }

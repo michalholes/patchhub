@@ -49,7 +49,7 @@ function makeClassList() {
   };
 }
 function makeNode(id) {
-  return {
+  const node = Object.assign(new global.HTMLElement(), {
     id,
     innerHTML: "",
     textContent: "",
@@ -71,8 +71,11 @@ function makeNode(id) {
     setAttribute(name, value) { this[name] = String(value); },
     removeAttribute(name) { delete this[name]; },
     focus() {},
-  };
+  });
+  node.closest = () => null;
+  return node;
 }
+global.HTMLElement = function HTMLElement() {};
 global.window = { AMP_PATCHHUB_UI: {}, PH: {
   register(name, exports) { registry.set(String(name), exports || {}); },
   call(name, ...args) {
@@ -354,13 +357,8 @@ pending[0].resolve({ ok: false, error: "manifest failed" });
 await Promise.resolve();
 await Promise.resolve();
 const strip = document.getElementById("zipSubsetStrip");
-__dispatchDocumentEvent("click", {
-  target: {
-    closest(selector) {
-      return selector === "#zipSubsetStrip" ? strip : null;
-    },
-  },
-});
+strip.closest = (selector) => (selector === "#zipSubsetStrip" ? strip : null);
+__dispatchDocumentEvent("click", { target: strip });
 pending[1].resolve({
   ok: true,
   manifest: {

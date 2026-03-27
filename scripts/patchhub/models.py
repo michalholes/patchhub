@@ -11,6 +11,7 @@ JobMode = Literal[
     "finalize_live",
     "finalize_workspace",
     "rerun_latest",
+    "rollback",
     "revert_job",
 ]
 JobStatus = Literal["queued", "running", "success", "fail", "canceled", "unknown"]
@@ -22,6 +23,7 @@ _VALID_JOB_MODES = {
     "finalize_live",
     "finalize_workspace",
     "rerun_latest",
+    "rollback",
     "revert_job",
 }
 _VALID_JOB_STATUSES = {"queued", "running", "success", "fail", "canceled", "unknown"}
@@ -137,6 +139,11 @@ class JobRecord:
     run_start_sha: str | None = None
     run_end_sha: str | None = None
     revert_source_job_id: str | None = None
+    rollback_source_job_id: str | None = None
+    rollback_scope_manifest_rel_path: str | None = None
+    rollback_scope_manifest_hash: str | None = None
+    rollback_authority_kind: str | None = None
+    rollback_authority_source_ref: str | None = None
     applied_files: list[str] = field(default_factory=list)
     applied_files_source: str = "unavailable"
     last_log_seq: int = 0
@@ -150,6 +157,10 @@ class JobRecord:
                 self.created_unix_ms = int(dt.replace(tzinfo=UTC).timestamp() * 1000)
             except ValueError:
                 self.created_unix_ms = 0
+        if self.rollback_source_job_id is None and self.revert_source_job_id is not None:
+            self.rollback_source_job_id = self.revert_source_job_id
+        if self.revert_source_job_id is None and self.rollback_source_job_id is not None:
+            self.revert_source_job_id = self.rollback_source_job_id
 
     @classmethod
     def from_json(cls, payload: dict[str, Any]) -> JobRecord:
@@ -244,6 +255,39 @@ class JobRecord:
             revert_source_job_id=(
                 str(payload.get("revert_source_job_id"))
                 if payload.get("revert_source_job_id") is not None
+                else (
+                    str(payload.get("rollback_source_job_id"))
+                    if payload.get("rollback_source_job_id") is not None
+                    else None
+                )
+            ),
+            rollback_source_job_id=(
+                str(payload.get("rollback_source_job_id"))
+                if payload.get("rollback_source_job_id") is not None
+                else (
+                    str(payload.get("revert_source_job_id"))
+                    if payload.get("revert_source_job_id") is not None
+                    else None
+                )
+            ),
+            rollback_scope_manifest_rel_path=(
+                str(payload.get("rollback_scope_manifest_rel_path"))
+                if payload.get("rollback_scope_manifest_rel_path") is not None
+                else None
+            ),
+            rollback_scope_manifest_hash=(
+                str(payload.get("rollback_scope_manifest_hash"))
+                if payload.get("rollback_scope_manifest_hash") is not None
+                else None
+            ),
+            rollback_authority_kind=(
+                str(payload.get("rollback_authority_kind"))
+                if payload.get("rollback_authority_kind") is not None
+                else None
+            ),
+            rollback_authority_source_ref=(
+                str(payload.get("rollback_authority_source_ref"))
+                if payload.get("rollback_authority_source_ref") is not None
                 else None
             ),
             applied_files=[str(item) for item in list(payload.get("applied_files") or [])],
@@ -267,8 +311,21 @@ class JobRecord:
             payload.pop("run_start_sha", None)
         if self.run_end_sha is None:
             payload.pop("run_end_sha", None)
-        if self.revert_source_job_id is None:
+        source_job_id = self.rollback_source_job_id or self.revert_source_job_id
+        if source_job_id is None:
+            payload.pop("rollback_source_job_id", None)
             payload.pop("revert_source_job_id", None)
+        else:
+            payload["rollback_source_job_id"] = source_job_id
+            payload["revert_source_job_id"] = source_job_id
+        if self.rollback_scope_manifest_rel_path is None:
+            payload.pop("rollback_scope_manifest_rel_path", None)
+        if self.rollback_scope_manifest_hash is None:
+            payload.pop("rollback_scope_manifest_hash", None)
+        if self.rollback_authority_kind is None:
+            payload.pop("rollback_authority_kind", None)
+        if self.rollback_authority_source_ref is None:
+            payload.pop("rollback_authority_source_ref", None)
         payload["target_mismatch"] = bool(self.target_mismatch)
         return payload
 

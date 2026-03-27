@@ -133,7 +133,7 @@ function gateOptionsReason(mode, rawCommand) {
 	if (!gateOptionsModeSupported(mode, rawCommand)) {
 		return (
 			"Gate options are available for patch, finalize_live, " +
-			"finalize_workspace, and rerun_latest"
+			"finalize_workspace, and rerun_latest; rollback is unsupported"
 		);
 	}
 	return "";

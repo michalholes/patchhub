@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from patchhub.models import JobRecord
+from patchhub.rollback_scope_manifest import build_manifest_for_job, write_manifest
 from patchhub.run_applied_files import collect_job_applied_files
 from patchhub.web_jobs_db import WebJobsDatabase
 
@@ -21,7 +22,9 @@ from .async_runner_exec import AsyncRunnerExecutor, ExecResult
 from .async_task_grace import wait_with_grace
 from .job_event_broker import JobEventBroker
 from .revert_job_runtime import (
+    EventBroker,
     RevertJobRuntimeError,
+    _append_line_sync,
     abort_git_revert,
     build_revert_job_handler,
     capture_head_sha,
@@ -30,6 +33,7 @@ from .revert_job_runtime import (
     tracked_tree_is_clean,
     verify_failed_revert_postconditions,
 )
+from .rollback_runtime import build_rollback_job_handler
 
 
 def utc_now() -> str:
@@ -265,6 +269,45 @@ class AsyncJobQueue:
         target_root = resolve_target_repo_root(self._target_repo_roots, token)
         return await asyncio.to_thread(capture_head_sha, target_root)
 
+    async def _persist_rollback_manifest(self, job: JobRecord) -> None:
+        if not str(job.effective_runner_target_repo or "").strip():
+            return
+        if not str(job.run_start_sha or "").strip() or not str(job.run_end_sha or "").strip():
+            return
+        if str(job.run_start_sha or "") == str(job.run_end_sha or ""):
+            return
+        token = str(job.effective_runner_target_repo or "").strip()
+        target_root = resolve_target_repo_root(self._target_repo_roots, token)
+        manifest = await asyncio.to_thread(
+            build_manifest_for_job,
+            repo_root=target_root,
+            source_job_id=str(job.job_id),
+            issue_id=str(job.issue_id or ""),
+            selected_target_repo_token=str(job.selected_target_repo or token),
+            effective_runner_target_repo=token,
+            run_start_sha=str(job.run_start_sha or ""),
+            run_end_sha=str(job.run_end_sha or ""),
+            authority_kind="git_commit_range",
+            authority_source_ref=f"{str(job.run_start_sha or '')}..{str(job.run_end_sha or '')}",
+        )
+        if not list(manifest.get("entries") or []):
+            return
+        rel_path, manifest_hash = await asyncio.to_thread(
+            write_manifest,
+            self._job_dir(job.job_id),
+            manifest,
+        )
+        job.rollback_scope_manifest_rel_path = rel_path
+        job.rollback_scope_manifest_hash = manifest_hash
+        job.rollback_authority_kind = str(
+            manifest.get("rollback_authority_kind") or "git_commit_range"
+        )
+        job.rollback_authority_source_ref = str(
+            manifest.get("rollback_authority_source_ref")
+            or f"{str(job.run_start_sha or '')}..{str(job.run_end_sha or '')}"
+        )
+        await self._persist(job, count_as_job_change=False)
+
     async def _current_job_lookup(self, job_id: str) -> JobRecord | None:
         async with self._mu:
             return self._jobs.get(job_id)
@@ -285,6 +328,45 @@ class AsyncJobQueue:
             abort_git_revert_fn=abort_git_revert,
             verify_failed_revert_postconditions_fn=verify_failed_revert_postconditions,
         )
+
+    def _build_rollback_job_handler(self):
+        return build_rollback_job_handler(
+            jobs_root=self._jobs_root,
+            current_job_lookup=self._current_job_lookup,
+            target_repo_roots=self._target_repo_roots,
+            capture_head_sha_for_job=self._capture_head_sha,
+            append_log=lambda job, line: self._append_log_line(job, line),
+            append_event=lambda job, broker, payload: self._append_event_line(job, broker, payload),
+        )
+
+    async def _append_log_line(self, job: JobRecord, line: str) -> None:
+        text = str(line or "").rstrip("\n")
+        if self._job_db is not None:
+            await asyncio.to_thread(self._job_db.append_log_line, job.job_id, text)
+            return
+        await asyncio.to_thread(_append_line_sync, self._job_dir(job.job_id) / "runner.log", text)
+
+    async def _append_event_line(
+        self,
+        job: JobRecord,
+        broker: EventBroker | None,
+        payload: dict[str, object],
+    ) -> None:
+        raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+        if self._job_db is not None:
+            seq = await asyncio.to_thread(self._job_db.append_event_line, job.job_id, raw)
+        else:
+            seq = await asyncio.to_thread(
+                _append_line_sync,
+                _job_jsonl_path_from_fields(
+                    self._job_dir(job.job_id),
+                    str(job.mode),
+                    str(job.issue_id),
+                ),
+                raw,
+            )
+        if broker is not None:
+            broker.publish(raw, seq)
 
     async def _finalize_running_job(
         self,
@@ -321,7 +403,15 @@ class AsyncJobQueue:
         callback_error: str | None = None
         if finalized is not None and finalized.status == "success":
             await self._materialize_applied_files(finalized)
-            if finalized.mode == "patch" and self._on_patch_success is not None:
+            try:
+                await self._persist_rollback_manifest(finalized)
+            except Exception as exc:
+                callback_error = f"{type(exc).__name__}: {exc}"
+            if (
+                finalized.mode == "patch"
+                and self._on_patch_success is not None
+                and callback_error is None
+            ):
                 try:
                     await self._on_patch_success(finalized)
                 except Exception as exc:
@@ -624,6 +714,21 @@ class AsyncJobQueue:
                     async with self._mu:
                         self._brokers[job_id] = broker
                     rc, internal_error = await self._build_revert_job_handler().run(
+                        current_job,
+                        broker,
+                    )
+                    await self._persist(current_job, count_as_job_change=False)
+                    await self._finalize_running_job(
+                        job_id,
+                        return_code=rc,
+                        error=internal_error,
+                    )
+                    continue
+                if current_job.mode == "rollback":
+                    broker = JobEventBroker()
+                    async with self._mu:
+                        self._brokers[job_id] = broker
+                    rc, internal_error = await self._build_rollback_job_handler().run(
                         current_job,
                         broker,
                     )

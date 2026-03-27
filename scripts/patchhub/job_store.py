@@ -40,6 +40,11 @@ CREATE TABLE IF NOT EXISTS web_jobs (
     run_start_sha TEXT,
     run_end_sha TEXT,
     revert_source_job_id TEXT,
+    rollback_source_job_id TEXT,
+    rollback_scope_manifest_rel_path TEXT,
+    rollback_scope_manifest_hash TEXT,
+    rollback_authority_kind TEXT,
+    rollback_authority_source_ref TEXT,
     applied_files_json TEXT NOT NULL,
     applied_files_source TEXT NOT NULL,
     last_log_seq INTEGER NOT NULL DEFAULT 0,
@@ -160,6 +165,11 @@ _WEB_JOBS_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("run_start_sha", "TEXT"),
     ("run_end_sha", "TEXT"),
     ("revert_source_job_id", "TEXT"),
+    ("rollback_source_job_id", "TEXT"),
+    ("rollback_scope_manifest_rel_path", "TEXT"),
+    ("rollback_scope_manifest_hash", "TEXT"),
+    ("rollback_authority_kind", "TEXT"),
+    ("rollback_authority_source_ref", "TEXT"),
 )
 
 
@@ -252,6 +262,16 @@ class SqliteWebJobsStore:
         )
 
     def _row_to_job_json(self, row: sqlite3.Row) -> dict[str, Any]:
+        row_keys = set(row.keys())
+        rollback_source_job_id = (
+            row["rollback_source_job_id"]
+            if "rollback_source_job_id" in row_keys and row["rollback_source_job_id"] is not None
+            else (
+                row["revert_source_job_id"]
+                if "revert_source_job_id" in row_keys and row["revert_source_job_id"] is not None
+                else None
+            )
+        )
         return {
             "job_id": str(row["job_id"]),
             "created_utc": str(row["created_utc"]),
@@ -282,7 +302,12 @@ class SqliteWebJobsStore:
             "target_mismatch": bool(row["target_mismatch"]),
             "run_start_sha": row["run_start_sha"],
             "run_end_sha": row["run_end_sha"],
-            "revert_source_job_id": row["revert_source_job_id"],
+            "revert_source_job_id": rollback_source_job_id,
+            "rollback_source_job_id": rollback_source_job_id,
+            "rollback_scope_manifest_rel_path": row["rollback_scope_manifest_rel_path"],
+            "rollback_scope_manifest_hash": row["rollback_scope_manifest_hash"],
+            "rollback_authority_kind": row["rollback_authority_kind"],
+            "rollback_authority_source_ref": row["rollback_authority_source_ref"],
             "applied_files": json.loads(str(row["applied_files_json"])),
             "applied_files_source": str(row["applied_files_source"]),
             "last_log_seq": int(row["last_log_seq"]),
@@ -337,7 +362,12 @@ class SqliteWebJobsStore:
             1 if job.target_mismatch else 0,
             job.run_start_sha,
             job.run_end_sha,
-            job.revert_source_job_id,
+            job.revert_source_job_id or job.rollback_source_job_id,
+            job.rollback_source_job_id or job.revert_source_job_id,
+            job.rollback_scope_manifest_rel_path,
+            job.rollback_scope_manifest_hash,
+            job.rollback_authority_kind,
+            job.rollback_authority_source_ref,
             _json_dumps(list(job.applied_files)),
             str(job.applied_files_source),
             int(log_count if log_count is not None else job.last_log_seq),
@@ -367,11 +397,13 @@ class SqliteWebJobsStore:
                 zip_target_repo, selected_target_repo,
                 effective_runner_target_repo, target_mismatch,
                 run_start_sha, run_end_sha, revert_source_job_id,
-                applied_files_json, applied_files_source,
-                last_log_seq, last_event_seq, row_rev
+                rollback_source_job_id, rollback_scope_manifest_rel_path,
+                rollback_scope_manifest_hash, rollback_authority_kind,
+                rollback_authority_source_ref, applied_files_json,
+                applied_files_source, last_log_seq, last_event_seq, row_rev
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             ON CONFLICT(job_id) DO UPDATE SET
                 created_utc = excluded.created_utc,
@@ -404,6 +436,11 @@ class SqliteWebJobsStore:
                 run_start_sha = excluded.run_start_sha,
                 run_end_sha = excluded.run_end_sha,
                 revert_source_job_id = excluded.revert_source_job_id,
+                rollback_source_job_id = excluded.rollback_source_job_id,
+                rollback_scope_manifest_rel_path = excluded.rollback_scope_manifest_rel_path,
+                rollback_scope_manifest_hash = excluded.rollback_scope_manifest_hash,
+                rollback_authority_kind = excluded.rollback_authority_kind,
+                rollback_authority_source_ref = excluded.rollback_authority_source_ref,
                 applied_files_json = excluded.applied_files_json,
                 applied_files_source = excluded.applied_files_source,
                 last_log_seq = excluded.last_log_seq,

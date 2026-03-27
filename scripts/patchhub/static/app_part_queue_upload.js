@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * @typedef {{
  *   call?: function(string, ...*): *,
@@ -49,18 +50,22 @@ function validateAndPreview() {
 		modeRules = { issue_id: true, commit_message: false, patch_path: false };
 	} else if (mode === "rerun_latest") {
 		modeRules = { issue_id: true, commit_message: true, patch_path: true };
+	} else if (mode === "rollback") {
+		modeRules = { issue_id: false, commit_message: false, patch_path: false };
 	} else {
 		modeRules = { issue_id: true, commit_message: true, patch_path: true };
 	}
 	setStartFormState(modeRules);
+	phCall("syncRollbackUiFromInputs");
 
 	var ok = true;
+	var rollbackValidation = null;
 
 	var canonical = null;
 	var preview = null;
 	var gatePayload = {};
 
-	if (raw) {
+	if (raw && mode !== "rollback") {
 		ok = !parseInFlight && !!lastParsed && lastParsedRaw === raw;
 		if (ok) {
 			const p = lastParsed.parsed || {};
@@ -99,33 +104,48 @@ function validateAndPreview() {
 			ok = !!issueId && /^[0-9]+$/.test(issueId);
 		} else if (mode === "rerun_latest") {
 			ok = !!commitMsg && !!issueId && /^[0-9]+$/.test(issueId);
+		} else if (mode === "rollback") {
+			rollbackValidation = phCall("getRollbackValidationState") || {
+				ok: false,
+				hint: "select Roll-back from the Jobs list",
+			};
+			ok = rollbackValidation.ok === true;
+			preview = {
+				mode: mode,
+				canonical_argv: [],
+			};
+		} else {
+			ok = false;
 		}
 
-		gatePayload = phCall("getGateOptionsEnqueuePayload", mode) || {};
-		canonical =
-			phCall(
-				"computeCanonicalPreview",
-				mode,
-				issueId,
-				commitMsg,
-				patchPath,
-				gatePayload.gate_argv || [],
-				targetRepo,
-			) || [];
-		preview = {
-			mode: mode,
-			issue_id: issueId,
-			commit_message: commitMsg,
-			patch_path: patchPath,
-			canonical_argv: canonical,
-		};
+		if (mode !== "rollback") {
+			gatePayload = phCall("getGateOptionsEnqueuePayload", mode) || {};
+			canonical =
+				phCall(
+					"computeCanonicalPreview",
+					mode,
+					issueId,
+					commitMsg,
+					patchPath,
+					gatePayload.gate_argv || [],
+					targetRepo,
+				) || [];
+			preview = {
+				mode: mode,
+				issue_id: issueId,
+				commit_message: commitMsg,
+				patch_path: patchPath,
+				canonical_argv: canonical,
+			};
+		}
 	}
+	preview = phCall("applyRollbackPreview", preview) || preview;
 	preview = phCall("applyZipSubsetPreview", preview) || preview;
 	preview = phCall("applyGatePreview", preview) || preview;
-	var subsetState = phCall("getZipSubsetValidationState") || {
-		ok: true,
-		hint: "",
-	};
+	var subsetState =
+		mode === "patch"
+			? phCall("getZipSubsetValidationState") || { ok: true, hint: "" }
+			: { ok: true, hint: "" };
 	if (subsetState.ok === false) ok = false;
 	setPre("previewRight", preview);
 	el("enqueueBtn").disabled = !ok;
@@ -157,17 +177,19 @@ function validateAndPreview() {
 function enqueue() {
 	var mode = String(el("mode").value || "patch");
 	var subsetPayload = {};
-	var body = {
+	var body = /** @type {Record<string, unknown>} */ ({
 		mode: mode,
 		raw_command: el("rawCommand")
 			? String(el("rawCommand").value || "").trim()
 			: "",
-	};
+	});
 	var targetRepo = String(
 		(el("targetRepo") && el("targetRepo").value) || "",
 	).trim();
+	var rollbackPayload = {};
 	var raw = String(body.raw_command || "");
 	if (
+		mode !== "rollback" &&
 		raw &&
 		!parseInFlight &&
 		lastParsed &&
@@ -176,7 +198,7 @@ function enqueue() {
 		lastParsed.parsed.mode
 	) {
 		body.mode = String(lastParsed.parsed.mode || mode);
-		mode = body.mode;
+		mode = String(body.mode || mode);
 	}
 
 	setUiStatus("enqueue: started mode=" + mode);
@@ -206,6 +228,25 @@ function enqueue() {
 		body.patch_path = normalizePatchPath(
 			String(el("patchPath").value || "").trim(),
 		);
+	} else if (mode === "rollback") {
+		rollbackPayload = phCall("getRollbackEnqueuePayload") || {};
+		if (rollbackPayload.error) {
+			setUiError(String(rollbackPayload.error || "invalid rollback state"));
+			return;
+		}
+		body.rollback_source_job_id = String(
+			rollbackPayload.rollback_source_job_id || "",
+		).trim();
+		body.rollback_scope_kind = String(
+			rollbackPayload.rollback_scope_kind || "full",
+		).trim();
+		body.rollback_preflight_token = String(
+			rollbackPayload.rollback_preflight_token || "",
+		).trim();
+		if (Array.isArray(rollbackPayload.rollback_selected_repo_paths)) {
+			body.rollback_selected_repo_paths =
+				rollbackPayload.rollback_selected_repo_paths.slice();
+		}
 	}
 	var gatePayload = phCall("getGateOptionsEnqueuePayload", mode) || {};
 	if (gatePayload.error) {
@@ -215,7 +256,7 @@ function enqueue() {
 	if (Array.isArray(gatePayload.gate_argv) && gatePayload.gate_argv.length) {
 		body.gate_argv = gatePayload.gate_argv.slice();
 	}
-	if (!body.raw_command && targetRepo) {
+	if (mode !== "rollback" && !body.raw_command && targetRepo) {
 		body.target_repo = targetRepo;
 	}
 

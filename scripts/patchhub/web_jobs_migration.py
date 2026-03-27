@@ -165,6 +165,11 @@ def _verify(repo_root: Path) -> list[dict[str, Any]]:
             expected_job.setdefault("run_start_sha", None)
             expected_job.setdefault("run_end_sha", None)
             expected_job.setdefault("revert_source_job_id", None)
+            expected_job.setdefault("rollback_source_job_id", None)
+            expected_job.setdefault("rollback_scope_manifest_rel_path", None)
+            expected_job.setdefault("rollback_scope_manifest_hash", None)
+            expected_job.setdefault("rollback_authority_kind", None)
+            expected_job.setdefault("rollback_authority_source_ref", None)
             if db_job is not None and "row_rev" in db_job:
                 expected_job["row_rev"] = int(db_job.get("row_rev", 0) or 0)
         ok = (

@@ -302,6 +302,9 @@ function wireButtons() {
 			return;
 		}
 		phCall("clearProtectedRerunLatestLifecycle");
+		if (mode !== "rollback") {
+			phCall("clearRollbackFlowState");
+		}
 		validateAndPreview();
 	});
 	el("issueId").addEventListener("input", () => {

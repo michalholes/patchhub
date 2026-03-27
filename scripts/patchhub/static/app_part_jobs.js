@@ -357,7 +357,7 @@ function pruneJobDetailCache(
 }
 
 function reportRevertError(/** @type {string | null | undefined} */ message) {
-	var text = String(message || "revert: failed");
+	var text = String(message || "rollback: failed");
 	if (typeof setUiError === "function") {
 		setUiError(text);
 		return;
@@ -365,42 +365,16 @@ function reportRevertError(/** @type {string | null | undefined} */ message) {
 	setUiStatus(text);
 }
 
-function applyRevertEnqueuedJob(
-	/** @type {string | null | undefined} */ jobId,
-) {
-	selectedJobId = String(jobId || "").trim();
-	if (!selectedJobId) return;
-	AMP_UI.saveLiveJobId(selectedJobId);
-	suppressIdleOutput = false;
-	phCall("refreshJobs", { mode: "user" });
-	phCall("openLiveStream", selectedJobId);
-}
-
 function triggerRevertJob(/** @type {string | null | undefined} */ jobId) {
 	var sourceJobId = String(jobId || selectedJobId || "").trim();
+	var beginRollback = null;
 	if (!sourceJobId) return Promise.resolve(false);
-	setUiStatus("revert: started source_job_id=" + sourceJobId);
-	return /** @type {Promise<RevertResponse>} */ (
-		apiPost("/api/jobs/" + encodeURIComponent(sourceJobId) + "/revert", {})
-	).then(
-		(resp) => {
-			var newJobId = "";
-			if (!resp || resp.ok === false) {
-				reportRevertError("revert: failed source_job_id=" + sourceJobId);
-				phCall("refreshJobs", { mode: "user" });
-				return false;
-			}
-			if (resp.job) cacheJobDetail(resp.job);
-			newJobId = String(resp.job_id || "").trim();
-			setUiStatus("revert: ok job_id=" + newJobId);
-			applyRevertEnqueuedJob(newJobId);
-			return true;
-		},
-		() => {
-			reportRevertError("revert: failed source_job_id=" + sourceJobId);
-			return false;
-		},
-	);
+	beginRollback = phCall("beginRollbackFromJobId", sourceJobId);
+	if (beginRollback) {
+		return Promise.resolve(beginRollback).then((result) => !!result);
+	}
+	reportRevertError("rollback: entry flow is unavailable");
+	return Promise.resolve(false);
 }
 
 function initJobsListActions() {
@@ -605,7 +579,7 @@ function renderJobsList() {
 						'<button type="button" class="btn btn-small jobRevert" ' +
 						'data-revert-jobid="' +
 						escapeHtml(jobId) +
-						'">Revert</button>';
+						'">Roll-back</button>';
 				}
 				line += "</div>";
 			}

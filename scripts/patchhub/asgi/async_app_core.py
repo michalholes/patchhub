@@ -336,6 +336,8 @@ class AsyncAppCore:
     api_patch_zip_manifest = _jobs.api_patch_zip_manifest
     api_jobs_get = _jobs.api_jobs_get
     api_jobs_revert = _jobs.api_jobs_revert
+    api_rollback_preflight = _jobs.api_rollback_preflight
+    api_rollback_helper_action = _jobs.api_rollback_helper_action
 
     api_upload_patch = _upload.api_upload_patch
     api_workspaces = _workspaces.api_workspaces

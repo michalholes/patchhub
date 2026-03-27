@@ -222,6 +222,10 @@ global.apiGet = (path) => Promise.resolve(
           effective_runner_target_repo: 'patchhub',
           run_start_sha: 'aaa111',
           run_end_sha: 'bbb222',
+          rollback_scope_manifest_rel_path: 'job-eligible/rollback_scope_manifest.json',
+          rollback_scope_manifest_hash: 'manifest-hash',
+          rollback_authority_kind: 'github',
+          rollback_authority_source_ref: 'issue:381',
         },
       }
     : { ok: true, job: { job_id: 'job-selected' } }
@@ -259,6 +263,10 @@ global.apiGet = () => {
       effective_runner_target_repo: 'patchhub',
       run_start_sha: 'aaa111',
       run_end_sha: 'bbb222',
+      rollback_scope_manifest_rel_path: 'job-eligible/rollback_scope_manifest.json',
+      rollback_scope_manifest_hash: 'manifest-hash',
+      rollback_authority_kind: 'github',
+      rollback_authority_source_ref: 'issue:383',
     },
   });
 };

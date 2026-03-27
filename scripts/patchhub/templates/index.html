@@ -129,6 +129,7 @@
             <option value="finalize_live">finalize_live (-f)</option>
             <option value="finalize_workspace">finalize_workspace (-w)</option>
             <option value="rerun_latest">rerun_latest (-l)</option>
+            <option value="rollback">rollback</option>
           </select>
           <input
             id="patchPath"
@@ -147,6 +148,16 @@
           <input id="commitMsg" class="input start-run-commit" placeholder="message (required for patch and -f)" />
           <select id="targetRepo" class="input start-run-target"></select>
           <button type="button" id="enqueueBtn" class="btn btn-danger btn-start" disabled>Start</button>
+        </div>
+
+        <div id="rollbackSummary" class="hidden">
+          <div id="rollbackSourceSummary" class="muted">No rollback source selected.</div>
+          <div id="rollbackScopeSummary" class="muted">Select Roll-back from the Jobs list to start guided rollback.</div>
+          <div class="row">
+            <button type="button" id="rollbackUseFullBtn" class="btn btn-small">Full scope</button>
+            <button type="button" id="rollbackChooseSubsetBtn" class="btn btn-small">Choose subset</button>
+            <button type="button" id="rollbackHelperBtn" class="btn btn-small">Helper</button>
+          </div>
         </div>
 
         <div id="uiDegradedBanner" class="statusbar hidden" aria-live="polite"></div>
@@ -378,6 +389,23 @@
     </div>
   </div>
 
+
+  <div id="rollbackHelperModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card info-pool-modal-card" role="dialog" aria-modal="true">
+      <div class="info-pool-modal-head">
+        <div>
+          <h2 id="rollbackHelperTitle" class="info-pool-modal-title">Rollback guidance</h2>
+          <div class="muted">Guided rollback helper</div>
+        </div>
+        <button type="button" id="rollbackHelperCloseBtn" class="btn btn-small">Close</button>
+      </div>
+      <div id="rollbackHelperBody" class="info-pool-modal-body"></div>
+      <div class="info-pool-modal-actions">
+        <div id="rollbackHelperActions" class="row"></div>
+        <button type="button" id="rollbackHelperDoneBtn" class="btn btn-small">Done</button>
+      </div>
+    </div>
+  </div>
 
   <div id="uiStatusModal" class="modal-backdrop hidden" aria-hidden="true">
     <div class="modal-card info-pool-modal-card" role="dialog" aria-modal="true">

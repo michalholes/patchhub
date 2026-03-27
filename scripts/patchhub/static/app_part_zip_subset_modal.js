@@ -1,5 +1,39 @@
 (() => {
-	var w = /** @type {any} */ (window);
+	/**
+	 * @typedef {{
+	 *   onToggle?: (name: string, checked: boolean) => void,
+	 *   onSelectAll?: () => void,
+	 *   onClear?: () => void,
+	 *   onReset?: () => void,
+	 *   onCancel?: () => void,
+	 *   onClose?: () => void,
+	 *   onBackdrop?: () => void,
+	 *   onApply?: () => void,
+	 * }} ListModalController
+	 * @typedef {{
+	 *   call?: (name: string, ...args: unknown[]) => unknown,
+	 *   has?: (name: string) => boolean,
+	 *   register?: (name: string, exportsObj: Record<string, unknown>) => void,
+	 * }} ListModalRuntime
+	 * @typedef {Window & typeof globalThis & {
+	 *   AMP_PATCHHUB_UI?: {
+	 *     zipSubsetModalController?: ListModalController | null,
+	 *     activeListModalController?: ListModalController | null,
+	 *     renderZipSubsetModal?: (model: Record<string, unknown>) => void,
+	 *     openZipSubsetModalView?: (model: Record<string, unknown>) => void,
+	 *     closeZipSubsetModalView?: () => void,
+	 *   },
+	 *   PH?: ListModalRuntime | null,
+	 * }} ListModalWindow
+	 * @typedef {HTMLElement & {
+	 *   value?: string,
+	 *   checked?: boolean,
+	 *   disabled?: boolean,
+	 *   innerHTML: string,
+	 *   textContent: string,
+	 * }} ListModalElement
+	 */
+	var w = /** @type {ListModalWindow} */ (window);
 	var ui = w.AMP_PATCHHUB_UI;
 	if (!ui) {
 		ui = {};
@@ -7,7 +41,7 @@
 	}
 
 	function el(id) {
-		return /** @type {any} */ (document.getElementById(id));
+		return /** @type {ListModalElement | null} */ (document.getElementById(id));
 	}
 
 	function escapeHtml(s) {
@@ -20,7 +54,7 @@
 	}
 
 	function controller() {
-		return /** @type {any} */ (ui.zipSubsetModalController || null);
+		return ui.activeListModalController || ui.zipSubsetModalController || null;
 	}
 
 	function setVisible(on) {
@@ -44,8 +78,8 @@
 			.map((row) => {
 				var entry = String(row && row.zip_member ? row.zip_member : "");
 				var repo = String(row && row.repo_path ? row.repo_path : "");
-				var checked = row && row.checked === true;
-				var disabled = row && row.disabled === true;
+				var checked = !!(row && row.checked === true);
+				var disabled = !!(row && row.disabled === true);
 				return (
 					'<label class="zip-subset-item">' +
 					'<input type="checkbox" class="zip-subset-check" data-zip-entry="' +
@@ -82,42 +116,46 @@
 
 	function bindEvents() {
 		document.addEventListener("click", (ev) => {
-			var t = /** @type {any} */ (ev && ev.target ? ev.target : null);
+			var target = ev && ev.target instanceof HTMLElement ? ev.target : null;
 			var ctl = controller();
-			if (!t || !ctl) return;
-			if (t.id === "zipSubsetCloseBtn") {
-				ctl.onClose();
+			if (!target || !ctl) return;
+			if (target.id === "zipSubsetCloseBtn") {
+				ctl.onClose && ctl.onClose();
 				return;
 			}
-			if (t.id === "zipSubsetCancelBtn") {
-				ctl.onCancel();
+			if (target.id === "zipSubsetCancelBtn") {
+				ctl.onCancel && ctl.onCancel();
 				return;
 			}
-			if (t.id === "zipSubsetApplyBtn") {
-				ctl.onApply();
+			if (target.id === "zipSubsetApplyBtn") {
+				ctl.onApply && ctl.onApply();
 				return;
 			}
-			if (t.id === "zipSubsetSelectAllBtn") {
-				ctl.onSelectAll();
+			if (target.id === "zipSubsetSelectAllBtn") {
+				ctl.onSelectAll && ctl.onSelectAll();
 				return;
 			}
-			if (t.id === "zipSubsetClearBtn") {
-				ctl.onClear();
+			if (target.id === "zipSubsetClearBtn") {
+				ctl.onClear && ctl.onClear();
 				return;
 			}
-			if (t.id === "zipSubsetResetBtn") {
-				ctl.onReset();
+			if (target.id === "zipSubsetResetBtn") {
+				ctl.onReset && ctl.onReset();
 			}
 		});
 
 		document.addEventListener("change", (ev) => {
-			var t = /** @type {any} */ (ev && ev.target ? ev.target : null);
+			var target = ev && ev.target instanceof HTMLElement ? ev.target : null;
 			var ctl = controller();
-			if (!t || !ctl || !t.classList) return;
-			if (!t.classList.contains("zip-subset-check")) return;
-			var name = String(t.getAttribute("data-zip-entry") || "");
+			if (!target || !ctl || !target.classList) return;
+			if (!target.classList.contains("zip-subset-check")) return;
+			var name = String(target.getAttribute("data-zip-entry") || "");
 			if (!name) return;
-			ctl.onToggle(name, !!t.checked);
+			ctl.onToggle &&
+				ctl.onToggle(
+					name,
+					!!(/** @type {HTMLInputElement} */ (target).checked),
+				);
 		});
 
 		var backdrop = el("zipSubsetModal");
@@ -125,7 +163,7 @@
 			backdrop.addEventListener("click", (ev) => {
 				var ctl = controller();
 				if (!ctl) return;
-				if (ev.target === backdrop) ctl.onBackdrop();
+				if (ev.target === backdrop) ctl.onBackdrop && ctl.onBackdrop();
 			});
 		}
 	}

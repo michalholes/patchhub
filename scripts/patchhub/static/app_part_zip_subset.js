@@ -1,5 +1,27 @@
 (() => {
-	var w = /** @type {any} */ (window);
+	/**
+	 * @typedef {{
+	 *   call?: (name: string, ...args: unknown[]) => unknown,
+	 *   has?: (name: string) => boolean,
+	 *   register?: (name: string, exportsObj: Record<string, unknown>) => void,
+	 * }} ZipSubsetRuntime
+	 * @typedef {Window & typeof globalThis & {
+	 *   AMP_PATCHHUB_UI?: Record<string, unknown>,
+	 *   PH?: ZipSubsetRuntime | null,
+	 *   __ph_patch_load_seq?: number,
+	 * }} ZipSubsetWindow
+	 * @typedef {HTMLElement & {
+	 *   value?: string,
+	 *   checked?: boolean,
+	 *   disabled?: boolean,
+	 *   dataset?: DOMStringMap,
+	 *   innerHTML: string,
+	 *   textContent: string,
+	 *   title: string,
+	 *   tabIndex: number,
+	 * }} ZipSubsetElement
+	 */
+	var w = /** @type {ZipSubsetWindow} */ (window);
 	var ui = w.AMP_PATCHHUB_UI;
 	if (!ui) {
 		ui = {};
@@ -25,7 +47,7 @@
 	};
 
 	function el(id) {
-		return /** @type {any} */ (document.getElementById(id));
+		return /** @type {ZipSubsetElement | null} */ (document.getElementById(id));
 	}
 
 	function escapeHtml(s) {
@@ -475,15 +497,15 @@
 
 	function bindEvents() {
 		document.addEventListener("click", (ev) => {
-			var t = /** @type {any} */ (ev && ev.target ? ev.target : null);
-			if (!t) return;
-			handleStripAction(t);
+			var target = ev && ev.target instanceof HTMLElement ? ev.target : null;
+			if (!target) return;
+			handleStripAction(target);
 		});
 		document.addEventListener("keydown", (ev) => {
-			var t = /** @type {any} */ (ev && ev.target ? ev.target : null);
-			if (!t) return;
+			var target = ev && ev.target instanceof HTMLElement ? ev.target : null;
+			if (!target) return;
 			if (ev.key !== "Enter" && ev.key !== " ") return;
-			if (!handleStripAction(t)) return;
+			if (!handleStripAction(target)) return;
 			ev.preventDefault();
 		});
 	}

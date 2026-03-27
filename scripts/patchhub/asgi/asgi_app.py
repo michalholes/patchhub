@@ -653,6 +653,16 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         status, data = await to_thread(core.api_jobs_revert, job_id)
         return _json_bytes_response(status, data)
 
+    @app.post("/api/rollback/preflight")
+    async def api_rollback_preflight(body: dict[str, Any]) -> Response:
+        status, data = await to_thread(core.api_rollback_preflight, body)
+        return _json_bytes_response(status, data)
+
+    @app.post("/api/rollback/helper_action")
+    async def api_rollback_helper_action(body: dict[str, Any]) -> Response:
+        status, data = await to_thread(core.api_rollback_helper_action, body)
+        return _json_bytes_response(status, data)
+
     @app.post("/api/jobs/{job_id}/cancel")
     async def api_jobs_cancel(job_id: str) -> Response:
         ok = await core.queue.cancel(job_id)
@@ -688,14 +698,19 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
                 self.repo_root = core.repo_root
                 self.patches_root = core.patches_root
                 self.jobs_root = core.jobs_root
+                self.web_jobs_db = core.web_jobs_db
                 self.queue = self
                 self._pending: list[asyncio.Task[None]] = []
+                self._target_repo_roots = dict(getattr(core.queue, "_target_repo_roots", {}))
 
             def _load_job_from_disk(self, job_id: str):
                 return core._load_job_from_disk(job_id)
 
             def queue_block_reason(self) -> str | None:
                 return core.queue_block_reason()
+
+            def list_jobs(self):
+                return list(core.queue._jobs.values())
 
             async def _enqueue_async(self, job: Any) -> None:
                 await core.queue.enqueue(job)

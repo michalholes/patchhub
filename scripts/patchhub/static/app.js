@@ -154,6 +154,24 @@ async function loadParts(/** @type {PatchHubRuntime} */ rt) {
 	);
 	noteLoad(
 		await PH.loadScript(
+			"/static/app_part_rollback_state.js",
+			"app_part_rollback_state",
+		),
+		"rollback state module missing",
+	);
+	noteLoad(
+		await PH.loadScript("/static/app_part_rollback.js", "app_part_rollback"),
+		"rollback module missing",
+	);
+	noteLoad(
+		await PH.loadScript(
+			"/static/app_part_rollback_helper_modal.js",
+			"app_part_rollback_helper_modal",
+		),
+		"rollback helper module missing",
+	);
+	noteLoad(
+		await PH.loadScript(
 			"/static/app_part_jobs_revert.js",
 			"app_part_jobs_revert",
 		),

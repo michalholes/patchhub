@@ -57,6 +57,17 @@ class TestPatchhubRevertJobApi(unittest.TestCase):
             with (
                 patch.object(AsyncAppCore, "startup", _noop_async),
                 patch.object(AsyncAppCore, "shutdown", _noop_async),
+                patch(
+                    "patchhub.app_api_jobs._run_source_job_preflight",
+                    return_value={
+                        "scope_kind": "full",
+                        "selected_entry_count": 0,
+                        "selected_entries": [],
+                        "selected_repo_paths": [],
+                        "rollback_preflight_token": "tok-1",
+                        "can_execute": True,
+                    },
+                ),
             ):
                 app = create_app(repo_root=root, cfg=cfg)
                 core = app.state.core
@@ -74,6 +85,10 @@ class TestPatchhubRevertJobApi(unittest.TestCase):
                     effective_runner_target_repo="patchhub",
                     run_start_sha="aaa111",
                     run_end_sha="bbb222",
+                    rollback_scope_manifest_rel_path="job-source-380/rollback_scope_manifest.json",
+                    rollback_scope_manifest_hash="manifest-hash",
+                    rollback_authority_kind="github",
+                    rollback_authority_source_ref="issue:380",
                 )
                 _write_job(core.jobs_root, source_job)
                 with TestClient(app) as client:
@@ -82,12 +97,10 @@ class TestPatchhubRevertJobApi(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         payload = resp.json()
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["job"]["mode"], "revert_job")
-        self.assertEqual(
-            payload["job"]["revert_source_job_id"],
-            source_job.job_id,
-        )
+        self.assertEqual(payload["job"]["job_id"], source_job.job_id)
         self.assertEqual(payload["job"]["effective_runner_target_repo"], "patchhub")
+        self.assertEqual(payload["rollback"]["scope_kind"], "full")
+        self.assertEqual(payload["rollback"]["selected_entry_count"], 0)
 
     def test_revert_endpoint_respects_queue_block_reason(self) -> None:
         try:
@@ -118,6 +131,10 @@ class TestPatchhubRevertJobApi(unittest.TestCase):
                     effective_runner_target_repo="patchhub",
                     run_start_sha="aaa111",
                     run_end_sha="bbb222",
+                    rollback_scope_manifest_rel_path="job-source-380/rollback_scope_manifest.json",
+                    rollback_scope_manifest_hash="manifest-hash",
+                    rollback_authority_kind="github",
+                    rollback_authority_source_ref="issue:380",
                 )
                 _write_job(core.jobs_root, source_job)
                 with TestClient(app) as client:
@@ -160,4 +177,4 @@ class TestPatchhubRevertJobApi(unittest.TestCase):
                     resp = client.post(f"/api/jobs/{source_job.job_id}/revert")
 
         self.assertEqual(resp.status_code, 409)
-        self.assertEqual(resp.json()["error"], "Source job is not revertable")
+        self.assertEqual(resp.json()["error"], "source job is not rollback-capable")
