@@ -69,7 +69,7 @@ def validate_bindings(bindings, oracles):
 
 
 def validate_rule_links(rules, caps):
-    rule_refs = defaultdict(int)
+    rule_refs: defaultdict[str, int] = defaultdict(int)
     for capability_id, capability in caps.items():
         for rule_id in capability.get("triggers_rules", []):
             if rule_id not in rules:
@@ -83,7 +83,7 @@ def validate_rule_links(rules, caps):
 
 
 def validate_routes(caps, providers, routes):
-    cap_route_refs = defaultdict(int)
+    cap_route_refs: defaultdict[str, int] = defaultdict(int)
     for route_id, route in routes.items():
         for capability_id in route.get("covers_capabilities", []):
             if capability_id not in caps:

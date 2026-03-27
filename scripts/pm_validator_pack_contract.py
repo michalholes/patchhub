@@ -120,7 +120,7 @@ def _load_jsonl_bytes(raw):
         try:
             obj = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise VE(f"spec_jsonl_invalid_line:{idx}:{exc.msg}")
+            raise VE(f"spec_jsonl_invalid_line:{idx}:{exc.msg}") from exc
         if not isinstance(obj, dict):
             raise VE(f"spec_jsonl_non_object:{idx}")
         out.append(obj)
@@ -177,7 +177,9 @@ def _binding_is_active(binding, mode, target_scope):
 def _ensure_binding_consistency(active_bindings, oracles):
     if not active_bindings:
         raise VE("binding_active_missing")
-    symbols, semantics, roles = {}, {}, {}
+    symbols: dict[tuple[str, str], list[str]] = {}
+    semantics: dict[str, list[str]] = {}
+    roles: dict[str, set[str]] = {}
     for binding in active_bindings:
         bid = str(binding.get("id", "<missing-id>"))
         ref = str(binding.get("oracle_ref", "")).strip()

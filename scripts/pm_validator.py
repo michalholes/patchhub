@@ -777,9 +777,15 @@ AUTHORITY_ONLY_PATHS = {
 }
 
 
-from pm_validator_pack_contract import (
-    _pack_rules,
-)
+def _run_pack_rules(
+    args: argparse.Namespace,
+    instructions_path: Path,
+    decision_paths: list[str],
+    patch_member_names: list[str],
+) -> tuple[list[RuleResult], object | None]:
+    from pm_validator_pack_contract import _pack_rules
+
+    return _pack_rules(args, instructions_path, decision_paths, patch_member_names)
 
 
 def _format(results: list[RuleResult]) -> str:
@@ -870,7 +876,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         results.append(_docs_gate(decision_paths))
         patch_member_names = [member for member, _data in patch_members]
-        pack_results, _pack = _pack_rules(
+        pack_results, _pack = _run_pack_rules(
             args, instructions_path, decision_paths, patch_member_names
         )
         results.extend(pack_results)

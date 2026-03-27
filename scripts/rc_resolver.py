@@ -4,6 +4,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import NoReturn
 from zipfile import ZipFile
 
 SPEC_PATH = "docs/specification.jsonl"
@@ -31,13 +32,13 @@ REQUIRED_FIELDS = (
 SUPPORTED_BINDING_TYPES = {"resolver_contract", "constraint_pack"}
 
 
-def fail_unbound() -> None:
+def fail_unbound() -> NoReturn:
     print("RESULT: FAIL")
     print(UNBOUND)
     raise SystemExit(1)
 
 
-def fail_conflict() -> None:
+def fail_conflict() -> NoReturn:
     print("RESULT: FAIL")
     print(CONFLICT)
     raise SystemExit(1)
