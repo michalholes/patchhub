@@ -164,6 +164,12 @@ function validateAndPreview() {
 			enqueueHint = "missing issue id or message";
 		} else if (mode === "patch") {
 			enqueueHint = "missing commit message or patch path";
+		} else if (
+			mode === "rollback" &&
+			rollbackValidation &&
+			rollbackValidation.hint
+		) {
+			enqueueHint = String(rollbackValidation.hint || "");
 		} else {
 			enqueueHint = "missing fields";
 		}

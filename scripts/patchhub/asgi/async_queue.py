@@ -11,6 +11,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
 
+from patchhub.job_record_lookup import (
+    list_job_records_any_async,
+    load_job_record_any_async,
+)
 from patchhub.models import JobRecord
 from patchhub.rollback_scope_manifest import build_manifest_for_job, write_manifest
 from patchhub.run_applied_files import collect_job_applied_files
@@ -330,9 +334,25 @@ class AsyncJobQueue:
         )
 
     def _build_rollback_job_handler(self):
+        async def load_job_record_any(job_id: str) -> JobRecord | None:
+            return await load_job_record_any_async(
+                job_id,
+                current_job_lookup=self._current_job_lookup,
+                job_db=self._job_db,
+                jobs_root=self._jobs_root,
+            )
+
+        async def load_all_jobs() -> list[JobRecord]:
+            return await list_job_records_any_async(
+                current_jobs=list(self._jobs.values()),
+                job_db=self._job_db,
+                jobs_root=self._jobs_root,
+            )
+
         return build_rollback_job_handler(
             jobs_root=self._jobs_root,
-            current_job_lookup=self._current_job_lookup,
+            load_job_record_any=load_job_record_any,
+            load_all_jobs=load_all_jobs,
             target_repo_roots=self._target_repo_roots,
             capture_head_sha_for_job=self._capture_head_sha,
             append_log=lambda job, line: self._append_log_line(job, line),

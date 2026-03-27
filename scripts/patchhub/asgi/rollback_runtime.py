@@ -37,6 +37,7 @@ class RollbackJobHandler:
         *,
         jobs_root: Path,
         load_job_record_any: Callable[[str], Awaitable[JobRecord | None]],
+        load_all_jobs: Callable[[], Awaitable[list[JobRecord]]],
         target_repo_roots: Mapping[str, Path],
         capture_head_sha_for_job: Callable[[JobRecord], Awaitable[str]],
         append_log: Callable[[JobRecord, str], Awaitable[None]],
@@ -44,6 +45,7 @@ class RollbackJobHandler:
     ) -> None:
         self._jobs_root = Path(jobs_root)
         self._load_job_record_any = load_job_record_any
+        self._load_all_jobs = load_all_jobs
         self._target_repo_roots = {str(k): Path(v).resolve() for k, v in target_repo_roots.items()}
         self._capture_head_sha_for_job = capture_head_sha_for_job
         self._append_log = append_log
@@ -69,7 +71,7 @@ class RollbackJobHandler:
                 source_manifest_hash=manifest_hash,
                 scope_kind=request.scope_kind,
                 selected_repo_paths=request.selected_repo_paths,
-                all_jobs=await self._all_jobs(),
+                all_jobs=await self._load_all_jobs(),
             )
         except (RollbackPreflightError, ValueError) as exc:
             return await self._fail(job, broker, f"rollback preflight failed: {exc}")
@@ -116,7 +118,7 @@ class RollbackJobHandler:
         source_job: JobRecord,
         preflight: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        all_jobs = await self._all_jobs()
+        all_jobs = await self._load_all_jobs()
         by_id = {str(item.job_id): item for item in all_jobs}
         steps: list[dict[str, Any]] = []
         for chain in list(preflight.get("chain_steps") or []):
@@ -140,16 +142,6 @@ class RollbackJobHandler:
             }
         )
         return steps
-
-    async def _all_jobs(self) -> list[JobRecord]:
-        items = []
-        for path in sorted(self._jobs_root.iterdir()):
-            if not path.is_dir():
-                continue
-            job = await self._load_job_record_any(path.name)
-            if job is not None:
-                items.append(job)
-        return items
 
     def _load_request(self, job: JobRecord) -> RollbackRequest:
         path = self._jobs_root / str(job.job_id or "") / "rollback_request.json"
@@ -241,7 +233,8 @@ class RollbackJobHandler:
 def build_rollback_job_handler(
     *,
     jobs_root: Path,
-    current_job_lookup: Callable[[str], Awaitable[JobRecord | None]],
+    load_job_record_any: Callable[[str], Awaitable[JobRecord | None]],
+    load_all_jobs: Callable[[], Awaitable[list[JobRecord]]],
     target_repo_roots: Mapping[str, Path],
     capture_head_sha_for_job: Callable[[JobRecord], Awaitable[str]],
     append_log: Callable[[JobRecord, str], Awaitable[None]],
@@ -249,7 +242,8 @@ def build_rollback_job_handler(
 ) -> RollbackJobHandler:
     return RollbackJobHandler(
         jobs_root=jobs_root,
-        load_job_record_any=current_job_lookup,
+        load_job_record_any=load_job_record_any,
+        load_all_jobs=load_all_jobs,
         target_repo_roots=target_repo_roots,
         capture_head_sha_for_job=capture_head_sha_for_job,
         append_log=append_log,

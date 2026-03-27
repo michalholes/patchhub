@@ -17,6 +17,11 @@ from .command_parse import (
 from .gate_argv import GateArgvError, validate_gate_argv
 from .issue_alloc import allocate_next_issue_id
 from .job_ids import new_job_id
+from .job_record_lookup import (
+    list_job_records_any_sync,
+    load_job_record_any_sync,
+    load_job_record_from_persistence,
+)
 from .models import (
     JobMode,
     JobRecord,
@@ -37,9 +42,7 @@ from .rollback_preflight import (
 )
 from .run_applied_files import collect_job_applied_files
 from .targeting import resolve_targeting_runtime, validate_selected_target_repo
-from .web_jobs_db import WebJobsDatabase
 from .web_jobs_derived import read_effective_log_tail
-from .web_jobs_legacy_fs import list_legacy_job_jsons, load_legacy_job_record
 from .zip_commit_message import (
     ZipCommitConfig,
     ZipIssueConfig,
@@ -124,13 +127,18 @@ def _resolved_target_repo_token(runtime: Any, requested_target_repo: str | None)
 
 
 def _load_job_record_any(self, job_id: str) -> JobRecord | None:
-    try:
-        job = _run_queue_get_sync(self.queue.get_job, job_id)
-    except Exception:
-        job = None
-    if job is not None:
-        return job
-    return self._load_job_from_disk(job_id)
+    def current_job_lookup(current_job_id: str) -> JobRecord | None:
+        try:
+            return _run_queue_get_sync(self.queue.get_job, current_job_id)
+        except Exception:
+            return None
+
+    return load_job_record_any_sync(
+        job_id,
+        current_job_lookup=current_job_lookup,
+        job_db=getattr(self, "web_jobs_db", None),
+        jobs_root=_legacy_jobs_root(self),
+    )
 
 
 def _job_has_revert_fields(job: JobRecord) -> bool:
@@ -287,16 +295,11 @@ def _legacy_jobs_root(self) -> Path | None:
 
 
 def _load_job_from_disk(self, job_id: str) -> JobRecord | None:
-    job_id = str(job_id)
-    if not job_id:
-        return None
-    source = getattr(self, "web_jobs_db", None)
-    if isinstance(source, WebJobsDatabase):
-        return source.load_job_record(job_id)
-    jobs_root = _legacy_jobs_root(self)
-    if jobs_root is None:
-        return None
-    return load_legacy_job_record(jobs_root, job_id)
+    return load_job_record_from_persistence(
+        job_id=str(job_id),
+        job_db=getattr(self, "web_jobs_db", None),
+        jobs_root=_legacy_jobs_root(self),
+    )
 
 
 def _job_jsonl_path(self, job: JobRecord) -> Path:
@@ -400,23 +403,12 @@ def _queue_block_reason(self) -> str | None:
 
 
 def _all_job_records_for_rollback(self, *, limit: int = 5000) -> list[JobRecord]:
-    mem = list(getattr(self.queue, "_jobs", {}).values())
-    mem_by_id = {j.job_id: j for j in mem}
-    source = getattr(self, "web_jobs_db", None)
-    if isinstance(source, WebJobsDatabase):
-        disk_raw = source.list_job_jsons(limit=limit)
-    else:
-        jobs_root = _legacy_jobs_root(self)
-        disk_raw = [] if jobs_root is None else list_legacy_job_jsons(jobs_root, limit=limit)
-    disk: list[JobRecord] = []
-    for row in disk_raw:
-        jid = str(row.get("job_id", ""))
-        if not jid or jid in mem_by_id:
-            continue
-        job = self._load_job_from_disk(jid)
-        if job is not None:
-            disk.append(job)
-    return mem + disk
+    return list_job_records_any_sync(
+        current_jobs=getattr(self.queue, "_jobs", {}).values(),
+        job_db=getattr(self, "web_jobs_db", None),
+        jobs_root=_legacy_jobs_root(self),
+        limit=limit,
+    )
 
 
 def _rollback_scope_kind_from_body(body: dict[str, Any]) -> str:
@@ -805,35 +797,18 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
 
 
 def api_jobs_list(self) -> tuple[int, bytes]:
-    mem = self.queue.list_jobs()
-    mem_by_id = {j.job_id: j for j in mem}
-    source = getattr(self, "web_jobs_db", None)
-    if isinstance(source, WebJobsDatabase):
-        disk_raw = source.list_job_jsons(limit=200)
-    else:
-        jobs_root = _legacy_jobs_root(self)
-        disk_raw = [] if jobs_root is None else list_legacy_job_jsons(jobs_root, limit=200)
-    disk: list[JobRecord] = []
-    for r in disk_raw:
-        jid = str(r.get("job_id", ""))
-        if not jid or jid in mem_by_id:
-            continue
-        j = self._load_job_from_disk(jid)
-        if j is not None:
-            disk.append(j)
-
-    jobs = mem + disk
+    jobs = list_job_records_any_sync(
+        current_jobs=self.queue.list_jobs(),
+        job_db=getattr(self, "web_jobs_db", None),
+        jobs_root=_legacy_jobs_root(self),
+        limit=200,
+    )
     jobs.sort(key=lambda j: str(j.created_utc or ""), reverse=True)
     return _ok({"jobs": [job_to_list_item_json(j) for j in jobs]})
 
 
 def api_jobs_get(self, job_id: str) -> tuple[int, bytes]:
-    try:
-        job = _run_queue_get_sync(self.queue.get_job, job_id)
-    except Exception:
-        job = None
-    if job is None:
-        job = self._load_job_from_disk(job_id)
+    job = _load_job_record_any(self, job_id)
     if job is None:
         return _err("Not found", status=404)
     return _ok({"job": _job_detail_json(self, job)})

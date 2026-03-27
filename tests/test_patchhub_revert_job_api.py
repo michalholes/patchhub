@@ -15,6 +15,7 @@ from patchhub.asgi.asgi_app import create_app
 from patchhub.asgi.async_app_core import AsyncAppCore
 from patchhub.config import load_config
 from patchhub.models import JobRecord
+from patchhub.web_jobs_db import WebJobsDatabase, load_web_jobs_db_config
 
 
 async def _noop_async(self) -> None:
@@ -71,6 +72,8 @@ class TestPatchhubRevertJobApi(unittest.TestCase):
             ):
                 app = create_app(repo_root=root, cfg=cfg)
                 core = app.state.core
+                db = WebJobsDatabase(load_web_jobs_db_config(root, core.patches_root))
+                core._enable_db_primary(db, {})
                 core.queue_block_reason = lambda: None
                 source_job = JobRecord(
                     job_id="job-source-380",
@@ -90,7 +93,7 @@ class TestPatchhubRevertJobApi(unittest.TestCase):
                     rollback_authority_kind="github",
                     rollback_authority_source_ref="issue:380",
                 )
-                _write_job(core.jobs_root, source_job)
+                db.upsert_job(source_job)
                 with TestClient(app) as client:
                     resp = client.post(f"/api/jobs/{source_job.job_id}/revert")
 
@@ -142,6 +145,65 @@ class TestPatchhubRevertJobApi(unittest.TestCase):
 
         self.assertEqual(resp.status_code, 409)
         self.assertEqual(resp.json()["error"], "Backend mode selection is not finished")
+
+    def test_revert_endpoint_resolves_db_primary_source_without_queue_memory(self) -> None:
+        try:
+            from fastapi.testclient import TestClient
+        except Exception as exc:  # pragma: no cover
+            self.skipTest(str(exc))
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_runner_config(root)
+            cfg = load_config(CFG_PATH)
+            with (
+                patch.object(AsyncAppCore, "startup", _noop_async),
+                patch.object(AsyncAppCore, "shutdown", _noop_async),
+                patch(
+                    "patchhub.app_api_jobs._run_source_job_preflight",
+                    return_value={
+                        "scope_kind": "full",
+                        "selected_entry_count": 0,
+                        "selected_entries": [],
+                        "selected_repo_paths": [],
+                        "rollback_preflight_token": "tok-db",
+                        "can_execute": True,
+                    },
+                ),
+            ):
+                app = create_app(repo_root=root, cfg=cfg)
+                core = app.state.core
+                db = WebJobsDatabase(load_web_jobs_db_config(root, core.patches_root))
+                core._enable_db_primary(db, {})
+                core.queue_block_reason = lambda: None
+                source_job = JobRecord(
+                    job_id="job-source-db-primary",
+                    created_utc="2026-03-24T10:00:00Z",
+                    mode="patch",
+                    issue_id="389",
+                    commit_summary="DB primary source",
+                    patch_basename="issue_389_v1.zip",
+                    raw_command="python3 scripts/am_patch.py 389",
+                    canonical_command=["python3", "scripts/am_patch.py", "389"],
+                    status="success",
+                    effective_runner_target_repo="patchhub",
+                    run_start_sha="aaa111",
+                    run_end_sha="bbb222",
+                    rollback_scope_manifest_rel_path=(
+                        "job-source-db-primary/rollback_scope_manifest.json"
+                    ),
+                    rollback_scope_manifest_hash="manifest-hash",
+                    rollback_authority_kind="github",
+                    rollback_authority_source_ref="issue:389",
+                )
+                db.upsert_job(source_job)
+                with TestClient(app) as client:
+                    resp = client.post(f"/api/jobs/{source_job.job_id}/revert")
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["job"]["job_id"], source_job.job_id)
+        self.assertEqual(payload["rollback"]["rollback_preflight_token"], "tok-db")
 
     def test_revert_endpoint_rejects_source_without_required_fields(self) -> None:
         try:
