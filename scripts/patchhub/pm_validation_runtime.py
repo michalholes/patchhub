@@ -24,10 +24,25 @@ _STATUS_MISSING_CONTEXT = "missing_context"
 
 
 def _validator_script_path(repo_root: Path) -> Path:
-    repo_candidate = (repo_root / "scripts" / "pm_validator.py").resolve()
-    if repo_candidate.exists():
-        return repo_candidate
-    return (Path(__file__).resolve().parents[1] / "pm_validator.py").resolve()
+    return (repo_root / "governance" / "pm_validator.py").resolve()
+
+
+def _instructions_zip_path(patches_root: Path, issue_id: str) -> Path | None:
+    clean_issue = str(issue_id or "").strip()
+    if not clean_issue.isdigit():
+        return None
+    root = patches_root.resolve()
+    candidate = (patches_root / f"instructions_issue{clean_issue}.zip").resolve()
+    if candidate.parent != root or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _append_authority_source(authority_sources: list[str], path: Path) -> list[str]:
+    path_text = str(path)
+    if path_text in authority_sources:
+        return list(authority_sources)
+    return [*authority_sources, path_text]
 
 
 def _zip_commit_cfg(cfg: Any) -> ZipCommitConfig:
@@ -155,6 +170,7 @@ def _run_validator(
     issue_id: str,
     commit_message: str,
     patch_zip: Path,
+    instructions_zip: Path,
     workspace_snapshot: Path | None,
     repair_overlay: Path | None,
     supplemental_files: list[str],
@@ -165,6 +181,7 @@ def _run_validator(
         str(issue_id),
         str(commit_message),
         str(patch_zip),
+        str(instructions_zip),
     ]
     if workspace_snapshot is not None:
         cmd.extend(["--workspace-snapshot", str(workspace_snapshot)])
@@ -231,9 +248,35 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
         patch_path=str(patch_path or ""),
     )
     issue_id, commit_message = _derive_validation_inputs(self, patch_zip)
-    overlay_path = _latest_repair_overlay(self.patches_root, issue_id)
+    zip_issue_id, zip_issue_err = read_issue_number_from_zip_path(
+        patch_zip,
+        _zip_issue_cfg(self.cfg),
+    )
+    if zip_issue_id is None or not zip_issue_id.isdigit():
+        return _missing_context_payload(
+            effective_mode="initial",
+            issue_id=issue_id,
+            commit_message=commit_message,
+            patch_path=patch_rel,
+            authority_sources=[],
+            supplemental_files=[],
+            raw_output=f"zip_issue_missing_or_invalid:{zip_issue_err or 'unknown'}",
+        )
+    instructions_zip = _instructions_zip_path(self.patches_root, zip_issue_id)
+    if instructions_zip is None:
+        return _missing_context_payload(
+            effective_mode="initial",
+            issue_id=issue_id,
+            commit_message=commit_message,
+            patch_path=patch_rel,
+            authority_sources=[],
+            supplemental_files=[],
+            raw_output=(f"instructions_zip_missing:instructions_issue{zip_issue_id}.zip"),
+        )
+    overlay_path = _latest_repair_overlay(self.patches_root, zip_issue_id)
     effective_mode = "repair-overlay-only" if overlay_path is not None else "initial"
     authority_sources: list[str] = []
+    passed_sources: list[str] = []
     supplemental_files: list[str] = []
     workspace_snapshot: Path | None = None
 
@@ -249,9 +292,12 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                 patch_path=patch_rel,
                 authority_sources=authority_sources,
                 supplemental_files=supplemental_files,
-                raw_output=f"zip_target_missing_or_invalid:{initial_target_err or 'unknown'}",
+                raw_output=(f"zip_target_missing_or_invalid:{initial_target_err or 'unknown'}"),
             )
-        workspace_snapshot = _latest_local_baseline_snapshot(self.patches_root, initial_target)
+        workspace_snapshot = _latest_local_baseline_snapshot(
+            self.patches_root,
+            initial_target,
+        )
         if workspace_snapshot is not None:
             authority_sources.append(str(workspace_snapshot))
 
@@ -260,10 +306,12 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
         issue_id=issue_id,
         commit_message=commit_message,
         patch_zip=patch_zip,
+        instructions_zip=instructions_zip,
         workspace_snapshot=workspace_snapshot,
         repair_overlay=overlay_path,
         supplemental_files=[],
     )
+    passed_sources = _append_authority_source(authority_sources, instructions_zip)
     raw = _raw_output(proc.stdout, proc.stderr)
 
     if overlay_path is not None:
@@ -276,11 +324,14 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                     issue_id=issue_id,
                     commit_message=commit_message,
                     patch_path=patch_rel,
-                    authority_sources=authority_sources,
+                    authority_sources=passed_sources,
                     supplemental_files=supplemental_files,
-                    raw_output=raw.rstrip("\n")
-                    + "\n\n[repair supplemental missing context]\n"
-                    + f"zip_target_missing_or_invalid:{repair_target_err or 'unknown'}",
+                    raw_output=(
+                        raw.rstrip("\n")
+                        + "\n\n[repair supplemental missing context]\n"
+                        + "zip_target_missing_or_invalid:"
+                        + f"{repair_target_err or 'unknown'}"
+                    ),
                 )
             workspace_snapshot = _latest_local_baseline_snapshot(
                 self.patches_root,
@@ -292,6 +343,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                     issue_id=issue_id,
                     commit_message=commit_message,
                     patch_zip=patch_zip,
+                    instructions_zip=instructions_zip,
                     workspace_snapshot=None,
                     repair_overlay=overlay_path,
                     supplemental_files=supplemental_files,
@@ -302,12 +354,14 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                     issue_id=issue_id,
                     commit_message=commit_message,
                     patch_path=patch_rel,
-                    authority_sources=authority_sources,
+                    authority_sources=passed_sources,
                     supplemental_files=supplemental_files,
-                    raw_output="[overlay-only]\n"
-                    + raw.rstrip("\n")
-                    + "\n\n[repair-supplemental]\n"
-                    + rerun_raw,
+                    raw_output=(
+                        "[overlay-only]\n"
+                        + raw.rstrip("\n")
+                        + "\n\n[repair-supplemental]\n"
+                        + rerun_raw
+                    ),
                 )
             authority_sources.append(str(workspace_snapshot))
             proc = _run_validator(
@@ -315,12 +369,14 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                 issue_id=issue_id,
                 commit_message=commit_message,
                 patch_zip=patch_zip,
+                instructions_zip=instructions_zip,
                 workspace_snapshot=workspace_snapshot,
                 repair_overlay=overlay_path,
                 supplemental_files=supplemental_files,
             )
             rerun_raw = _raw_output(proc.stdout, proc.stderr)
             effective_mode = "repair-supplemental"
+            passed_sources = _append_authority_source(authority_sources, instructions_zip)
             raw = "[overlay-only]\n" + raw.rstrip("\n") + "\n\n[repair-supplemental]\n" + rerun_raw
 
     return {
@@ -329,7 +385,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
         "issue_id": issue_id,
         "commit_message": commit_message,
         "patch_path": patch_rel,
-        "authority_sources": authority_sources,
+        "authority_sources": passed_sources,
         "supplemental_files": supplemental_files,
         "raw_output": raw,
     }

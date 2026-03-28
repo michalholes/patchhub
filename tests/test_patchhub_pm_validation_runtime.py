@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from governance.rc_resolver import build_pack, handoff_text
 from scripts.patchhub.app_api_jobs import api_patch_zip_manifest
 from scripts.patchhub.config import (
     AppConfig,
@@ -30,6 +32,14 @@ FOREIGN_TARGET = "audiomason2"
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _repo_bytes(relpath: str) -> bytes:
+    return (REPO_ROOT / relpath).read_bytes()
+
+
+def _spec_bytes() -> bytes:
+    return _repo_bytes("governance/specification.jsonl")
 
 
 def _git_patch(relpath: str, old_text: str | None, new_text: str | None) -> bytes:
@@ -77,6 +87,12 @@ def _write_zip(path: Path, members: dict[str, bytes]) -> None:
             zf.writestr(name, data)
 
 
+def _with_spec(members: dict[str, bytes]) -> dict[str, bytes]:
+    out = dict(members)
+    out.setdefault("governance/specification.jsonl", _spec_bytes())
+    return out
+
+
 def _patch_zip(
     path: Path,
     *,
@@ -93,6 +109,53 @@ def _patch_zip(
     if target is not None:
         files["target.txt"] = (target + "\n").encode("ascii")
     _write_zip(path, files)
+
+
+def _snapshot_zip(path: Path, members: dict[str, bytes]) -> None:
+    _write_zip(path, _with_spec(members))
+
+
+def _overlay_zip(path: Path, members: dict[str, bytes], *, target: str) -> None:
+    payload = _with_spec(members)
+    payload["target.txt"] = (target + "\n").encode("ascii")
+    _write_zip(path, payload)
+
+
+def _instructions_zip(path: Path, *, issue: str) -> Path:
+    spec_raw = _spec_bytes()
+    pack_raw = build_pack(spec_raw, "final", "implementation_scope")
+    handoff = handoff_text(
+        "scripts/patchhub/pm_validation_runtime.py::build_patch_zip_pm_validation",
+        "implementation_scope",
+        "final",
+    )
+    _write_zip(
+        path,
+        {
+            "HANDOFF.md": handoff.encode("utf-8"),
+            "constraint_pack.json": pack_raw,
+            "hash_pack.txt": (hashlib.sha256(pack_raw).hexdigest() + "\n").encode("ascii"),
+        },
+    )
+    return path
+
+
+def _write_instructions_artifact(patches_root: Path, issue: str) -> Path:
+    return _instructions_zip(
+        patches_root / f"instructions_issue{issue}.zip",
+        issue=issue,
+    )
+
+
+def _install_validator_runtime(tmp_path: Path) -> None:
+    for relpath in (
+        "governance/pm_validator.py",
+        "governance/pm_validator_pack_contract.py",
+        "governance/specification.jsonl",
+    ):
+        dst = tmp_path / relpath
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(_repo_bytes(relpath))
 
 
 def _cfg() -> AppConfig:
@@ -177,6 +240,7 @@ def _mk_self(tmp_path: Path) -> _SelfDummy:
     )
     patches_root = jail.patches_root()
     patches_root.mkdir(parents=True, exist_ok=True)
+    _install_validator_runtime(tmp_path)
     _write(
         tmp_path / "scripts" / "am_patch" / "am_patch.toml",
         "[paths]\n"
@@ -199,11 +263,12 @@ def test_zip_manifest_includes_pm_validation_without_initial_authority_fallback(
     current = "def value():\n    return 999\n"
     _write(tmp_path / relpath, current)
     baseline_path = s.patches_root / "patchhub-main_20260315.zip"
-    _write_zip(
+    instructions_path = _write_instructions_artifact(s.patches_root, "601")
+    _snapshot_zip(
         baseline_path,
         {relpath: before.encode("utf-8")},
     )
-    _write_zip(
+    _snapshot_zip(
         s.patches_root / "audiomason2-main_20260316.zip",
         {relpath: current.encode("utf-8")},
     )
@@ -222,19 +287,22 @@ def test_zip_manifest_includes_pm_validation_without_initial_authority_fallback(
     pm_validation = payload["pm_validation"]
     assert pm_validation["status"] == "pass"
     assert pm_validation["effective_mode"] == "initial"
-    assert pm_validation["authority_sources"] == [str(baseline_path)]
+    assert pm_validation["authority_sources"] == [
+        str(baseline_path),
+        str(instructions_path),
+    ]
     assert "RESULT: PASS" in pm_validation["raw_output"]
 
 
-def test_build_pm_validation_initial_requires_target_matched_local_baseline(
+def test_build_pm_validation_requires_local_instructions_artifact(
     tmp_path: Path,
 ) -> None:
     s = _mk_self(tmp_path)
     relpath = "scripts/sample.py"
     before = "def value():\n    return 1\n"
     after = "def value():\n    return 2\n"
-    _write_zip(
-        s.patches_root / "audiomason2-main_20260315.zip",
+    _snapshot_zip(
+        s.patches_root / "patchhub-main_20260315.zip",
         {relpath: before.encode("utf-8")},
     )
     _patch_zip(
@@ -249,6 +317,34 @@ def test_build_pm_validation_initial_requires_target_matched_local_baseline(
     assert payload["status"] == "missing_context"
     assert payload["effective_mode"] == "initial"
     assert payload["authority_sources"] == []
+    assert payload["supplemental_files"] == []
+    assert "instructions_zip_missing:instructions_issue601.zip" in payload["raw_output"]
+
+
+def test_build_pm_validation_initial_requires_target_matched_local_baseline(
+    tmp_path: Path,
+) -> None:
+    s = _mk_self(tmp_path)
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    instructions_path = _write_instructions_artifact(s.patches_root, "601")
+    _snapshot_zip(
+        s.patches_root / "audiomason2-main_20260315.zip",
+        {relpath: before.encode("utf-8")},
+    )
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Use PM validator at zip load",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert payload["status"] == "missing_context"
+    assert payload["effective_mode"] == "initial"
+    assert payload["authority_sources"] == [str(instructions_path)]
     assert "workspace_snapshot_required_for_initial_mode" in payload["raw_output"]
 
 
@@ -259,24 +355,27 @@ def test_build_pm_validation_uses_repair_overlay_only_when_available(
     relpath = "scripts/sample.py"
     before = "def value():\n    return 2\n"
     after = "def value():\n    return 3\n"
+    instructions_path = _write_instructions_artifact(s.patches_root, "601")
     _patch_zip(
         s.patches_root / "issue_601_v1.zip",
         issue="601",
         commit="Use PM validator at zip load",
         members={_safe_member(relpath): _git_patch(relpath, before, after)},
     )
-    _write_zip(
-        s.patches_root / "patched_issue601_v01.zip",
-        {
-            relpath: before.encode("utf-8"),
-            "target.txt": (DEFAULT_TARGET + "\n").encode("ascii"),
-        },
+    overlay_path = s.patches_root / "patched_issue601_v01.zip"
+    _overlay_zip(
+        overlay_path,
+        {relpath: before.encode("utf-8")},
+        target=DEFAULT_TARGET,
     )
 
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
     assert payload["status"] == "pass"
     assert payload["effective_mode"] == "repair-overlay-only"
-    assert payload["authority_sources"] == [str(s.patches_root / "patched_issue601_v01.zip")]
+    assert payload["authority_sources"] == [
+        str(overlay_path),
+        str(instructions_path),
+    ]
     assert payload["supplemental_files"] == []
 
 
@@ -288,6 +387,7 @@ def test_build_pm_validation_repair_escalates_with_exact_supplemental_files(
     before = "a\n"
     after = "b\n"
     baseline_path = s.patches_root / "patchhub-main_20260315.zip"
+    instructions_path = _write_instructions_artifact(s.patches_root, "601")
     _write(tmp_path / relpath, before)
     _patch_zip(
         s.patches_root / "issue_601_v1.zip",
@@ -295,11 +395,12 @@ def test_build_pm_validation_repair_escalates_with_exact_supplemental_files(
         commit="Use PM validator at zip load",
         members={_safe_member(relpath): _git_patch(relpath, before, after)},
     )
-    _write_zip(
+    _overlay_zip(
         s.patches_root / "patched_issue601_v01.zip",
-        {"target.txt": (DEFAULT_TARGET + "\n").encode("ascii")},
+        {},
+        target=DEFAULT_TARGET,
     )
-    _write_zip(
+    _snapshot_zip(
         baseline_path,
         {relpath: before.encode("utf-8")},
     )
@@ -311,6 +412,7 @@ def test_build_pm_validation_repair_escalates_with_exact_supplemental_files(
     assert payload["authority_sources"] == [
         str(s.patches_root / "patched_issue601_v01.zip"),
         str(baseline_path),
+        str(instructions_path),
     ]
     assert "[overlay-only]" in payload["raw_output"]
     assert "[repair-supplemental]" in payload["raw_output"]
@@ -325,6 +427,7 @@ def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay
     after = "VALUE = 2\n"
     baseline_path = s.patches_root / "patchhub-main_20260315.zip"
     foreign_path = s.patches_root / "audiomason2-main_20260316.zip"
+    instructions_path = _write_instructions_artifact(s.patches_root, "601")
     _write(tmp_path / relpath, before)
     _patch_zip(
         s.patches_root / "issue_601_v1.zip",
@@ -333,15 +436,16 @@ def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay
         members={_safe_member(relpath): _git_patch(relpath, before, after)},
         target=DEFAULT_TARGET,
     )
-    _write_zip(
+    _overlay_zip(
         s.patches_root / "patched_issue601_v01.zip",
-        {"target.txt": (DEFAULT_TARGET + "\n").encode("ascii")},
+        {},
+        target=DEFAULT_TARGET,
     )
-    _write_zip(
+    _snapshot_zip(
         baseline_path,
         {relpath: before.encode("utf-8")},
     )
-    _write_zip(
+    _snapshot_zip(
         foreign_path,
         {relpath: before.encode("utf-8")},
     )
@@ -353,5 +457,6 @@ def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay
     assert payload["authority_sources"] == [
         str(s.patches_root / "patched_issue601_v01.zip"),
         str(baseline_path),
+        str(instructions_path),
     ]
     assert str(foreign_path) not in payload["authority_sources"]
