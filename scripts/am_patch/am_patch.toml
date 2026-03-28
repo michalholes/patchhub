@@ -87,7 +87,7 @@ gate_badguys_command = ["badguys/badguys.py", "-q"]
 # target_repo_roots accepts token=root bindings.
 # Example bindings are resolved against runner_root.
 # Root-only canonical /home/pi/<name> entries stay as legacy compatibility input.
-target_repo_roots = ["patchhub=.", "audiomason2=../audiomason2"]
+target_repo_roots = ["patchhub=.", "audiomason2=../audiomason2", "rtorrent=../torr-src/rtorrent"]
 target_repo_config_relpath = "am_patch.repo.toml"
 
 # patch_dir = "patches"
