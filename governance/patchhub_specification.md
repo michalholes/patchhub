@@ -1,12 +1,23 @@
 # PatchHub Specification (scripts/patchhub)
-Status: DERIVED MIRROR ONLY
+Status: OBSOLETE / NO-UPDATE / PENDING MANUAL DELETION
 Applies to: scripts/patchhub/*
 Language: ENGLISH (ASCII ONLY)
 
 Authoritative source: governance/specification.jsonl
 Specification Version: 1.15.0-spec
 Code Baseline: repository snapshot as provided in this chat
-Mirror role: human-readable subsystem mirror; governance/specification.jsonl wins on conflict.
+Obsolete role: temporary migration-audit corpus only
+Update policy: MUST NOT be updated; pending manual deletion by the user after migration verification
+
+This document is obsolete.
+It is kept only to verify that migration into governance/specification.jsonl lost no information.
+It is NOT authoritative.
+It MUST NOT be updated.
+It is pending manual deletion by the user after migration verification is complete.
+
+All behavioral, versioning, synchronization, and "update this specification" obligations inside
+this file are revoked and MUST be ignored.
+If any text below conflicts with this obsolete-file notice, this obsolete-file notice wins.
 
 -------------------------------------------------------------------------------
 
