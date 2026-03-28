@@ -1,127 +1,108 @@
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 
-def load_jsonl(path: Path):
-    objs = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
+def load_jsonl(path: Path) -> list[dict]:
+    objs: list[dict] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
             line = line.strip()
             if line:
                 objs.append(json.loads(line))
     return objs
 
 
-def index_by_type(objs):
+def index_by_type(objs: list[dict]) -> tuple[dict | None, dict[str, list[dict]]]:
     meta = None
-    rules = {}
-    caps = {}
-    providers = {}
-    routes = {}
-    surfaces = {}
-    impls = {}
-    others = []
-
+    groups: dict[str, list[dict]] = {}
     for obj in objs:
-        obj_type = obj.get("type")
+        obj_type = str(obj.get("type", ""))
         if obj_type == "meta":
             meta = obj
-        elif obj_type == "rule":
-            rules[obj["id"]] = obj
-        elif obj_type == "capability":
-            caps[obj["id"]] = obj
-        elif obj_type == "provider":
-            providers[obj["id"]] = obj
-        elif obj_type == "route":
-            routes[obj["id"]] = obj
-        elif obj_type == "surface":
-            surfaces[obj["id"]] = obj
-        elif obj_type == "implementation":
-            impls[obj["id"]] = obj
-        else:
-            others.append(obj)
-    return meta, rules, caps, providers, routes, surfaces, impls, others
+            continue
+        groups.setdefault(obj_type, []).append(obj)
+    return meta, groups
 
 
-def fmt_source(rule):
-    migration_source = rule.get("migration_source")
+def fmt_source(obj: dict) -> str:
+    source_span = obj.get("source_span")
+    if isinstance(source_span, dict):
+        file_name = source_span.get("file", "?")
+        start = source_span.get("start_line", source_span.get("line", "?"))
+        end = source_span.get("end_line")
+        if end is None or end == start:
+            return f"{file_name}#L{start}"
+        return f"{file_name}#L{start}-L{end}"
+    migration_source = obj.get("migration_source")
     if isinstance(migration_source, dict):
-        return f"{migration_source.get('file', '?')}#L{migration_source.get('line', '?')}"
+        file_name = migration_source.get("file", "?")
+        line = migration_source.get("line", "?")
+        return f"{file_name}#L{line}"
+    if isinstance(migration_source, str) and migration_source:
+        return migration_source
     return ""
 
 
-def render(path_in: Path, path_out: Path):
-    objs = load_jsonl(path_in)
-    meta, rules, caps, providers, routes, surfaces, impls, others = index_by_type(objs)
+def append_meta(out: list[str], meta: dict | None) -> None:
+    if meta is None:
+        return
+    out.append("META")
+    out.append("-" * 80)
+    for key in sorted(meta.keys()):
+        if key == "type":
+            continue
+        out.append(f"{key}: {meta[key]}")
+    out.append("")
 
-    out = []
-    out.append("MASTER_SPEC (human-readable)")
-    out.append("=" * 80)
 
-    if meta:
-        out.append("META")
+def append_counts(out: list[str], groups: dict[str, list[dict]]) -> None:
+    out.append("OBJECT COUNTS")
+    out.append("-" * 80)
+    counts = Counter({name: len(items) for name, items in groups.items()})
+    for name in sorted(counts):
+        out.append(f"{name}: {counts[name]}")
+    out.append("")
+
+
+def append_bindings(out: list[str], groups: dict[str, list[dict]]) -> None:
+    bindings = groups.get("obligation_binding", [])
+    oracles = {obj.get("id", ""): obj for obj in groups.get("oracle", [])}
+    out.append("AUTHORITY BINDINGS")
+    out.append("-" * 80)
+    for binding in sorted(bindings, key=lambda item: item.get("id", "")):
+        binding_id = binding.get("id", "")
+        match = binding.get("match", {})
+        out.append(f"[{binding_id}]")
+        out.append(f"  binding_type: {binding.get('binding_type', '')}")
+        out.append(f"  match: {match}")
+        out.append(f"  symbol_role: {binding.get('symbol_role', '')}")
+        out.append(f"  conflict_policy: {binding.get('conflict_policy', '')}")
+        out.append(f"  verification_mode: {binding.get('verification_mode', '')}")
+        out.append(f"  verification_method: {binding.get('verification_method', '')}")
+        out.append(f"  oracle_ref: {binding.get('oracle_ref', '')}")
+        semantics = str(binding.get("authoritative_semantics", ""))
+        out.append("  authoritative_semantics:")
+        out.append(f"    {semantics}")
+        peer_renderers = binding.get("peer_renderers", [])
+        out.append(f"  peer_renderers ({len(peer_renderers)}):")
+        for item in peer_renderers:
+            out.append(f"    - {item}")
+        out.append("")
+    if oracles:
+        out.append("ORACLES")
         out.append("-" * 80)
-        for key in sorted(meta.keys()):
-            if key == "type":
-                continue
-            out.append(f"{key}: {meta[key]}")
-        out.append("")
+        for oracle_id in sorted(oracles):
+            oracle = oracles[oracle_id]
+            out.append(f"[{oracle_id}]")
+            out.append(f"  oracle_kind: {oracle.get('oracle_kind', '')}")
+            out.append(f"  description: {oracle.get('description', '')}")
+            out.append("")
 
-    out.append("SURFACES")
-    out.append("-" * 80)
-    for surface_id in sorted(surfaces):
-        surface = surfaces[surface_id]
-        out.append(f"[{surface_id}]")
-        out.append(f"  kind: {surface.get('kind', '')}")
-        out.append(f"  source_file: {surface.get('source_file', '')}")
-        out.append(f"  heading: {surface.get('heading', '')}")
-        out.append(f"  route_ref: {surface.get('route_ref', '')}")
-        required_capabilities = surface.get("requires_capabilities", [])
-        out.append(f"  requires_capabilities ({len(required_capabilities)}):")
-        for capability_id in sorted(required_capabilities):
-            out.append(f"    - {capability_id}")
-        out.append("")
 
-    out.append("ROUTES")
-    out.append("-" * 80)
-    for route_id in sorted(routes):
-        route = routes[route_id]
-        out.append(f"[{route_id}]")
-        out.append(f"  surface_id: {route.get('surface_id', '')}")
-        provider_chain = route.get("provider_chain", [])
-        out.append(f"  provider_chain ({len(provider_chain)}):")
-        for provider_id in provider_chain:
-            out.append(f"    - {provider_id}")
-        covered_capabilities = route.get("covers_capabilities", [])
-        out.append(f"  covers_capabilities ({len(covered_capabilities)}):")
-        for capability_id in sorted(covered_capabilities):
-            out.append(f"    - {capability_id}")
-        out.append("")
-
-    out.append("PROVIDERS")
-    out.append("-" * 80)
-    for provider_id in sorted(providers):
-        provider = providers[provider_id]
-        out.append(f"[{provider_id}]")
-        provided_capabilities = provider.get("provides_capabilities", [])
-        out.append(f"  provides_capabilities ({len(provided_capabilities)}):")
-        for capability_id in sorted(provided_capabilities):
-            out.append(f"    - {capability_id}")
-        out.append("")
-
-    out.append("CAPABILITIES")
-    out.append("-" * 80)
-    for capability_id in sorted(caps):
-        capability = caps[capability_id]
-        out.append(f"[{capability_id}]")
-        out.append(f"  applies_to: {capability.get('applies_to', '')}")
-        triggered_rules = capability.get("triggers_rules", [])
-        out.append(f"  triggers_rules ({len(triggered_rules)}):")
-        for rule_id in sorted(triggered_rules):
-            out.append(f"    - {rule_id}")
-        out.append("")
-
+def append_rules(out: list[str], groups: dict[str, list[dict]]) -> None:
+    rules = {str(rule.get("id", "")): rule for rule in groups.get("rule", [])}
     out.append("RULES")
     out.append("-" * 80)
     for rule_id in sorted(rules):
@@ -136,42 +117,78 @@ def render(path_in: Path, path_out: Path):
         heading_path = rule.get("heading_path")
         if heading_path:
             out.append(f"  heading_path: {heading_path}")
-        statement = rule.get("statement", "")
+        statement = str(rule.get("statement", ""))
         out.append("  statement:")
         out.append(f"    {statement}")
         out.append("")
 
-    if impls:
-        out.append("IMPLEMENTATIONS")
+
+def append_sections_and_notes(out: list[str], groups: dict[str, list[dict]]) -> None:
+    sections = groups.get("section", [])
+    notes = groups.get("note", [])
+    source_meta = groups.get("source_meta", [])
+    if sections:
+        out.append("SECTIONS")
         out.append("-" * 80)
-        for implementation_id in sorted(impls):
-            implementation = impls[implementation_id]
-            out.append(f"[{implementation_id}]")
-            out.append(f"  implements_route: {implementation.get('implements_route', '')}")
-            providers_available = implementation.get("providers_available", [])
-            out.append(f"  providers_available ({len(providers_available)}):")
-            for provider_id in providers_available:
-                out.append(f"    - {provider_id}")
-            declared_capabilities = implementation.get("declared_capabilities", [])
-            out.append(f"  declared_capabilities ({len(declared_capabilities)}):")
-            for capability_id in sorted(declared_capabilities):
-                out.append(f"    - {capability_id}")
+        for section in sorted(sections, key=lambda item: item.get("order", 0)):
+            section_id = section.get("id", "")
+            out.append(f"[{section_id}]")
+            out.append(f"  heading_path: {section.get('heading_path', '')}")
+            out.append(f"  level: {section.get('level', '')}")
+            out.append(f"  text: {section.get('text', '')}")
+            source = fmt_source(section)
+            if source:
+                out.append(f"  source: {source}")
+            out.append("")
+    if notes:
+        out.append("NOTES")
+        out.append("-" * 80)
+        out.append(f"count: {len(notes)}")
+        sample = sorted(notes, key=lambda item: item.get("order", 0))[:10]
+        for note in sample:
+            note_id = note.get("id", "")
+            out.append(f"[{note_id}]")
+            out.append(f"  kind: {note.get('kind', '')}")
+            out.append(f"  heading_path: {note.get('heading_path', '')}")
+            source = fmt_source(note)
+            if source:
+                out.append(f"  source: {source}")
+            text = str(note.get("text", ""))
+            preview = text if len(text) <= 120 else text[:117] + "..."
+            out.append(f"  text: {preview}")
+            out.append("")
+    if source_meta:
+        out.append("SOURCE META")
+        out.append("-" * 80)
+        for item in source_meta:
+            out.append(f"[{item.get('id', '')}]")
+            out.append(f"  source_file: {item.get('source_file', '')}")
+            payload = item.get("payload", {})
+            if isinstance(payload, dict):
+                out.append(f"  payload_keys: {sorted(payload.keys())}")
+            else:
+                out.append(f"  payload_type: {type(payload).__name__}")
             out.append("")
 
-    if others:
-        out.append("OTHER OBJECTS")
-        out.append("-" * 80)
-        out.append(f"count: {len(others)}")
-        out.append("")
 
+def render(path_in: Path, path_out: Path) -> None:
+    objs = load_jsonl(path_in)
+    meta, groups = index_by_type(objs)
+    out: list[str] = []
+    out.append("MASTER_SPEC (human-readable)")
+    out.append("=" * 80)
+    append_meta(out, meta)
+    append_counts(out, groups)
+    append_bindings(out, groups)
+    append_rules(out, groups)
+    append_sections_and_notes(out, groups)
     path_out.write_text("\n".join(out), encoding="utf-8")
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     if len(argv) not in (2, 3):
         print("Usage: python render_master_spec_txt.py <input.jsonl> [output.txt]")
         return 2
-
     in_path = Path(argv[1])
     out_path = Path(argv[2]) if len(argv) == 3 else in_path.with_suffix(".txt")
     render(in_path, out_path)

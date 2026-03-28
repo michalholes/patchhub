@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/pm_validator.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "governance/pm_validator.py"
 COMMIT = "Align PM validator monolith checks"
 DEFAULT_TARGET = "audiomason2"
 ALT_TARGET = "patchhub"
@@ -144,7 +144,7 @@ def _pack_bytes(
         "active_rule_ids": ["pack-rule-1"],
         "full_rule_text": {"pack-rule-1": "constraint pack enforcement"},
         "match_basis": {"pack-rule-1": {"phase": "final", "target": "implementation_scope"}},
-        "authoritative_sources": ["docs/specification.jsonl"],
+        "authoritative_sources": ["governance/specification.jsonl"],
         "shared_contracts": [],
         "downstream_consumers": [],
         "exception_state_refs": [],
@@ -184,7 +184,7 @@ def _instructions_zip(
 
 def _with_spec(members: dict[str, bytes]) -> dict[str, bytes]:
     out = dict(members)
-    out.setdefault("docs/specification.jsonl", _spec_bytes())
+    out.setdefault("governance/specification.jsonl", _spec_bytes())
     return out
 
 
