@@ -1,3 +1,4 @@
+/// <reference path="../../../types/am2-globals.d.ts" />
 var jobsWindow = /** @type {JobsWindow} */ (window);
 var __ph_w = jobsWindow;
 var PH = /** @type {JobsRuntime | null} */ (jobsWindow.PH || null);
