@@ -41,6 +41,7 @@ var autoRefreshTimer = /** @type {ReturnType<typeof setInterval> | null} */ (
 var UI_STATUS_LIMIT = 20;
 var uiStatusLines = /** @type {string[]} */ ([]);
 var degradedNotes = /** @type {string[]} */ ([]);
+var backendDegradedNote = "";
 var infoPoolHints = /** @type {PHStrMap} */ ({
 	upload: "",
 	enqueue: "",
@@ -98,6 +99,18 @@ function canRenderInfoPoolUi() {
 	);
 }
 
+function currentDegradedBannerMessage() {
+	if (backendDegradedNote) return backendDegradedNote;
+	if (degradedNotes.length)
+		return String(degradedNotes[degradedNotes.length - 1] || "");
+	return "";
+}
+
+function syncLegacyDegradedBanner() {
+	var msg = currentDegradedBannerMessage();
+	setLegacyPooledNode("uiDegradedBanner", msg ? "DEGRADED MODE: " + msg : "");
+}
+
 function rememberDegraded(/** @type {string} */ message) {
 	var msg = String(message || "").trim();
 	if (!msg) return;
@@ -109,7 +122,16 @@ function rememberDegraded(/** @type {string} */ message) {
 		appPhRuntime.call("renderInfoPoolUi");
 		return;
 	}
-	setLegacyPooledNode("uiDegradedBanner", "DEGRADED MODE: " + msg);
+	syncLegacyDegradedBanner();
+}
+
+function setBackendDegradedNote(/** @type {unknown} */ message) {
+	backendDegradedNote = String(message || "").trim();
+	if (canRenderInfoPoolUi()) {
+		appPhRuntime.call("renderInfoPoolUi");
+		return;
+	}
+	syncLegacyDegradedBanner();
 }
 
 appWindow.PH_APP_SHOW_DEGRADED = rememberDegraded;
@@ -349,6 +371,7 @@ function getInfoPoolLatestHint() {
 function getInfoPoolSnapshot() {
 	return {
 		degradedNotes: degradedNotes.slice(),
+		backendDegradedNote: String(backendDegradedNote || ""),
 		statusLines: uiStatusLines.slice(),
 		hints: {
 			upload: String(infoPoolHints.upload || ""),

@@ -44,6 +44,8 @@ _REQUIRED_TABLES = (
     "run_stats_seen",
 )
 
+_BOOTSTRAP_SAFE_MISSING_TABLES = frozenset({"run_stats_meta", "run_stats_seen"})
+
 
 def load_web_jobs_recovery_settings(repo_root: Path) -> WebJobsRecoverySettings:
     cfg_path = repo_root / "scripts" / "patchhub" / "patchhub.toml"
@@ -170,8 +172,18 @@ def _validate_db_path(path: Path) -> tuple[bool, str]:
         return False, f"os_error:{type(exc).__name__}:{exc}"
     missing = [name for name in _REQUIRED_TABLES if name not in tables]
     if missing:
+        if set(missing).issubset(_BOOTSTRAP_SAFE_MISSING_TABLES):
+            return False, "missing_bootstrap_tables:" + ",".join(missing)
         return False, "missing_required_tables:" + ",".join(missing)
     return True, "ok"
+
+
+def _bootstrap_safe_missing_tables(reason: str) -> list[str]:
+    prefix = "missing_bootstrap_tables:"
+    if not str(reason).startswith(prefix):
+        return []
+    missing = [item for item in str(reason)[len(prefix) :].split(",") if item]
+    return missing if set(missing).issubset(_BOOTSTRAP_SAFE_MISSING_TABLES) else []
 
 
 def _build_job_db(cfg: WebJobsDbConfig) -> WebJobsDatabase:
@@ -313,6 +325,24 @@ def resolve_web_jobs_backend(
             session_id=session_id,
             recovery=recovery,
         )
+
+    bootstrap_missing = _bootstrap_safe_missing_tables(main_reason)
+    if bootstrap_missing:
+        recovery["main_db_bootstrap_attempted"] = True
+        recovery["main_db_bootstrap_missing_tables"] = bootstrap_missing
+        try:
+            job_db = _build_job_db(db_cfg)
+            recovery["status"] = "ok"
+            recovery["selected_mode"] = "db_primary"
+            recovery["recovery_action"] = "bootstrapped_main_db_additive_schema"
+            return WebJobsRecoveryResolution(
+                mode="db_primary",
+                job_db=job_db,
+                session_id=session_id,
+                recovery=recovery,
+            )
+        except Exception as exc:
+            recovery["main_db_bootstrap_error"] = f"{type(exc).__name__}:{exc}"
 
     latest_backup = latest_verified_backup(patches_root=patches_root, settings=backup_settings)
     if latest_backup is not None:

@@ -12,6 +12,7 @@
 	 *   statusLines?: string[],
 	 *   hints?: InfoPoolHints,
 	 *   latestHint?: InfoPoolLatestHint,
+	 *   backendDegradedNote?: string,
 	 * }} InfoPoolSnapshot
 	 * @typedef {{
 	 *   filename_pattern?: string,
@@ -104,12 +105,28 @@
 		return PH.call("getPmValidationSnapshot") || null;
 	}
 
+	function infoPoolDegradedItems(snapshot) {
+		var items = [];
+		var backend = String(snapshot.backendDegradedNote || "");
+		if (backend) items.push(backend);
+		var degraded = Array.isArray(snapshot.degradedNotes)
+			? snapshot.degradedNotes
+			: [];
+		if (degraded.length) {
+			items.push(String(degraded[degraded.length - 1] || ""));
+		}
+		return items.filter(Boolean);
+	}
+
 	function infoPoolSummary(snapshot) {
 		var degraded = Array.isArray(snapshot.degradedNotes)
 			? snapshot.degradedNotes
 			: [];
 		if (degraded.length) {
 			return "DEGRADED MODE: " + String(degraded[degraded.length - 1] || "");
+		}
+		if (snapshot.backendDegradedNote) {
+			return "DEGRADED MODE: " + String(snapshot.backendDegradedNote || "");
 		}
 		var pmSummary = infoPoolPmSummary();
 		if (pmSummary) return pmSummary;
@@ -213,9 +230,7 @@
 		var snapshot = infoPoolSnapshot();
 		var operatorInfo = infoPoolOperatorInfo();
 		var hints = snapshot.hints || {};
-		var degraded = Array.isArray(snapshot.degradedNotes)
-			? snapshot.degradedNotes.slice(-1)
-			: [];
+		var degraded = infoPoolDegradedItems(snapshot);
 		var hintHtml = [
 			infoPoolHintValue("Upload", String(hints.upload || "")),
 			infoPoolHintValue("Start run", String(hints.enqueue || "")),

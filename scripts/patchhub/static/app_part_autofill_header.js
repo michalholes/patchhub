@@ -240,6 +240,33 @@ function updateHeaderMeta(base) {
 	if (el("hdrMeta")) el("hdrMeta").textContent = meta;
 }
 
+function setBackendDegradedNoteFromDiagnostics(d) {
+	var backend = (d && d.backend) || {};
+	var mode = String(backend.mode || "");
+	if (mode !== "file_emergency") {
+		if (typeof setBackendDegradedNote === "function")
+			setBackendDegradedNote("");
+		return;
+	}
+	var recovery = (backend && backend.last_recovery) || {};
+	var detail = [
+		String(recovery.recovery_action || "file_emergency"),
+		String(
+			recovery.main_db_validation ||
+				recovery.backup_restore_error ||
+				(recovery.fallback_export_errors || [])[0] ||
+				"",
+		),
+	]
+		.filter(Boolean)
+		.join("; ");
+	if (typeof setBackendDegradedNote === "function") {
+		setBackendDegradedNote(
+			detail ? "Backend file_emergency: " + detail : "Backend file_emergency",
+		);
+	}
+}
+
 function renderHeaderFromSummary(summary, base) {
 	headerSummaryCache = extractHeaderSummary(summary);
 	updateHeaderMeta(base);
@@ -249,6 +276,7 @@ function renderHeaderFromDiagnostics(d, base) {
 	if (!d || d.ok === false) return;
 	headerSummaryCache = extractHeaderSummary(d);
 	headerDiagnosticsCache = d;
+	setBackendDegradedNoteFromDiagnostics(d);
 	updateHeaderMeta(base);
 }
 
