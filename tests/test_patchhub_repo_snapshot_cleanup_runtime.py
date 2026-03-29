@@ -24,12 +24,18 @@ def _write_zip(path: Path, *, mtime_ns: int) -> None:
     os.utime(path, ns=(mtime_ns, mtime_ns))
 
 
-def _config(*rules: tuple[str, int]) -> RepoSnapshotCleanupConfig:
+def _config(
+    *rules: tuple[str, int],
+    age_max_days: int | None = None,
+    age_directories: tuple[str, ...] = (),
+) -> RepoSnapshotCleanupConfig:
     return RepoSnapshotCleanupConfig(
         rules=tuple(
             RepoSnapshotCleanupRule(filename_pattern=pattern, keep_count=keep_count)
             for pattern, keep_count in rules
-        )
+        ),
+        age_max_days=age_max_days,
+        age_directories=age_directories,
     )
 
 
@@ -109,23 +115,23 @@ def test_cleanup_sorting_is_mtime_desc_then_basename_asc(tmp_path: Path) -> None
     assert remaining == ["patchhub-main_a.zip"]
 
 
-def test_cleanup_scans_only_top_level_patch_zip_files(tmp_path: Path) -> None:
+def test_cleanup_scans_only_top_level_matching_regular_files(tmp_path: Path) -> None:
     patches_root = tmp_path / "patches"
-    _write_zip(patches_root / "patchhub-main_top.zip", mtime_ns=10)
-    _write_zip(patches_root / "incoming" / "patchhub-main_nested.zip", mtime_ns=20)
-    _write_zip(patches_root / "workspaces" / "patchhub-main_ws.zip", mtime_ns=30)
+    _write_zip(patches_root / "badguys_top.log", mtime_ns=10)
+    _write_zip(patches_root / "incoming" / "badguys_nested.log", mtime_ns=20)
+    _write_zip(patches_root / "workspaces" / "badguys_ws.log", mtime_ns=30)
 
     execute_repo_snapshot_cleanup(
         patches_root=patches_root,
-        config=_config(("patchhub-main_*.zip", 0)),
+        config=_config(("badguys_*.log", 0)),
         job_id="job-375-d",
         issue_id="375",
         created_utc="2026-03-23T10:00:03Z",
     )
 
-    assert not (patches_root / "patchhub-main_top.zip").exists()
-    assert (patches_root / "incoming" / "patchhub-main_nested.zip").exists()
-    assert (patches_root / "workspaces" / "patchhub-main_ws.zip").exists()
+    assert not (patches_root / "badguys_top.log").exists()
+    assert (patches_root / "incoming" / "badguys_nested.log").exists()
+    assert (patches_root / "workspaces" / "badguys_ws.log").exists()
 
 
 def test_cleanup_ignores_symlinked_zip_children(tmp_path: Path) -> None:
@@ -148,6 +154,52 @@ def test_cleanup_ignores_symlinked_zip_children(tmp_path: Path) -> None:
     assert remaining == ["patchhub-main_link.zip"]
     assert summary.deleted_count == 1
     assert summary.rules[0].matched_count == 1
+
+
+def test_age_cleanup_prunes_only_configured_directories_and_respects_cutoff(tmp_path: Path) -> None:
+    patches_root = tmp_path / "patches"
+    _write_zip(patches_root / "logs" / "old.log", mtime_ns=10)
+    _write_zip(patches_root / "logs" / "new.log", mtime_ns=200_000_000_000_000)
+    _write_zip(patches_root / "successful" / "old_success.zip", mtime_ns=5)
+    _write_zip(patches_root / "unsuccessful" / "old_fail.zip", mtime_ns=5)
+
+    summary = execute_repo_snapshot_cleanup(
+        patches_root=patches_root,
+        config=_config(age_max_days=1, age_directories=("logs", "successful")),
+        job_id="job-375-age",
+        issue_id="375",
+        created_utc="2026-03-23T10:00:03Z",
+        run_time_ns=200_000_000_000_000,
+    )
+
+    assert not (patches_root / "logs" / "old.log").exists()
+    assert (patches_root / "logs" / "new.log").exists()
+    assert not (patches_root / "successful" / "old_success.zip").exists()
+    assert (patches_root / "unsuccessful" / "old_fail.zip").exists()
+    assert summary.deleted_count == 2
+    assert "age logs: matched 2, deleted 1, max_age_days 1" in summary.summary_text
+    assert "age successful: matched 1, deleted 1, max_age_days 1" in summary.summary_text
+
+
+def test_age_cleanup_ignores_symlinked_children(tmp_path: Path) -> None:
+    patches_root = tmp_path / "patches"
+    real_target = tmp_path / "outside.log"
+    _write_zip(real_target, mtime_ns=5)
+    (patches_root / "logs").mkdir(parents=True, exist_ok=True)
+    (patches_root / "logs" / "linked.log").symlink_to(real_target)
+
+    summary = execute_repo_snapshot_cleanup(
+        patches_root=patches_root,
+        config=_config(age_max_days=1, age_directories=("logs",)),
+        job_id="job-375-age-link",
+        issue_id="375",
+        created_utc="2026-03-23T10:00:03Z",
+        run_time_ns=200_000_000_000_000,
+    )
+
+    assert (patches_root / "logs" / "linked.log").exists()
+    assert summary.deleted_count == 0
+    assert "age logs: matched 0, deleted 0, max_age_days 1" in summary.summary_text
 
 
 def test_cleanup_failure_summary_is_persisted_to_operator_info(tmp_path: Path) -> None:

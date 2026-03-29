@@ -185,17 +185,64 @@ def _parse_repo_snapshot_cleanup(raw: Any) -> RepoSnapshotCleanupConfig:
         return RepoSnapshotCleanupConfig()
     if not isinstance(raw, dict):
         raise ValueError("repo_snapshot_cleanup must be a table")
-    allowed = {"rules"}
+    allowed = {"rules", "age_max_days", "age_directories"}
     extra = sorted(str(key) for key in raw if str(key) not in allowed)
     if extra:
         raise ValueError("repo_snapshot_cleanup contains unsupported keys: " + ", ".join(extra))
+
     raw_rules = raw.get("rules", [])
     if not isinstance(raw_rules, list):
         raise ValueError("repo_snapshot_cleanup.rules must be an array of tables")
     rules = tuple(
         _parse_repo_snapshot_cleanup_rule(item, index=index) for index, item in enumerate(raw_rules)
     )
-    return RepoSnapshotCleanupConfig(rules=rules)
+
+    has_age_max_days = "age_max_days" in raw
+    has_age_directories = "age_directories" in raw
+    if has_age_max_days != has_age_directories:
+        raise ValueError(
+            "repo_snapshot_cleanup.age_max_days and "
+            "repo_snapshot_cleanup.age_directories must be provided together"
+        )
+
+    if not has_age_max_days:
+        return RepoSnapshotCleanupConfig(rules=rules)
+
+    age_max_days = raw.get("age_max_days")
+    if isinstance(age_max_days, bool) or not isinstance(age_max_days, int):
+        raise ValueError("repo_snapshot_cleanup.age_max_days must be an integer")
+    if age_max_days < 1:
+        raise ValueError("repo_snapshot_cleanup.age_max_days must be >= 1")
+
+    raw_age_directories = raw.get("age_directories")
+    if not isinstance(raw_age_directories, list):
+        raise ValueError("repo_snapshot_cleanup.age_directories must be an array")
+    if not raw_age_directories:
+        raise ValueError("repo_snapshot_cleanup.age_directories must be non-empty")
+
+    allowed_directories = {"logs", "successful", "unsuccessful"}
+    age_directories: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw_age_directories):
+        if not isinstance(item, str):
+            raise ValueError(f"repo_snapshot_cleanup.age_directories[{index}] must be a string")
+        value = item.strip()
+        if value not in allowed_directories:
+            raise ValueError(
+                "repo_snapshot_cleanup.age_directories contains unsupported value: " + value
+            )
+        if value in seen:
+            raise ValueError(
+                "repo_snapshot_cleanup.age_directories contains duplicate entry: " + value
+            )
+        seen.add(value)
+        age_directories.append(value)
+
+    return RepoSnapshotCleanupConfig(
+        rules=rules,
+        age_max_days=int(age_max_days),
+        age_directories=tuple(age_directories),
+    )
 
 
 def load_config(path: Path) -> AppConfig:

@@ -201,6 +201,9 @@ class AsyncJobQueue:
         self._task: asyncio.Task[None] | None = None
         self._brokers: dict[str, JobEventBroker] = {}
         self._pump_commands: dict[str, EventPumpCommandChannel] = {}
+        self._on_terminal_job_cleanup: (
+            Callable[[JobRecord], Coroutine[object, object, None]] | None
+        ) = None
         self._on_patch_success: Callable[[JobRecord], Coroutine[object, object, None]] | None = None
 
     def _reset_loop_affine_state(self) -> None:
@@ -420,31 +423,22 @@ class AsyncJobQueue:
             job.ended_utc = utc_now()
             finalized = job
             await self._persist(job)
-        callback_error: str | None = None
+        callback_errors: list[str] = []
         if finalized is not None and finalized.status == "success":
-            await self._materialize_applied_files(finalized)
+            try:
+                await self._materialize_applied_files(finalized)
+            except Exception as exc:
+                callback_errors.append(f"{type(exc).__name__}: {exc}")
             try:
                 await self._persist_rollback_manifest(finalized)
             except Exception as exc:
-                callback_error = f"{type(exc).__name__}: {exc}"
-            if (
-                finalized.mode == "patch"
-                and self._on_patch_success is not None
-                and callback_error is None
-            ):
-                try:
-                    await self._on_patch_success(finalized)
-                except Exception as exc:
-                    callback_error = f"{type(exc).__name__}: {exc}"
-        if callback_error is not None:
-            async with self._mu:
-                job = self._jobs.get(job_id)
-                if job is not None:
-                    if job.error:
-                        job.error = f"{job.error}; {callback_error}"
-                    else:
-                        job.error = callback_error
-                    await self._persist(job)
+                callback_errors.append(f"{type(exc).__name__}: {exc}")
+        if finalized is not None:
+            callback_error = await self._run_terminal_job_cleanup_callback(finalized)
+            if callback_error is not None:
+                callback_errors.append(callback_error)
+        if callback_errors:
+            await self._append_terminal_cleanup_error(job_id, "; ".join(callback_errors))
         return True
 
     async def _reconcile_active_job(
@@ -566,6 +560,9 @@ class AsyncJobQueue:
                 job.status = "canceled"
                 job.ended_utc = utc_now()
                 await self._persist(job)
+                finalized = job
+            callback_error = await self._run_terminal_job_cleanup_callback(finalized)
+            await self._append_terminal_cleanup_error(job_id, callback_error)
             return True
 
         if status == "running":
@@ -639,11 +636,18 @@ class AsyncJobQueue:
     def jobs_root(self) -> Path:
         return self._jobs_root
 
+    def set_terminal_job_callback(
+        self,
+        callback: Callable[[JobRecord], Coroutine[object, object, None]] | None,
+    ) -> None:
+        self._on_terminal_job_cleanup = callback
+        self._on_patch_success = callback
+
     def set_patch_success_callback(
         self,
         callback: Callable[[JobRecord], Coroutine[object, object, None]] | None,
     ) -> None:
-        self._on_patch_success = callback
+        self.set_terminal_job_callback(callback)
 
     def _job_dir(self, job_id: str) -> Path:
         return self._jobs_root / job_id
@@ -656,6 +660,28 @@ class AsyncJobQueue:
             return
         job_dir = self._job_dir(job.job_id)
         await asyncio.to_thread(_persist_job_sync, job_dir, job)
+
+    async def _run_terminal_job_cleanup_callback(self, job: JobRecord) -> str | None:
+        if self._on_terminal_job_cleanup is None:
+            return None
+        try:
+            await self._on_terminal_job_cleanup(job)
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}"
+        return None
+
+    async def _append_terminal_cleanup_error(self, job_id: str, callback_error: str | None) -> None:
+        if callback_error is None:
+            return
+        async with self._mu:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return
+            if job.error:
+                job.error = f"{job.error}; {callback_error}"
+            else:
+                job.error = callback_error
+            await self._persist(job, count_as_job_change=False)
 
     async def _wait_for_runner_slot(self) -> None:
         while True:
@@ -865,6 +891,9 @@ class AsyncJobQueue:
                     job.ended_utc = utc_now()
                     job.error = f"{type(e).__name__}: {e}"
                     await self._persist(job)
+                    finalized = job
+                callback_error = await self._run_terminal_job_cleanup_callback(finalized)
+                await self._append_terminal_cleanup_error(job_id, callback_error)
             finally:
                 reconcile_error: str | None = None
                 reconcile_return_code: int | None = None

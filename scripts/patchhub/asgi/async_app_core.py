@@ -79,14 +79,14 @@ class AsyncAppCore:
             db_cfg=self.web_jobs_db_cfg,
             get_mode=lambda: self.backend_mode_state.mode,
         )
-        self._patch_success_callback: (
+        self._terminal_job_callback: (
             Callable[[JobRecord], Coroutine[object, object, None]] | None
         ) = None
         self.queue = self._build_queue(job_db=None)
         self.indexer = AsyncJobsRunsIndexer(core=self)
 
     def _bind_queue_callbacks(self, queue: AsyncJobQueue) -> AsyncJobQueue:
-        queue.set_patch_success_callback(self._patch_success_callback)
+        queue.set_terminal_job_callback(self._terminal_job_callback)
         return queue
 
     def _build_queue(self, *, job_db: WebJobsDatabase | None) -> AsyncJobQueue:
@@ -114,12 +114,18 @@ class AsyncAppCore:
             )
         )
 
+    def register_terminal_job_callback(
+        self,
+        callback: Callable[[JobRecord], Coroutine[object, object, None]] | None,
+    ) -> None:
+        self._terminal_job_callback = callback
+        self._bind_queue_callbacks(self.queue)
+
     def register_patch_success_callback(
         self,
         callback: Callable[[JobRecord], Coroutine[object, object, None]] | None,
     ) -> None:
-        self._patch_success_callback = callback
-        self._bind_queue_callbacks(self.queue)
+        self.register_terminal_job_callback(callback)
 
     def queue_block_reason(self) -> str | None:
         return self.backend_mode_state.queue_block_reason()

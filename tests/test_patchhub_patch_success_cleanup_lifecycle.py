@@ -95,7 +95,7 @@ async def test_create_app_startup_preserves_cleanup_callback_for_db_primary(
 
 
 @pytest.mark.asyncio
-async def test_create_app_startup_skips_cleanup_for_failed_and_repair_jobs(
+async def test_create_app_startup_runs_cleanup_for_failed_and_repair_jobs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -130,7 +130,47 @@ async def test_create_app_startup_skips_cleanup_for_failed_and_repair_jobs(
 
         assert core.queue._jobs[fail_job.job_id].status == "fail"
         assert core.queue._jobs[repair_job.job_id].status == "success"
-        assert calls == []
+        assert calls == ["job-379-fail", "job-379-repair"]
+    finally:
+        await core.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_create_app_startup_runs_cleanup_for_queued_cancel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def _fake_cleanup(core: object, job: JobRecord) -> None:
+        del core
+        calls.append((job.job_id, job.status))
+
+    monkeypatch.setattr("patchhub.asgi.asgi_app.run_patch_job_success_cleanup", _fake_cleanup)
+
+    app = create_app(repo_root=tmp_path / "repo", cfg=_load_cfg())
+    core = app.state.core
+
+    await core.startup()
+    try:
+        queued_job = JobRecord(
+            job_id="job-379-queued-cancel",
+            created_utc="2026-03-24T10:00:00Z",
+            mode="patch",
+            issue_id="379",
+            commit_summary="Queued cancel",
+            patch_basename="issue_379_v1.zip",
+            raw_command="python3 scripts/am_patch.py 379",
+            canonical_command=["python3", "scripts/am_patch.py", "379"],
+            status="queued",
+        )
+        core.queue._jobs[queued_job.job_id] = queued_job
+
+        changed = await core.queue._cancel_local(queued_job.job_id)
+
+        assert changed is True
+        assert core.queue._jobs[queued_job.job_id].status == "canceled"
+        assert calls == [("job-379-queued-cancel", "canceled")]
     finally:
         await core.shutdown()
 

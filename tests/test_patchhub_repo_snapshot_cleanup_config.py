@@ -109,6 +109,77 @@ def test_invalid_keep_count_raises(tmp_path: Path, cleanup_block: str, expected:
         load_config(_write_config(tmp_path, cleanup_block))
 
 
+def test_valid_age_cleanup_config_parse(tmp_path: Path) -> None:
+    cfg = load_config(
+        _write_config(
+            tmp_path,
+            """
+[repo_snapshot_cleanup]
+age_max_days = 14
+age_directories = ["logs", "successful"]
+
+[[repo_snapshot_cleanup.rules]]
+filename_pattern = "badguys_*.log"
+keep_count = 1
+""",
+        )
+    )
+    assert cfg.repo_snapshot_cleanup.age_max_days == 14
+    assert cfg.repo_snapshot_cleanup.age_directories == ("logs", "successful")
+
+
+@pytest.mark.parametrize(
+    ("cleanup_block", "expected"),
+    [
+        (
+            """
+[repo_snapshot_cleanup]
+age_max_days = 14
+""",
+            "must be provided together",
+        ),
+        (
+            """
+[repo_snapshot_cleanup]
+age_directories = ["logs"]
+""",
+            "must be provided together",
+        ),
+        (
+            """
+[repo_snapshot_cleanup]
+age_max_days = 0
+age_directories = ["logs"]
+""",
+            "must be >= 1",
+        ),
+        (
+            """
+[repo_snapshot_cleanup]
+age_max_days = 14
+age_directories = ["logs", "logs"]
+""",
+            "duplicate entry",
+        ),
+        (
+            """
+[repo_snapshot_cleanup]
+age_max_days = 14
+age_directories = ["incoming"]
+""",
+            "unsupported value",
+        ),
+    ],
+)
+def test_invalid_age_cleanup_config_raises(
+    tmp_path: Path,
+    cleanup_block: str,
+    expected: str,
+) -> None:
+    with pytest.raises(ValueError, match=expected):
+        load_config(_write_config(tmp_path, cleanup_block))
+
+
 def test_missing_or_empty_cleanup_rules_is_no_op(tmp_path: Path) -> None:
     missing_cfg = load_config(_write_config(tmp_path, ""))
     assert missing_cfg.repo_snapshot_cleanup.rules == ()

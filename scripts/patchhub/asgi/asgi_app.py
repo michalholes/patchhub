@@ -167,7 +167,7 @@ async def _refresh_after_cleanup(core: Any) -> bool:
     return await _publish_cleanup_refresh_fallback(core)
 
 
-async def run_patch_job_success_cleanup(core: Any, job: Any) -> None:
+async def run_terminal_job_cleanup(core: Any, job: Any) -> None:
     created_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     summary = await to_thread(
         execute_repo_snapshot_cleanup,
@@ -187,19 +187,23 @@ async def run_patch_job_success_cleanup(core: Any, job: Any) -> None:
     await _refresh_after_cleanup(core)
 
 
+async def run_patch_job_success_cleanup(core: Any, job: Any) -> None:
+    await run_terminal_job_cleanup(core, job)
+
+
 def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
     app = FastAPI()
     core = AsyncAppCore(repo_root=repo_root, cfg=cfg)
     snapshot_change_broker = SnapshotChangeBroker()
     snapshot_delta_store = SnapshotDeltaStore()
 
-    async def _handle_patch_job_success(job: Any) -> None:
+    async def _handle_terminal_job_cleanup(job: Any) -> None:
         try:
             await run_patch_job_success_cleanup(core, job)
         except Exception:
             return
 
-    core.register_patch_success_callback(_handle_patch_job_success)
+    core.register_terminal_job_callback(_handle_terminal_job_cleanup)
 
     def _publish_snapshot_change(snap: Any) -> None:
         snapshot_delta_store.record_snapshot(snap)

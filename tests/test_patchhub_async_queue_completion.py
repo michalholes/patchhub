@@ -768,7 +768,7 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
 
 
 class TestPatchhubAsyncQueueCleanupHook(unittest.IsolatedAsyncioTestCase):
-    async def test_patch_success_runs_cleanup_hook_once(self) -> None:
+    async def test_terminal_cleanup_runs_for_success_job(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             jobs_root = root / "patches" / "artifacts" / "web_jobs"
@@ -853,7 +853,7 @@ class TestPatchhubAsyncQueueCleanupHook(unittest.IsolatedAsyncioTestCase):
                 "RuntimeError: cleanup callback boom",
             )
 
-    async def test_non_patch_or_failed_jobs_do_not_run_cleanup_hook(self) -> None:
+    async def test_terminal_cleanup_runs_for_non_patch_and_failed_jobs(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             jobs_root = root / "patches" / "artifacts" / "web_jobs"
@@ -907,4 +907,39 @@ class TestPatchhubAsyncQueueCleanupHook(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(queue._jobs[repair_job.job_id].status, "success")
             self.assertEqual(queue._jobs[fail_job.job_id].status, "fail")
-            self.assertEqual(calls, [])
+            self.assertEqual(calls, ["job-375-repair", "job-375-fail"])
+
+    async def test_terminal_cleanup_runs_for_queued_cancel(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            jobs_root = root / "patches" / "artifacts" / "web_jobs"
+            queue = async_queue_mod.AsyncJobQueue(
+                repo_root=root,
+                lock_path=root / "am_patch.lock",
+                jobs_root=jobs_root,
+                executor=_FakeExecutor(),
+            )
+            calls: list[str] = []
+
+            async def _on_patch_success(job: JobRecord) -> None:
+                calls.append(f"{job.job_id}:{job.status}")
+
+            queue.set_patch_success_callback(_on_patch_success)
+            queued_job = JobRecord(
+                job_id="job-375-queued-cancel",
+                created_utc="2026-03-23T10:00:03Z",
+                mode="patch",
+                issue_id="375",
+                commit_summary="Queued cancel",
+                patch_basename="issue_375_v1.zip",
+                raw_command="python3 scripts/am_patch.py 375",
+                canonical_command=["python3", "scripts/am_patch.py", "375"],
+                status="queued",
+            )
+            queue._jobs[queued_job.job_id] = queued_job
+
+            changed = await queue._cancel_local(queued_job.job_id)
+
+            self.assertTrue(changed)
+            self.assertEqual(queue._jobs[queued_job.job_id].status, "canceled")
+            self.assertEqual(calls, ["job-375-queued-cancel:canceled"])
