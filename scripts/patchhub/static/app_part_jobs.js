@@ -788,14 +788,21 @@ function ensureAutoRefresh(
 ) {
 	var id = PH.call("getLiveJobId");
 	var st = "";
+	var trackedActive = false;
 	if (id && jobs && jobs.length) {
 		const j = jobs.find((x) => String(x.job_id || "") === String(id)) || null;
 		st = j ? String(j.status || "") : "";
 	}
-	if (st === "running" || st === "queued") PH.call("openLiveStream", id);
-	else PH.call("closeLiveStream");
+	trackedActive = !!PH.call("hasTrackedActiveJob", jobs || []);
+	if ((st === "running" || st === "queued") && id) {
+		PH.call("openLiveStream", id);
+	} else if (trackedActive && id) {
+		PH.call("openLiveStream", id);
+	} else {
+		PH.call("closeLiveStream");
+	}
 
-	if (PH.call("hasTrackedActiveJob")) {
+	if (trackedActive) {
 		// Do not start a separate polling timer here.
 		// Polling is centralized in app_part_wire_init.js and is stopped when tab is hidden.
 		if (autoRefreshTimer) {

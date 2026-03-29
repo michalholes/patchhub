@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from pathlib import Path
@@ -267,6 +268,59 @@ class AsyncAppCore:
     api_amp_config_get = _amp.api_amp_config_get
     api_amp_config_post = _amp.api_amp_config_post
 
+    def _backend_db_probe_sync(self) -> dict[str, object]:
+        mode = str(self.backend_mode_state.mode or "")
+        db_path = str(self.web_jobs_db_cfg.db_path)
+        if mode != "db_primary":
+            return {
+                "status": "unavailable",
+                "db_path": db_path,
+                "reason": f"mode={mode or 'unknown'}",
+            }
+        if self.web_jobs_db is None:
+            return {
+                "status": "unavailable",
+                "db_path": db_path,
+                "reason": "db_uninitialized",
+            }
+        try:
+            with self.web_jobs_db._store._connect() as conn:
+                latest_rows = conn.execute(
+                    """
+                    SELECT job_id, status, issue_id_raw AS issue_id,
+                           issue_id_int, mode, created_utc, started_utc,
+                           ended_utc, row_rev, last_log_seq, last_event_seq,
+                           error, effective_runner_target_repo
+                      FROM web_jobs
+                     ORDER BY created_unix_ms DESC, job_id DESC
+                     LIMIT 20
+                    """
+                ).fetchall()
+                running_rows = conn.execute(
+                    """
+                    SELECT job_id, status, issue_id_raw AS issue_id,
+                           issue_id_int, mode, created_utc, started_utc,
+                           ended_utc, row_rev, last_log_seq, last_event_seq,
+                           error, effective_runner_target_repo
+                      FROM web_jobs
+                     WHERE status IN ('running', 'queued')
+                     ORDER BY created_unix_ms DESC, job_id DESC
+                     LIMIT 50
+                    """
+                ).fetchall()
+        except sqlite3.Error as exc:
+            return {
+                "status": "error",
+                "db_path": db_path,
+                "error": f"{type(exc).__name__}:{exc}",
+            }
+        return {
+            "status": "ok",
+            "db_path": db_path,
+            "latest_jobs": [dict(row) for row in latest_rows],
+            "running_jobs": [dict(row) for row in running_rows],
+        }
+
     async def diagnostics(self) -> dict[str, object]:
         qstate: Any | None
         try:
@@ -324,9 +378,19 @@ class AsyncAppCore:
                 "resources": {},
             }
 
+        backend = dict(self.backend_debug_state())
+        try:
+            backend["db_probe"] = await to_thread(self._backend_db_probe_sync)
+        except Exception as exc:
+            backend["db_probe"] = {
+                "status": "error",
+                "db_path": str(self.web_jobs_db_cfg.db_path),
+                "error": f"{type(exc).__name__}:{exc}",
+            }
+
         return {
             "queue": {"queued": queued, "running": running},
-            "backend": self.backend_debug_state(),
+            "backend": backend,
             **sync_part,
         }
 
