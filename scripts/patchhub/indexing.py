@@ -224,6 +224,25 @@ def iter_runs(patches_root: Path, log_filename_regex: str) -> list[RunEntry]:
     return runs
 
 
+def iter_run_log_infos(
+    patches_root: Path,
+    log_filename_regex: str,
+) -> list[tuple[Path, int, float, int, int]]:
+    rx = re.compile(log_filename_regex)
+    _sig, infos = _scan_matching_logs(patches_root, rx, collect=True)
+    infos.sort(key=lambda item: (item[3], item[0].name))
+    return infos
+
+
+def read_run_result_from_log(
+    log_path: Path,
+    *,
+    log_mtime_ns: int | None = None,
+) -> tuple[Literal["success", "fail", "unknown"], str | None]:
+    tail = _ensure_sanitized_tail_text(log_path, log_mtime_ns=log_mtime_ns)
+    return parse_run_result_from_sanitized_text(tail)
+
+
 def iter_runs_with_signature(
     patches_root: Path,
     log_filename_regex: str,

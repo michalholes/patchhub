@@ -73,6 +73,28 @@ CREATE TABLE IF NOT EXISTS web_jobs_meta (
     events_rev INTEGER NOT NULL,
     updated_unix_ms INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS run_stats_meta (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    last_indexed_mtime_ns INTEGER NOT NULL DEFAULT 0,
+    last_indexed_filename TEXT NOT NULL DEFAULT '',
+    all_time_total INTEGER NOT NULL DEFAULT 0,
+    all_time_success INTEGER NOT NULL DEFAULT 0,
+    all_time_fail INTEGER NOT NULL DEFAULT 0,
+    all_time_unknown INTEGER NOT NULL DEFAULT 0,
+    updated_unix_ms INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS run_stats_seen (
+    source_key TEXT PRIMARY KEY,
+    log_rel_path TEXT NOT NULL,
+    log_mtime_ns INTEGER NOT NULL,
+    log_size INTEGER NOT NULL DEFAULT 0,
+    run_unix_ms INTEGER NOT NULL,
+    result TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_run_stats_seen_run_unix_ms
+    ON run_stats_seen(run_unix_ms);
+CREATE INDEX IF NOT EXISTS idx_run_stats_seen_log_mtime_ns
+    ON run_stats_seen(log_mtime_ns, log_rel_path);
 CREATE TABLE IF NOT EXISTS web_job_derived (
     job_id TEXT PRIMARY KEY,
     applied_files_json TEXT NOT NULL,
@@ -226,6 +248,22 @@ class SqliteWebJobsStore:
                 INSERT INTO web_jobs_meta(
                     singleton, jobs_rev, logs_rev, events_rev, updated_unix_ms
                 ) VALUES(1, 0, 0, 0, ?)
+                ON CONFLICT(singleton) DO NOTHING
+                """,
+                (now_ms,),
+            )
+            conn.execute(
+                """
+                INSERT INTO run_stats_meta(
+                    singleton,
+                    last_indexed_mtime_ns,
+                    last_indexed_filename,
+                    all_time_total,
+                    all_time_success,
+                    all_time_fail,
+                    all_time_unknown,
+                    updated_unix_ms
+                ) VALUES(1, 0, '', 0, 0, 0, 0, ?)
                 ON CONFLICT(singleton) DO NOTHING
                 """,
                 (now_ms,),

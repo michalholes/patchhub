@@ -75,14 +75,21 @@ def build_header_summary(
     lock_held: bool,
     base_runs: list[RunEntry],
 ) -> dict[str, Any]:
-    stats = compute_stats(base_runs, core.cfg.indexing.stats_windows_days)
+    store = getattr(core, "run_stats_store", None)
+    if store is not None:
+        summary = store.build_summary(core.cfg.indexing.stats_windows_days)
+        runs_count = summary.count
+        stats = summary.stats
+    else:
+        runs_count = len(base_runs)
+        stats = compute_stats(base_runs, core.cfg.indexing.stats_windows_days)
     return {
         "queue": {"queued": int(queued), "running": int(running)},
         "lock": {
             "path": str(Path(core.cfg.paths.patches_root) / "am_patch.lock"),
             "held": bool(lock_held),
         },
-        "runs": {"count": len(base_runs)},
+        "runs": {"count": runs_count},
         "stats": {
             "all_time": stats.all_time.__dict__,
             "windows": [w.__dict__ for w in stats.windows],
@@ -359,6 +366,10 @@ class AsyncJobsRunsIndexer:
                 self._core.patches_root,
                 self._core.cfg.indexing.log_filename_regex,
             )
+            if self._core.run_stats_store is not None:
+                self._core.run_stats_store.ingest_logs(
+                    self._core.cfg.indexing.log_filename_regex,
+                )
 
             canceled_runs, canceled_sig = self._build_canceled_runs_sync()
             runs_sig = (

@@ -18,6 +18,7 @@ from patchhub.app_support import read_tail
 from patchhub.config import AppConfig
 from patchhub.fs_jail import FsJail
 from patchhub.models import JobRecord
+from patchhub.run_stats_store import RunStatsStore
 from patchhub.targeting import resolve_targeting_runtime
 from patchhub.web_jobs_backend_mode import WebJobsBackendModeState
 from patchhub.web_jobs_backup import (
@@ -69,6 +70,7 @@ class AsyncAppCore:
         )
         self._backend_session_id = ""
         self.web_jobs_db: WebJobsDatabase | None = None
+        self.run_stats_store: RunStatsStore | None = None
         self.virtual_jobs_fs: WebJobsVirtualFs | None = None
         self.backup_scheduler = WebJobsBackupScheduler(
             repo_root=self.repo_root,
@@ -126,6 +128,7 @@ class AsyncAppCore:
 
     def _enable_db_primary(self, job_db: WebJobsDatabase, recovery: dict[str, Any]) -> None:
         self.web_jobs_db = job_db
+        self.run_stats_store = RunStatsStore(self.web_jobs_db_cfg, self.patches_root)
         self.virtual_jobs_fs = WebJobsVirtualFs(
             db=job_db,
             enabled=self.web_jobs_db_cfg.compatibility_enabled,
@@ -135,6 +138,7 @@ class AsyncAppCore:
 
     def _enable_file_emergency(self, recovery: dict[str, Any]) -> None:
         self.web_jobs_db = None
+        self.run_stats_store = None
         self.virtual_jobs_fs = None
         self.queue = self._build_queue(job_db=None)
         self.backend_mode_state.activate_file_emergency(recovery)
@@ -283,7 +287,13 @@ class AsyncAppCore:
                 lock_held = False
 
             runs = _core.iter_runs(self.patches_root, self.cfg.indexing.log_filename_regex)
-            stats = _core.compute_stats(runs, self.cfg.indexing.stats_windows_days)
+            if self.run_stats_store is not None:
+                summary = self.run_stats_store.build_summary(self.cfg.indexing.stats_windows_days)
+                runs_count = summary.count
+                stats = summary.stats
+            else:
+                runs_count = len(runs)
+                stats = _core.compute_stats(runs, self.cfg.indexing.stats_windows_days)
             usage = _core.shutil.disk_usage(str(self.patches_root))
             return {
                 "lock": {
@@ -296,7 +306,7 @@ class AsyncAppCore:
                     "free": int(usage.free),
                 },
                 "resources": proc_resources.snapshot(),
-                "runs": {"count": len(runs)},
+                "runs": {"count": runs_count},
                 "stats": {
                     "all_time": stats.all_time.__dict__,
                     "windows": [w.__dict__ for w in stats.windows],

@@ -40,6 +40,8 @@ _REQUIRED_TABLES = (
     "web_job_log_lines",
     "web_job_event_lines",
     "web_jobs_meta",
+    "run_stats_meta",
+    "run_stats_seen",
 )
 
 
