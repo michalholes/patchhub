@@ -1,7 +1,22 @@
 import json
 import sys
 from collections import Counter
+from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
+from typing import cast
+
+
+def _load_build_navigation_lines() -> Callable[[list[dict]], list[str]]:
+    for module_name in ("governance.gov_navigator", "gov_navigator"):
+        try:
+            module = import_module(module_name)
+        except ModuleNotFoundError:
+            continue
+        func = getattr(module, "build_navigation_lines", None)
+        if callable(func):
+            return cast(Callable[[list[dict]], list[str]], func)
+    raise ModuleNotFoundError("build_navigation_lines")
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -179,6 +194,7 @@ def render(path_in: Path, path_out: Path) -> None:
     out.append("=" * 80)
     append_meta(out, meta)
     append_counts(out, groups)
+    out.extend(_load_build_navigation_lines()(objs))
     append_bindings(out, groups)
     append_rules(out, groups)
     append_sections_and_notes(out, groups)

@@ -298,16 +298,33 @@ def _pack_union_rule(rule_id, pack, key, active_bindings, field):
 
 
 def _scope_mapping_rule(decision_paths, pack):
-    scope = str(pack.get("target_scope", ""))
+    scope = str(pack.get("target_scope", "")).strip()
     if not decision_paths:
         return _rr("PACK_SCOPE_MAPPING", "FAIL", "no_patch_paths")
     if scope == "authority_scope":
-        bad = [p for p in decision_paths if not (p.startswith("docs/") or p.startswith("scripts/"))]
-        return _rr(
-            "PACK_SCOPE_MAPPING",
-            "PASS" if not bad else "FAIL",
-            "authority_paths_ok" if not bad else f"out_of_scope={bad}",
-        )
+        try:
+            source_path = _supported_authority_sources(pack)[0]
+        except VE as exc:
+            return _rr("PACK_SCOPE_MAPPING", "FAIL", str(exc))
+        if source_path == GOVERNANCE_SPEC_PATH:
+            bad = [p for p in decision_paths if not p.startswith("governance/")]
+            detail = "governance_authority_paths_ok"
+            return _rr(
+                "PACK_SCOPE_MAPPING",
+                "PASS" if not bad else "FAIL",
+                detail if not bad else f"out_of_scope={bad}:source={source_path}",
+            )
+        if source_path == REPO_SPEC_PATH:
+            bad = [
+                p for p in decision_paths if not (p.startswith("docs/") or p.startswith("scripts/"))
+            ]
+            detail = "repo_authority_paths_ok"
+            return _rr(
+                "PACK_SCOPE_MAPPING",
+                "PASS" if not bad else "FAIL",
+                detail if not bad else f"out_of_scope={bad}:source={source_path}",
+            )
+        return _rr("PACK_SCOPE_MAPPING", "FAIL", f"unsupported_authority_source:{source_path}")
     if scope == "implementation_scope":
         bad = [p for p in decision_paths if p in AOP]
         return _rr(
