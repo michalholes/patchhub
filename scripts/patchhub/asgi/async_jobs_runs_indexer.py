@@ -334,12 +334,19 @@ class AsyncJobsRunsIndexer:
         running = int(getattr(qstate, "running", 0) or 0) if qstate is not None else 0
 
         def _sync_build() -> IndexerSnapshot:
+            mem_by_id = {str(getattr(j, "job_id", "")) for j in mem}
+            disk_jobs: list[Any] = []
+
+            live_raw = self._core.list_live_job_jsons_sync()
+            for r in live_raw:
+                jid = str(r.get("job_id", ""))
+                if not jid or jid in mem_by_id:
+                    continue
+                self._core.mark_orphaned_sync(jid)
+
             disk_sig = self._core.jobs_signature_sync()
             disk_raw = self._core.list_job_jsons_sync(limit=200)
             jobs_sig = _etag_sig_jobs(disk_sig=disk_sig, mem=mem)
-
-            mem_by_id = {str(getattr(j, "job_id", "")) for j in mem}
-            disk_jobs: list[Any] = []
 
             for r in disk_raw:
                 jid = str(r.get("job_id", ""))
@@ -348,13 +355,6 @@ class AsyncJobsRunsIndexer:
                 j = self._core._load_job_from_disk(jid)
                 if j is None:
                     continue
-
-                status = str(getattr(j, "status", ""))
-                if status in ("queued", "running"):
-                    j.status = "fail"
-                    j.ended_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    j.error = "orphaned: not in memory queue"
-                    self._core.mark_orphaned_sync(jid)
 
                 disk_jobs.append(j)
 

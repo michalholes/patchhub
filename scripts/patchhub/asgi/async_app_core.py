@@ -224,6 +224,13 @@ class AsyncAppCore:
             return self.web_jobs_db.list_job_jsons(limit=limit)
         return list_legacy_job_jsons(self.jobs_root, limit=limit)
 
+    def list_live_job_jsons_sync(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        if self.web_jobs_db is not None:
+            return self.web_jobs_db.list_live_job_jsons(limit=limit)
+        cap = 1_000_000 if limit is None else max(1, int(limit))
+        rows = list_legacy_job_jsons(self.jobs_root, limit=cap)
+        return [row for row in rows if str(row.get("status", "")) in {"queued", "running"}]
+
     def read_log_tail_sync(self, job_id: str, *, lines: int = 200) -> str:
         if self.web_jobs_db is not None:
             return self.web_jobs_db.read_log_tail(job_id, lines=lines)
@@ -268,20 +275,29 @@ class AsyncAppCore:
     api_amp_config_get = _amp.api_amp_config_get
     api_amp_config_post = _amp.api_amp_config_post
 
-    def _backend_db_probe_sync(self) -> dict[str, object]:
+    def _backend_db_probe_sync(self, memory_job_ids: set[str]) -> dict[str, object]:
         mode = str(self.backend_mode_state.mode or "")
         db_path = str(self.web_jobs_db_cfg.db_path)
+        empty_summary = {
+            "memory_live_job_ids": sorted(str(job_id) for job_id in memory_job_ids),
+            "persisted_live_count": 0,
+            "persisted_live_job_ids": [],
+            "stale_live_count": 0,
+            "stale_live_job_ids": [],
+        }
         if mode != "db_primary":
             return {
                 "status": "unavailable",
                 "db_path": db_path,
                 "reason": f"mode={mode or 'unknown'}",
+                "live_summary": empty_summary,
             }
         if self.web_jobs_db is None:
             return {
                 "status": "unavailable",
                 "db_path": db_path,
                 "reason": "db_uninitialized",
+                "live_summary": empty_summary,
             }
         try:
             with self.web_jobs_db._store._connect() as conn:
@@ -305,7 +321,6 @@ class AsyncAppCore:
                       FROM web_jobs
                      WHERE status IN ('running', 'queued')
                      ORDER BY created_unix_ms DESC, job_id DESC
-                     LIMIT 50
                     """
                 ).fetchall()
         except sqlite3.Error as exc:
@@ -313,12 +328,25 @@ class AsyncAppCore:
                 "status": "error",
                 "db_path": db_path,
                 "error": f"{type(exc).__name__}:{exc}",
+                "live_summary": empty_summary,
             }
+        running_jobs = [dict(row) for row in running_rows]
+        persisted_live_job_ids = [str(row.get("job_id", "")) for row in running_jobs]
+        stale_live_job_ids = [
+            job_id for job_id in persisted_live_job_ids if job_id and job_id not in memory_job_ids
+        ]
         return {
             "status": "ok",
             "db_path": db_path,
             "latest_jobs": [dict(row) for row in latest_rows],
-            "running_jobs": [dict(row) for row in running_rows],
+            "running_jobs": running_jobs,
+            "live_summary": {
+                "memory_live_job_ids": sorted(str(job_id) for job_id in memory_job_ids),
+                "persisted_live_count": len(persisted_live_job_ids),
+                "persisted_live_job_ids": persisted_live_job_ids,
+                "stale_live_count": len(stale_live_job_ids),
+                "stale_live_job_ids": stale_live_job_ids,
+            },
         }
 
     async def diagnostics(self) -> dict[str, object]:
@@ -330,6 +358,14 @@ class AsyncAppCore:
 
         queued = int(getattr(qstate, "queued", 0) or 0) if qstate is not None else 0
         running = int(getattr(qstate, "running", 0) or 0) if qstate is not None else 0
+
+        try:
+            mem_jobs = await self.queue.list_jobs()
+        except Exception:
+            mem_jobs = []
+        memory_job_ids = {
+            str(getattr(job, "job_id", "")) for job in mem_jobs if str(getattr(job, "job_id", ""))
+        }
 
         def _sync_part() -> dict[str, object]:
             lock_held = False
@@ -380,12 +416,22 @@ class AsyncAppCore:
 
         backend = dict(self.backend_debug_state())
         try:
-            backend["db_probe"] = await to_thread(self._backend_db_probe_sync)
+            backend["db_probe"] = await to_thread(
+                self._backend_db_probe_sync,
+                memory_job_ids,
+            )
         except Exception as exc:
             backend["db_probe"] = {
                 "status": "error",
                 "db_path": str(self.web_jobs_db_cfg.db_path),
                 "error": f"{type(exc).__name__}:{exc}",
+                "live_summary": {
+                    "memory_live_job_ids": sorted(memory_job_ids),
+                    "persisted_live_count": 0,
+                    "persisted_live_job_ids": [],
+                    "stale_live_count": 0,
+                    "stale_live_job_ids": [],
+                },
             }
 
         return {

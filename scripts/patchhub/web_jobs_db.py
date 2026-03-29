@@ -164,6 +164,19 @@ class WebJobsDatabase:
             ).fetchall()
         return [self._store._row_to_job_json(row) for row in rows]
 
+    def list_live_job_jsons(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        sql = (
+            "SELECT * FROM web_jobs WHERE status IN ('queued', 'running') "
+            "ORDER BY created_unix_ms DESC, job_id DESC"
+        )
+        params: tuple[int, ...] = ()
+        if limit is not None:
+            sql += " LIMIT ?"
+            params = (max(1, int(limit)),)
+        with self._store._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._store._row_to_job_json(row) for row in rows]
+
     def list_rollback_candidate_job_jsons(
         self,
         *,
