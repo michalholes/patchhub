@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from governance.rc_resolver import build_pack as build_resolver_pack
+
 SCRIPT = Path(__file__).resolve().parents[1] / "governance/pm_validator.py"
 COMMIT = "Align PM validator monolith checks"
 DEFAULT_TARGET = "audiomason2"
@@ -78,6 +80,18 @@ def _write_zip(path: Path, members: dict[str, bytes]) -> None:
             zf.writestr(name, data)
 
 
+def _governance_bytes() -> bytes:
+    return (Path(__file__).resolve().parents[1] / "governance/governance.jsonl").read_bytes()
+
+
+def _authority_bytes(source_path: str) -> bytes:
+    if source_path == "governance/governance.jsonl":
+        return _governance_bytes()
+    if source_path == "governance/specification.jsonl":
+        return _spec_bytes()
+    raise AssertionError(source_path)
+
+
 def _spec_bytes() -> bytes:
     objects = [
         {"type": "meta", "id": "meta-1"},
@@ -113,6 +127,7 @@ def _pack_bytes(
     *,
     mode: str = "final",
     scope: str = "implementation_scope",
+    source_path: str = "governance/specification.jsonl",
 ) -> bytes:
     active_binding = {
         "type": "obligation_binding",
@@ -144,7 +159,7 @@ def _pack_bytes(
         "active_rule_ids": ["pack-rule-1"],
         "full_rule_text": {"pack-rule-1": "constraint pack enforcement"},
         "match_basis": {"pack-rule-1": {"phase": "final", "target": "implementation_scope"}},
-        "authoritative_sources": ["governance/specification.jsonl"],
+        "authoritative_sources": [source_path],
         "shared_contracts": [],
         "downstream_consumers": [],
         "exception_state_refs": [],
@@ -168,9 +183,23 @@ def _instructions_zip(
     *,
     mode: str = "final",
     scope: str = "implementation_scope",
+    source_path: str = "governance/specification.jsonl",
 ) -> Path:
-    spec_raw = _spec_bytes()
-    pack_raw = _pack_bytes(spec_raw, mode=mode, scope=scope)
+    spec_raw = _authority_bytes(source_path)
+    if source_path == "governance/governance.jsonl":
+        pack_raw = build_resolver_pack(
+            spec_raw,
+            mode,
+            scope,
+            spec_path=source_path,
+        )
+    else:
+        pack_raw = _pack_bytes(
+            spec_raw,
+            mode=mode,
+            scope=scope,
+            source_path=source_path,
+        )
     _write_zip(
         path,
         {
@@ -182,9 +211,13 @@ def _instructions_zip(
     return path
 
 
-def _with_spec(members: dict[str, bytes]) -> dict[str, bytes]:
+def _with_spec(
+    members: dict[str, bytes],
+    *,
+    source_path: str = "governance/specification.jsonl",
+) -> dict[str, bytes]:
     out = dict(members)
-    out.setdefault("governance/specification.jsonl", _spec_bytes())
+    out.setdefault(source_path, _authority_bytes(source_path))
     return out
 
 
@@ -848,3 +881,39 @@ def test_initial_mode_rejects_unexpected_root_entry(tmp_path: Path) -> None:
     assert proc.returncode == 1
     assert f"RULE TARGET_FILE: PASS - {DEFAULT_TARGET}" in proc.stdout
     assert "RULE PER_FILE_LAYOUT: FAIL - extra_entries=['notes.txt']" in proc.stdout
+
+
+def test_initial_mode_passes_with_governance_authority_source(tmp_path: Path) -> None:
+    relpath = "governance/rc_resolver.py"
+    before = "VALUE = 1\n"
+    after = "VALUE = 2\n"
+    snapshot = tmp_path / f"{DEFAULT_TARGET}-main_777.zip"
+    patch_zip = tmp_path / "issue_602_v1.zip"
+    instructions_zip = _instructions_zip(
+        tmp_path / "instructions_gov.zip",
+        source_path="governance/governance.jsonl",
+    )
+    _snapshot_zip(
+        snapshot,
+        _with_spec(
+            {relpath: before.encode("utf-8")},
+            source_path="governance/governance.jsonl",
+        ),
+    )
+    _patch_zip(
+        patch_zip,
+        {_safe_member(relpath): _git_patch(relpath, before, after)},
+        issue="602",
+    )
+
+    proc = _run(
+        instructions_zip,
+        "602",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "RULE PACK_RECOMPUTE: PASS - recompute_match" in proc.stdout
+    assert "RULE PACK_SCOPE_MAPPING: PASS - implementation_paths_ok" in proc.stdout

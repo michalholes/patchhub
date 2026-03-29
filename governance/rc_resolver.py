@@ -7,7 +7,18 @@ from pathlib import Path
 from typing import NoReturn
 from zipfile import ZipFile
 
-SPEC_PATH = "governance/specification.jsonl"
+GOVERNANCE_SPEC_PATH = "governance/governance.jsonl"
+REPO_SPEC_PATH = "governance/specification.jsonl"
+
+
+def _default_spec_path(repo_path: str) -> str:
+    if repo_path == REPO_SPEC_PATH:
+        return REPO_SPEC_PATH
+    if repo_path.startswith("governance/"):
+        return GOVERNANCE_SPEC_PATH
+    return REPO_SPEC_PATH
+
+
 UNBOUND = "RULE RESOLVER: FAIL - unbound_target"
 CONFLICT = "RULE RESOLVER: FAIL - conflicting_obligations"
 REQUIRED_FIELDS = (
@@ -199,7 +210,12 @@ def binding_map(bindings: list[dict], key: str, value: str) -> dict[str, str]:
     return {binding[key]: binding[value] for binding in bindings}
 
 
-def build_pack(spec_raw: bytes, mode: str, scope: str) -> bytes:
+def build_pack(
+    spec_raw: bytes,
+    mode: str,
+    scope: str,
+    spec_path: str = REPO_SPEC_PATH,
+) -> bytes:
     objects = []
     for line in spec_raw.decode("utf-8").splitlines():
         line = line.strip()
@@ -220,7 +236,7 @@ def build_pack(spec_raw: bytes, mode: str, scope: str) -> bytes:
         "active_rule_ids": [binding["id"] for binding in active],
         "full_rule_text": binding_map(active, "id", "authoritative_semantics"),
         "match_basis": {binding["id"]: binding.get("match", {}) for binding in active},
-        "authoritative_sources": [SPEC_PATH],
+        "authoritative_sources": [spec_path],
         "shared_contracts": union_values(active, "shared_contract_refs"),
         "downstream_consumers": union_values(active, "downstream_consumers"),
         "exception_state_refs": union_values(active, "exception_state_refs"),
@@ -264,8 +280,13 @@ def main(argv: list[str]) -> None:
     resolve_symbol(entries, repo_path, symbol)
     scope = target_scope(repo_path)
     mode = target_mode(scope)
+    expected_spec = _default_spec_path(repo_path)
+    if args.spec != expected_spec:
+        print("RESULT: FAIL")
+        print(f"RULE RESOLVER: FAIL - spec_mismatch expected={expected_spec}:actual={args.spec}")
+        raise SystemExit(1)
     spec_raw = Path(args.spec).read_bytes()
-    pack_bytes = build_pack(spec_raw, mode, scope)
+    pack_bytes = build_pack(spec_raw, mode, scope, spec_path=args.spec)
     Path(args.handoff_output).write_text(
         handoff_text(args.target, scope, mode),
         encoding="utf-8",

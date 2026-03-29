@@ -11,6 +11,45 @@ VE = _m.ValidationError
 _rz, _dar, _iz = _m._read_zip, _m._decode_ascii_raw, _m._iter_zip_files
 AOP, IR, SBT = _m.AUTHORITY_ONLY_PATHS, _m.INSTRUCTIONS_REQUIRED, _m.SUPPORTED_BINDING_TYPES
 
+REPO_SPEC_PATH = "governance/specification.jsonl"
+GOVERNANCE_SPEC_PATH = "governance/governance.jsonl"
+SUPPORTED_AUTHORITY_SOURCES = {REPO_SPEC_PATH, GOVERNANCE_SPEC_PATH}
+
+
+def _supported_authority_sources(pack):
+    sources = pack.get("authoritative_sources", [])
+    if not isinstance(sources, list) or not sources:
+        raise VE("pack_authoritative_sources_missing")
+    out = []
+    for item in sources:
+        path = str(item or "").strip()
+        if not path:
+            raise VE("pack_authoritative_sources_empty")
+        if path not in SUPPORTED_AUTHORITY_SOURCES:
+            raise VE(f"pack_authoritative_source_unsupported:{path}")
+        out.append(path)
+    if len(out) != 1:
+        raise VE(f"pack_authoritative_source_count:{len(out)}")
+    return out
+
+
+def _authority_source_bytes(args, relpath):
+    if not args.repair_overlay:
+        snapshot = _iz(Path(args.workspace_snapshot))
+        if relpath in snapshot:
+            return snapshot[relpath], None
+        return None, f"missing_source_in_workspace_snapshot:{relpath}"
+    overlay = _iz(Path(args.repair_overlay))
+    if relpath in overlay:
+        return overlay[relpath], None
+    if args.workspace_snapshot and relpath in set(args.supplemental_file):
+        snapshot = _iz(Path(args.workspace_snapshot))
+        if relpath in snapshot:
+            return snapshot[relpath], None
+        return None, f"supplemental_source_missing_in_snapshot:{relpath}"
+    return None, f"missing_source_for_recompute:{relpath}"
+
+
 BINDING_REQUIRED_FIELDS = (
     "id",
     "binding_type",
@@ -206,7 +245,7 @@ def _ensure_binding_consistency(active_bindings, oracles):
             raise VE(f"binding_conflicting_obligations:{role}")
 
 
-def _build_pack_from_spec_bytes(spec_raw, mode, target_scope):
+def _build_pack_from_spec_bytes(spec_raw, mode, target_scope, source_path):
     objs = _load_jsonl_bytes(spec_raw)
     if not objs or objs[0].get("type") != "meta":
         raise VE("spec_meta_missing")
@@ -223,7 +262,7 @@ def _build_pack_from_spec_bytes(spec_raw, mode, target_scope):
         "active_rule_ids": [binding["id"] for binding in active],
         "full_rule_text": _bm(active, "id", "authoritative_semantics"),
         "match_basis": {binding["id"]: binding.get("match", {}) for binding in active},
-        "authoritative_sources": ["governance/specification.jsonl"],
+        "authoritative_sources": [source_path],
         "shared_contracts": _su(active, "shared_contract_refs"),
         "downstream_consumers": _su(active, "downstream_consumers"),
         "exception_state_refs": _su(active, "exception_state_refs"),
@@ -243,20 +282,14 @@ def _build_pack_from_spec_bytes(spec_raw, mode, target_scope):
     return raw, hashlib.sha256(raw).hexdigest(), active
 
 
-def _authority_spec_bytes(args):
-    spec = "governance/specification.jsonl"
-    if not args.repair_overlay:
-        snap = _iz(Path(args.workspace_snapshot))
-        return snap.get(spec), None if spec in snap else "missing_spec_in_workspace_snapshot"
-    overlay = _iz(Path(args.repair_overlay))
-    if spec in overlay:
-        return overlay[spec], None
-    if args.workspace_snapshot and spec in set(args.supplemental_file):
-        snap = _iz(Path(args.workspace_snapshot))
-        if spec in snap:
-            return snap[spec], None
-        return None, "supplemental_spec_missing_in_snapshot"
-    return None, "missing_spec_for_recompute"
+def _authority_spec_bytes(args, pack):
+    try:
+        sources = _supported_authority_sources(pack)
+    except VE as exc:
+        return None, str(exc), None
+    source_path = sources[0]
+    spec_raw, err = _authority_source_bytes(args, source_path)
+    return spec_raw, err, source_path
 
 
 def _pack_union_rule(rule_id, pack, key, active_bindings, field):
@@ -299,8 +332,8 @@ def _forbidden_bypass_rule(patch_member_names, pack, active_bindings):
 
 
 def _recompute_pack_rule(args, pack, pack_raw):
-    spec_raw, err = _authority_spec_bytes(args)
-    if err is not None or spec_raw is None:
+    spec_raw, err, source_path = _authority_spec_bytes(args, pack)
+    if err is not None or spec_raw is None or source_path is None:
         return _rr(
             "PACK_RECOMPUTE", "UNVERIFIED_ENVIRONMENT", err or "missing_authority_spec"
         ), None
@@ -308,7 +341,12 @@ def _recompute_pack_rule(args, pack, pack_raw):
     if not mode or not scope:
         return _rr("PACK_RECOMPUTE", "FAIL", "missing_mode_or_target_scope"), None
     try:
-        rebuilt, _rebuilt_hash, active = _build_pack_from_spec_bytes(spec_raw, mode, scope)
+        rebuilt, _rebuilt_hash, active = _build_pack_from_spec_bytes(
+            spec_raw,
+            mode,
+            scope,
+            source_path,
+        )
     except VE as exc:
         return _rr("PACK_RECOMPUTE", "FAIL", str(exc)), None
     if pack_raw is None:

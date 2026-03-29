@@ -42,6 +42,18 @@ def _spec_bytes() -> bytes:
     return _repo_bytes("governance/specification.jsonl")
 
 
+def _governance_bytes() -> bytes:
+    return _repo_bytes("governance/governance.jsonl")
+
+
+def _authority_bytes(source_path: str) -> bytes:
+    if source_path == "governance/governance.jsonl":
+        return _governance_bytes()
+    if source_path == "governance/specification.jsonl":
+        return _spec_bytes()
+    raise AssertionError(source_path)
+
+
 def _git_patch(relpath: str, old_text: str | None, new_text: str | None) -> bytes:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -87,9 +99,13 @@ def _write_zip(path: Path, members: dict[str, bytes]) -> None:
             zf.writestr(name, data)
 
 
-def _with_spec(members: dict[str, bytes]) -> dict[str, bytes]:
+def _with_spec(
+    members: dict[str, bytes],
+    *,
+    source_path: str = "governance/specification.jsonl",
+) -> dict[str, bytes]:
     out = dict(members)
-    out.setdefault("governance/specification.jsonl", _spec_bytes())
+    out.setdefault(source_path, _authority_bytes(source_path))
     return out
 
 
@@ -121,9 +137,19 @@ def _overlay_zip(path: Path, members: dict[str, bytes], *, target: str) -> None:
     _write_zip(path, payload)
 
 
-def _instructions_zip(path: Path, *, issue: str) -> Path:
-    spec_raw = _spec_bytes()
-    pack_raw = build_pack(spec_raw, "final", "implementation_scope")
+def _instructions_zip(
+    path: Path,
+    *,
+    issue: str,
+    source_path: str = "governance/specification.jsonl",
+) -> Path:
+    spec_raw = _authority_bytes(source_path)
+    pack_raw = build_pack(
+        spec_raw,
+        "final",
+        "implementation_scope",
+        spec_path=source_path,
+    )
     handoff = handoff_text(
         "scripts/patchhub/pm_validation_runtime.py::build_patch_zip_pm_validation",
         "implementation_scope",
@@ -140,10 +166,16 @@ def _instructions_zip(path: Path, *, issue: str) -> Path:
     return path
 
 
-def _write_instructions_artifact(patches_root: Path, issue: str) -> Path:
+def _write_instructions_artifact(
+    patches_root: Path,
+    issue: str,
+    *,
+    source_path: str = "governance/specification.jsonl",
+) -> Path:
     return _instructions_zip(
         patches_root / f"instructions_issue{issue}.zip",
         issue=issue,
+        source_path=source_path,
     )
 
 
@@ -151,7 +183,9 @@ def _install_validator_runtime(tmp_path: Path) -> None:
     for relpath in (
         "governance/pm_validator.py",
         "governance/pm_validator_pack_contract.py",
+        "governance/rc_resolver.py",
         "governance/specification.jsonl",
+        "governance/governance.jsonl",
     ):
         dst = tmp_path / relpath
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -460,3 +494,39 @@ def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay
         str(instructions_path),
     ]
     assert str(foreign_path) not in payload["authority_sources"]
+
+
+def test_build_pm_validation_accepts_governance_authority_source(tmp_path: Path) -> None:
+    s = _mk_self(tmp_path)
+    relpath = "governance/rc_resolver.py"
+    before = "VALUE = 1\n"
+    after = "VALUE = 2\n"
+    baseline_path = s.patches_root / "patchhub-main_20260317.zip"
+    instructions_path = _write_instructions_artifact(
+        s.patches_root,
+        "602",
+        source_path="governance/governance.jsonl",
+    )
+    _snapshot_zip(
+        baseline_path,
+        _with_spec(
+            {relpath: before.encode("utf-8")},
+            source_path="governance/governance.jsonl",
+        ),
+    )
+    _patch_zip(
+        s.patches_root / "issue_602_v1.zip",
+        issue="602",
+        commit="Use PM validator at zip load",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    payload = build_patch_zip_pm_validation(s, "issue_602_v1.zip")
+    assert payload["status"] == "pass"
+    assert payload["effective_mode"] == "initial"
+    assert payload["authority_sources"] == [
+        str(baseline_path),
+        str(instructions_path),
+    ]
+    assert "RESULT: PASS" in payload["raw_output"]
