@@ -127,7 +127,7 @@ def _pack_bytes(
     *,
     mode: str = "final",
     scope: str = "implementation_scope",
-    source_path: str = "governance/specification.jsonl",
+    source_path: str = "governance/governance.jsonl",
 ) -> bytes:
     active_binding = {
         "type": "obligation_binding",
@@ -183,7 +183,7 @@ def _instructions_zip(
     *,
     mode: str = "final",
     scope: str = "implementation_scope",
-    source_path: str = "governance/specification.jsonl",
+    source_path: str = "governance/governance.jsonl",
 ) -> Path:
     spec_raw = _authority_bytes(source_path)
     if source_path == "governance/governance.jsonl":
@@ -214,7 +214,7 @@ def _instructions_zip(
 def _with_spec(
     members: dict[str, bytes],
     *,
-    source_path: str = "governance/specification.jsonl",
+    source_path: str = "governance/governance.jsonl",
 ) -> dict[str, bytes]:
     out = dict(members)
     out.setdefault(source_path, _authority_bytes(source_path))

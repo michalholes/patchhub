@@ -245,6 +245,65 @@ def _ensure_binding_consistency(active_bindings, oracles):
             raise VE(f"binding_conflicting_obligations:{role}")
 
 
+def _resolve_workflow_contract(objects, target_scope, mode):
+    steps = [obj for obj in objects if obj.get("type") == "workflow_step"]
+    transitions = [obj for obj in objects if obj.get("type") == "workflow_transition"]
+    gates = [obj for obj in objects if obj.get("type") == "workflow_gate"]
+    rollbacks = [obj for obj in objects if obj.get("type") == "workflow_rollback"]
+    candidates = [
+        step
+        for step in steps
+        if ("" if step.get("entry_scope") is None else str(step.get("entry_scope", "")).strip())
+        == target_scope
+        and ("" if step.get("entry_mode") is None else str(step.get("entry_mode", "")).strip())
+        == mode
+    ]
+    if not candidates:
+        raise VE(f"workflow_entry_missing:{target_scope}:{mode}")
+    if len(candidates) > 1:
+        raise VE(f"workflow_entry_ambiguous:{target_scope}:{mode}")
+    step = candidates[0]
+    step_id = str(step.get("id", "")).strip()
+    next_steps = [
+        str(item.get("to_step", "")).strip()
+        for item in transitions
+        if str(item.get("from_step", "")).strip() == step_id
+    ]
+    required_gates = [
+        str(item.get("id", "")).strip()
+        for item in gates
+        if str(item.get("step_ref", "")).strip() == step_id
+        and str(item.get("gate_kind", "")).strip() == "entry"
+    ]
+    rollback_contract = [
+        {
+            "id": str(item.get("id", "")).strip(),
+            "rollback_to_step": str(item.get("rollback_to_step", "")).strip(),
+        }
+        for item in rollbacks
+        if str(item.get("from_step", "")).strip() == step_id
+    ]
+    title = str(step.get("display_name", step_id)).strip() or step_id
+    surface_ref = str(step.get("surface_ref", "")).strip()
+    route_ref = str(step.get("route_ref", "")).strip()
+    required_capabilities = [str(item) for item in step.get("required_capabilities", [])]
+    summary = (
+        f"entry_step={title}; surface={surface_ref}; route={route_ref}; "
+        f"required_gates={required_gates}; next_steps={next_steps}"
+    )
+    return {
+        "workflow_entry_step_id": step_id,
+        "workflow_entry_title": title,
+        "workflow_entry_surface": surface_ref,
+        "workflow_entry_route": route_ref,
+        "workflow_entry_required_capabilities": required_capabilities,
+        "allowed_next_steps": next_steps,
+        "required_gates": required_gates,
+        "rollback_contract": rollback_contract,
+        "workflow_human_summary": summary,
+    }
+
+
 def _build_pack_from_spec_bytes(spec_raw, mode, target_scope, source_path):
     objs = _load_jsonl_bytes(spec_raw)
     if not objs or objs[0].get("type") != "meta":
@@ -252,6 +311,7 @@ def _build_pack_from_spec_bytes(spec_raw, mode, target_scope, source_path):
     meta, bindings, oracles = _collect_binding_meta_and_bindings(objs)
     active = [b for b in bindings if _binding_is_active(b, mode, target_scope)]
     _ensure_binding_consistency(active, oracles)
+    workflow_contract = _resolve_workflow_contract(objs, target_scope, mode)
     pack = {
         "target_symbol": None,
         "target_scope": target_scope,
@@ -277,6 +337,7 @@ def _build_pack_from_spec_bytes(spec_raw, mode, target_scope, source_path):
             "mode": mode,
             "target_scope": target_scope,
         },
+        **workflow_contract,
     }
     raw = (json.dumps(pack, indent=2, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
     return raw, hashlib.sha256(raw).hexdigest(), active
@@ -298,33 +359,24 @@ def _pack_union_rule(rule_id, pack, key, active_bindings, field):
 
 
 def _scope_mapping_rule(decision_paths, pack):
-    scope = str(pack.get("target_scope", "")).strip()
+    scope = str(pack.get("target_scope", ""))
     if not decision_paths:
         return _rr("PACK_SCOPE_MAPPING", "FAIL", "no_patch_paths")
     if scope == "authority_scope":
-        try:
-            source_path = _supported_authority_sources(pack)[0]
-        except VE as exc:
-            return _rr("PACK_SCOPE_MAPPING", "FAIL", str(exc))
-        if source_path == GOVERNANCE_SPEC_PATH:
-            bad = [p for p in decision_paths if not p.startswith("governance/")]
-            detail = "governance_authority_paths_ok"
-            return _rr(
-                "PACK_SCOPE_MAPPING",
-                "PASS" if not bad else "FAIL",
-                detail if not bad else f"out_of_scope={bad}:source={source_path}",
+        bad = [
+            path
+            for path in decision_paths
+            if not (
+                path.startswith("docs/")
+                or path.startswith("scripts/")
+                or path.startswith("governance/")
             )
-        if source_path == REPO_SPEC_PATH:
-            bad = [
-                p for p in decision_paths if not (p.startswith("docs/") or p.startswith("scripts/"))
-            ]
-            detail = "repo_authority_paths_ok"
-            return _rr(
-                "PACK_SCOPE_MAPPING",
-                "PASS" if not bad else "FAIL",
-                detail if not bad else f"out_of_scope={bad}:source={source_path}",
-            )
-        return _rr("PACK_SCOPE_MAPPING", "FAIL", f"unsupported_authority_source:{source_path}")
+        ]
+        return _rr(
+            "PACK_SCOPE_MAPPING",
+            "PASS" if not bad else "FAIL",
+            "governance_authority_paths_ok" if not bad else f"out_of_scope={bad}",
+        )
     if scope == "implementation_scope":
         bad = [p for p in decision_paths if p in AOP]
         return _rr(

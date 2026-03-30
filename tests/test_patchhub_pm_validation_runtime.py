@@ -102,7 +102,7 @@ def _write_zip(path: Path, members: dict[str, bytes]) -> None:
 def _with_spec(
     members: dict[str, bytes],
     *,
-    source_path: str = "governance/specification.jsonl",
+    source_path: str = "governance/governance.jsonl",
 ) -> dict[str, bytes]:
     out = dict(members)
     out.setdefault(source_path, _authority_bytes(source_path))
@@ -141,7 +141,7 @@ def _instructions_zip(
     path: Path,
     *,
     issue: str,
-    source_path: str = "governance/specification.jsonl",
+    source_path: str = "governance/governance.jsonl",
 ) -> Path:
     spec_raw = _authority_bytes(source_path)
     pack_raw = build_pack(
@@ -154,6 +154,16 @@ def _instructions_zip(
         "scripts/patchhub/pm_validation_runtime.py::build_patch_zip_pm_validation",
         "implementation_scope",
         "final",
+        {
+            "workflow_entry_step_id": "WORKFLOW.STEP.TEST.ENTRY",
+            "workflow_entry_title": "Test entry",
+            "workflow_entry_surface": "SURFACE.TEST.ENTRY",
+            "workflow_entry_route": "ROUTE.TEST.ENTRY",
+            "allowed_next_steps": ["WORKFLOW.STEP.TEST.NEXT"],
+            "required_gates": ["WORKFLOW.GATE.TEST.ENTRY"],
+            "rollback_contract": ["WORKFLOW.STEP.TEST.ENTRY"],
+            "workflow_human_summary": "Synthetic test workflow contract.",
+        },
     )
     _write_zip(
         path,
@@ -170,7 +180,7 @@ def _write_instructions_artifact(
     patches_root: Path,
     issue: str,
     *,
-    source_path: str = "governance/specification.jsonl",
+    source_path: str = "governance/governance.jsonl",
 ) -> Path:
     return _instructions_zip(
         patches_root / f"instructions_issue{issue}.zip",

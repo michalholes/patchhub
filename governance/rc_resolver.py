@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
@@ -69,16 +71,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def read_snapshot(path: Path) -> dict[str, bytes]:
     with ZipFile(path, "r") as zf:
         return {name: zf.read(name) for name in zf.namelist() if not name.endswith("/")}
-
-
-def read_jsonl(path: Path) -> list[dict]:
-    objects: list[dict] = []
-    with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if line:
-                objects.append(json.loads(line))
-    return objects
 
 
 def split_target(raw: str) -> tuple[str, str | None]:
@@ -210,6 +202,65 @@ def binding_map(bindings: list[dict], key: str, value: str) -> dict[str, str]:
     return {binding[key]: binding[value] for binding in bindings}
 
 
+def _resolve_workflow_contract(objects: list[dict], scope: str, mode: str) -> dict:
+    steps = [obj for obj in objects if obj.get("type") == "workflow_step"]
+    transitions = [obj for obj in objects if obj.get("type") == "workflow_transition"]
+    gates = [obj for obj in objects if obj.get("type") == "workflow_gate"]
+    rollbacks = [obj for obj in objects if obj.get("type") == "workflow_rollback"]
+    candidates = [
+        step
+        for step in steps
+        if ("" if step.get("entry_scope") is None else str(step.get("entry_scope", "")).strip())
+        == scope
+        and ("" if step.get("entry_mode") is None else str(step.get("entry_mode", "")).strip())
+        == mode
+    ]
+    if not candidates:
+        fail_unbound()
+    if len(candidates) > 1:
+        fail_conflict()
+    step = candidates[0]
+    step_id = str(step.get("id", "")).strip()
+    next_steps = [
+        str(item.get("to_step", "")).strip()
+        for item in transitions
+        if str(item.get("from_step", "")).strip() == step_id
+    ]
+    required_gates = [
+        str(item.get("id", "")).strip()
+        for item in gates
+        if str(item.get("step_ref", "")).strip() == step_id
+        and str(item.get("gate_kind", "")).strip() == "entry"
+    ]
+    rollback_contract = [
+        {
+            "id": str(item.get("id", "")).strip(),
+            "rollback_to_step": str(item.get("rollback_to_step", "")).strip(),
+        }
+        for item in rollbacks
+        if str(item.get("from_step", "")).strip() == step_id
+    ]
+    title = str(step.get("display_name", step_id)).strip() or step_id
+    surface_ref = str(step.get("surface_ref", "")).strip()
+    route_ref = str(step.get("route_ref", "")).strip()
+    required_capabilities = [str(item) for item in step.get("required_capabilities", [])]
+    summary = (
+        f"entry_step={title}; surface={surface_ref}; route={route_ref}; "
+        f"required_gates={required_gates}; next_steps={next_steps}"
+    )
+    return {
+        "workflow_entry_step_id": step_id,
+        "workflow_entry_title": title,
+        "workflow_entry_surface": surface_ref,
+        "workflow_entry_route": route_ref,
+        "workflow_entry_required_capabilities": required_capabilities,
+        "allowed_next_steps": next_steps,
+        "required_gates": required_gates,
+        "rollback_contract": rollback_contract,
+        "workflow_human_summary": summary,
+    }
+
+
 def build_pack(
     spec_raw: bytes,
     mode: str,
@@ -226,6 +277,7 @@ def build_pack(
     binding_meta, bindings, oracles = collect_objects(objects)
     active = active_bindings(bindings, mode, scope)
     ensure_consistency(active, oracles)
+    workflow_contract = _resolve_workflow_contract(objects, scope, mode)
     pack = {
         "target_symbol": None,
         "target_scope": scope,
@@ -255,12 +307,13 @@ def build_pack(
             "mode": mode,
             "target_scope": scope,
         },
+        **workflow_contract,
     }
     payload = json.dumps(pack, indent=2, sort_keys=True, ensure_ascii=True)
     return (payload + "\n").encode("utf-8")
 
 
-def handoff_text(target: str, scope: str, mode: str) -> str:
+def handoff_text(target: str, scope: str, mode: str, workflow_contract: dict) -> str:
     lines = [
         "SPEC CONTEXT",
         "RC version used: resolver-generated",
@@ -269,6 +322,14 @@ def handoff_text(target: str, scope: str, mode: str) -> str:
         f"TARGET: {target}",
         f"TARGET_SCOPE: {scope}",
         f"MODE: {mode}",
+        f"WORKFLOW_ENTRY_STEP_ID: {workflow_contract['workflow_entry_step_id']}",
+        f"WORKFLOW_ENTRY_TITLE: {workflow_contract['workflow_entry_title']}",
+        f"WORKFLOW_ENTRY_SURFACE: {workflow_contract['workflow_entry_surface']}",
+        f"WORKFLOW_ENTRY_ROUTE: {workflow_contract['workflow_entry_route']}",
+        f"ALLOWED_NEXT_STEPS: {workflow_contract['allowed_next_steps']}",
+        f"REQUIRED_GATES: {workflow_contract['required_gates']}",
+        f"ROLLBACK_CONTRACT: {workflow_contract['rollback_contract']}",
+        f"WORKFLOW_HUMAN_SUMMARY: {workflow_contract['workflow_human_summary']}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -287,8 +348,19 @@ def main(argv: list[str]) -> None:
         raise SystemExit(1)
     spec_raw = Path(args.spec).read_bytes()
     pack_bytes = build_pack(spec_raw, mode, scope, spec_path=args.spec)
+    pack = json.loads(pack_bytes.decode("utf-8"))
+    workflow_contract = {
+        "workflow_entry_step_id": pack["workflow_entry_step_id"],
+        "workflow_entry_title": pack["workflow_entry_title"],
+        "workflow_entry_surface": pack["workflow_entry_surface"],
+        "workflow_entry_route": pack["workflow_entry_route"],
+        "allowed_next_steps": pack["allowed_next_steps"],
+        "required_gates": pack["required_gates"],
+        "rollback_contract": pack["rollback_contract"],
+        "workflow_human_summary": pack["workflow_human_summary"],
+    }
     Path(args.handoff_output).write_text(
-        handoff_text(args.target, scope, mode),
+        handoff_text(args.target, scope, mode, workflow_contract),
         encoding="utf-8",
     )
     Path(args.pack_output).write_bytes(pack_bytes)

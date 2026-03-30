@@ -23,11 +23,13 @@ SUPPORTED_TYPES = {
     "section",
     "note",
     "source_meta",
+    "workflow_step",
+    "workflow_transition",
+    "workflow_gate",
+    "workflow_invalidation",
+    "workflow_rollback",
 }
-SUPPORTED_BINDING_TYPES = {
-    "resolver_contract",
-    "constraint_pack",
-}
+SUPPORTED_BINDING_TYPES = {"resolver_contract", "constraint_pack"}
 BINDING_REQUIRED_FIELDS = (
     "id",
     "binding_type",
@@ -146,6 +148,149 @@ def validate_implementations(impls: dict[str, dict], routes: dict[str, dict]) ->
             fail(f"implementation {implementation_id} missing capabilities {missing}")
 
 
+def validate_workflow(
+    rules: dict[str, dict],
+    caps: dict[str, dict],
+    routes: dict[str, dict],
+    surfaces: dict[str, dict],
+    steps: dict[str, dict],
+    transitions: dict[str, dict],
+    gates: dict[str, dict],
+    invalidations: dict[str, dict],
+    rollbacks: dict[str, dict],
+) -> None:
+    if not steps:
+        return
+    if not transitions:
+        fail("workflow model missing transitions")
+
+    step_surface_refs: set[str] = set()
+    step_route_refs: set[str] = set()
+    entrypoint_keys: set[tuple[str, str]] = set()
+    inbound: defaultdict[str, int] = defaultdict(int)
+    outbound: defaultdict[str, int] = defaultdict(int)
+    transitions_seen: set[tuple[str, str]] = set()
+    gates_by_step: defaultdict[str, list[dict]] = defaultdict(list)
+    invalidations_by_step: defaultdict[str, list[dict]] = defaultdict(list)
+    rollbacks_by_step: defaultdict[str, list[dict]] = defaultdict(list)
+
+    for step_id, step in steps.items():
+        surface_ref = str(step.get("surface_ref", "")).strip()
+        route_ref = str(step.get("route_ref", "")).strip()
+        if not surface_ref:
+            fail(f"workflow_step {step_id} missing surface_ref")
+        if not route_ref:
+            fail(f"workflow_step {step_id} missing route_ref")
+        if surface_ref not in surfaces:
+            fail(f"workflow_step {step_id} references missing surface {surface_ref}")
+        if route_ref not in routes:
+            fail(f"workflow_step {step_id} references missing route {route_ref}")
+        if surfaces[surface_ref].get("route_ref") != route_ref:
+            fail(f"workflow_step {step_id} surface/route mismatch {surface_ref}->{route_ref}")
+        required_caps = step.get("required_capabilities", [])
+        if not required_caps:
+            fail(f"workflow_step {step_id} missing required_capabilities")
+        for capability_id in required_caps:
+            if capability_id not in caps:
+                fail(f"workflow_step {step_id} references missing capability {capability_id}")
+        for substep_id in step.get("required_substeps", []):
+            if substep_id not in steps:
+                fail(f"workflow_step {step_id} references missing substep {substep_id}")
+        entry_scope = step.get("entry_scope")
+        entry_mode = step.get("entry_mode")
+        entry_scope_text = "" if entry_scope is None else str(entry_scope).strip()
+        entry_mode_text = "" if entry_mode is None else str(entry_mode).strip()
+        if bool(entry_scope_text) ^ bool(entry_mode_text):
+            fail(f"workflow_step {step_id} entry_scope/entry_mode mismatch")
+        if entry_scope_text and entry_mode_text:
+            key = (entry_scope_text, entry_mode_text)
+            if key in entrypoint_keys:
+                fail(f"duplicate workflow entrypoint {key}")
+            entrypoint_keys.add(key)
+        step_surface_refs.add(surface_ref)
+        step_route_refs.add(route_ref)
+
+    for transition_id, transition in transitions.items():
+        from_step = str(transition.get("from_step", "")).strip()
+        to_step = str(transition.get("to_step", "")).strip()
+        if from_step not in steps:
+            fail(f"workflow_transition {transition_id} references missing from_step {from_step}")
+        if to_step not in steps:
+            fail(f"workflow_transition {transition_id} references missing to_step {to_step}")
+        key = (from_step, to_step)
+        if key in transitions_seen:
+            fail(f"duplicate workflow transition {from_step}->{to_step}")
+        transitions_seen.add(key)
+        outbound[from_step] += 1
+        inbound[to_step] += 1
+
+    for gate_id, gate in gates.items():
+        step_ref = str(gate.get("step_ref", "")).strip()
+        if step_ref not in steps:
+            fail(f"workflow_gate {gate_id} references missing step {step_ref}")
+        caps_list = gate.get("gate_capabilities", [])
+        rules_list = gate.get("gate_rule_ids", [])
+        if not caps_list and not rules_list:
+            fail(f"workflow_gate {gate_id} missing gate_capabilities/gate_rule_ids")
+        for capability_id in caps_list:
+            if capability_id not in caps:
+                fail(f"workflow_gate {gate_id} references missing capability {capability_id}")
+        for rule_id in rules_list:
+            if rule_id not in rules:
+                fail(f"workflow_gate {gate_id} references missing rule {rule_id}")
+        gates_by_step[step_ref].append(gate)
+
+    for invalidation_id, invalidation in invalidations.items():
+        failing_step = str(invalidation.get("failing_step", "")).strip()
+        invalidates_step = str(invalidation.get("invalidates_step", "")).strip()
+        if failing_step not in steps:
+            fail(
+                f"workflow_invalidation {invalidation_id} references missing "
+                f"failing_step {failing_step}"
+            )
+        if invalidates_step not in steps:
+            fail(
+                f"workflow_invalidation {invalidation_id} references missing "
+                f"invalidates_step {invalidates_step}"
+            )
+        invalidations_by_step[failing_step].append(invalidation)
+
+    for rollback_id, rollback in rollbacks.items():
+        from_step = str(rollback.get("from_step", "")).strip()
+        rollback_to = str(rollback.get("rollback_to_step", "")).strip()
+        if from_step not in steps:
+            fail(f"workflow_rollback {rollback_id} references missing from_step {from_step}")
+        if rollback_to not in steps:
+            fail(
+                f"workflow_rollback {rollback_id} references missing rollback_to_step {rollback_to}"
+            )
+        rollbacks_by_step[from_step].append(rollback)
+
+    if set(surfaces) != step_surface_refs:
+        missing = sorted(set(surfaces) - step_surface_refs)
+        fail(f"workflow missing surface coverage {missing}")
+    if set(routes) != step_route_refs:
+        missing = sorted(set(routes) - step_route_refs)
+        fail(f"workflow missing route coverage {missing}")
+
+    for step_id, step in steps.items():
+        root = bool(step.get("root_marker"))
+        terminal = bool(step.get("terminal_marker"))
+        has_entry_gate = any(
+            str(item.get("gate_kind", "")) == "entry" for item in gates_by_step[step_id]
+        )
+        if not has_entry_gate and not root:
+            fail(f"workflow_step {step_id} missing entry gate/root marker")
+        if inbound[step_id] == 0 and not root:
+            fail(f"dead workflow step without inbound transition {step_id}")
+        if outbound[step_id] == 0 and not terminal:
+            fail(f"dead workflow step without outbound transition {step_id}")
+        if not invalidations_by_step[step_id]:
+            fail(f"workflow_step {step_id} missing invalidation handling")
+        if step.get("rollback_required") and not rollbacks_by_step[step_id]:
+            fail(f"workflow_step {step_id} missing rollback target")
+
+
 def main(path: str) -> None:
     objs = load(Path(path))
     if not objs or objs[0].get("type") != "meta":
@@ -164,6 +309,11 @@ def main(path: str) -> None:
     sections: dict[str, dict] = {}
     notes: dict[str, dict] = {}
     source_meta: dict[str, dict] = {}
+    workflow_steps: dict[str, dict] = {}
+    workflow_transitions: dict[str, dict] = {}
+    workflow_gates: dict[str, dict] = {}
+    workflow_invalidations: dict[str, dict] = {}
+    workflow_rollbacks: dict[str, dict] = {}
     binding_meta = None
 
     for obj in objs:
@@ -188,6 +338,16 @@ def main(path: str) -> None:
             surfaces[obj["id"]] = obj
         elif obj_type == "implementation":
             impls[obj["id"]] = obj
+        elif obj_type == "workflow_step":
+            workflow_steps[obj["id"]] = obj
+        elif obj_type == "workflow_transition":
+            workflow_transitions[obj["id"]] = obj
+        elif obj_type == "workflow_gate":
+            workflow_gates[obj["id"]] = obj
+        elif obj_type == "workflow_invalidation":
+            workflow_invalidations[obj["id"]] = obj
+        elif obj_type == "workflow_rollback":
+            workflow_rollbacks[obj["id"]] = obj
         elif obj_type == "binding_meta":
             if binding_meta is not None:
                 fail(": exactly one binding_meta object is required")
@@ -244,6 +404,11 @@ def main(path: str) -> None:
         "sections": len(sections),
         "notes": len(notes),
         "source_meta": len(source_meta),
+        "workflow_steps": len(workflow_steps),
+        "workflow_transitions": len(workflow_transitions),
+        "workflow_gates": len(workflow_gates),
+        "workflow_invalidations": len(workflow_invalidations),
+        "workflow_rollbacks": len(workflow_rollbacks),
     }
     for name, expected in count_expectations.items():
         require_count(name, expected, counts.get(name))
@@ -259,6 +424,18 @@ def main(path: str) -> None:
         validate_surfaces(routes, surfaces)
     if impls:
         validate_implementations(impls, routes)
+    if workflow_steps:
+        validate_workflow(
+            rules,
+            caps,
+            routes,
+            surfaces,
+            workflow_steps,
+            workflow_transitions,
+            workflow_gates,
+            workflow_invalidations,
+            workflow_rollbacks,
+        )
 
     print("V2.0.0 STRICT VALIDATION OK")
     print(
