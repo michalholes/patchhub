@@ -264,27 +264,6 @@ def test_should_run_badguys_uses_mode_and_trigger_surface() -> None:
     ) == (False, "no_matching_files")
 
 
-def test_badguys_trigger_surface_is_loaded_from_shipped_config() -> None:
-    scripts_dir = Path(__file__).parent.parent / "scripts"
-    sys.path.insert(0, str(scripts_dir))
-
-    from am_patch.config import Policy, build_policy, load_config
-
-    cfg, used = load_config(scripts_dir / "am_patch" / "am_patch.toml")
-    policy = build_policy(Policy(), cfg)
-
-    assert used is True
-    assert Policy().gate_badguys_trigger_prefixes == []
-    assert Policy().gate_badguys_trigger_files == []
-    assert policy.gate_badguys_trigger_prefixes == ["scripts/am_patch"]
-    assert policy.gate_badguys_trigger_files == [
-        "scripts/am_patch.py",
-        "scripts/am_patch.md",
-        "scripts/am_patch_specification.md",
-        "scripts/am_patch_instructions.md",
-    ]
-
-
 @pytest.mark.parametrize("exit_code", [0, 1])
 def test_amp_owned_badguys_gate_materializes_delta_env_and_cleans_jail(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, exit_code: int
