@@ -11,25 +11,12 @@ from zipfile import ZipFile
 
 GOVERNANCE_SPEC_PATH = "governance/governance.jsonl"
 REPO_SPEC_PATH = "governance/specification.jsonl"
-AUTHORITY_ONLY_PATHS = {
-    "governance/AUDIOMASON2_PROJECT_CONTRACT.md",
-    "governance/instructions_project_chats.txt",
-    "governance/instructions_implementation_chats.txt",
-    "governance/am_patch_instructions.md",
-    "governance/pm_spec.md",
-    GOVERNANCE_SPEC_PATH,
-    REPO_SPEC_PATH,
-}
-
-
-def _is_authority_target(repo_path: str) -> bool:
-    return repo_path in AUTHORITY_ONLY_PATHS
 
 
 def _default_spec_path(repo_path: str) -> str:
     if repo_path == REPO_SPEC_PATH:
         return REPO_SPEC_PATH
-    if _is_authority_target(repo_path):
+    if repo_path.startswith("governance/"):
         return GOVERNANCE_SPEC_PATH
     return REPO_SPEC_PATH
 
@@ -120,7 +107,7 @@ def resolve_symbol(entries: dict[str, bytes], repo_path: str, symbol: str | None
 
 
 def target_scope(repo_path: str) -> str:
-    if _is_authority_target(repo_path):
+    if repo_path.startswith("governance/"):
         return "authority_scope"
     return "implementation_scope"
 
@@ -129,33 +116,6 @@ def target_mode(scope: str) -> str:
     if scope == "authority_scope":
         return "discovery"
     return "final"
-
-
-def _load_jsonl_bytes(raw: bytes) -> list[dict]:
-    objects: list[dict] = []
-    for line in raw.decode("utf-8").splitlines():
-        line = line.strip()
-        if line:
-            objects.append(json.loads(line))
-    return objects
-
-
-def _workflow_objects_present(objects: list[dict]) -> bool:
-    return any(obj.get("type") == "workflow_step" for obj in objects)
-
-
-def _select_workflow_objects(
-    objects: list[dict],
-    workflow_spec_raw: bytes | None,
-) -> list[dict]:
-    if _workflow_objects_present(objects):
-        return objects
-    if workflow_spec_raw is None:
-        fail_unbound()
-    workflow_objects = _load_jsonl_bytes(workflow_spec_raw)
-    if not _workflow_objects_present(workflow_objects):
-        fail_unbound()
-    return workflow_objects
 
 
 def collect_objects(objects: list[dict]) -> tuple[dict, list[dict], dict[str, dict]]:
@@ -306,16 +266,18 @@ def build_pack(
     mode: str,
     scope: str,
     spec_path: str = REPO_SPEC_PATH,
-    workflow_spec_raw: bytes | None = None,
 ) -> bytes:
-    objects = _load_jsonl_bytes(spec_raw)
+    objects = []
+    for line in spec_raw.decode("utf-8").splitlines():
+        line = line.strip()
+        if line:
+            objects.append(json.loads(line))
     if not objects or objects[0].get("type") != "meta":
         fail_unbound()
     binding_meta, bindings, oracles = collect_objects(objects)
     active = active_bindings(bindings, mode, scope)
     ensure_consistency(active, oracles)
-    workflow_objects = _select_workflow_objects(objects, workflow_spec_raw)
-    workflow_contract = _resolve_workflow_contract(workflow_objects, scope, mode)
+    workflow_contract = _resolve_workflow_contract(objects, scope, mode)
     pack = {
         "target_symbol": None,
         "target_scope": scope,
@@ -385,14 +347,7 @@ def main(argv: list[str]) -> None:
         print(f"RULE RESOLVER: FAIL - spec_mismatch expected={expected_spec}:actual={args.spec}")
         raise SystemExit(1)
     spec_raw = Path(args.spec).read_bytes()
-    workflow_spec_raw = None if args.spec == REPO_SPEC_PATH else Path(REPO_SPEC_PATH).read_bytes()
-    pack_bytes = build_pack(
-        spec_raw,
-        mode,
-        scope,
-        spec_path=args.spec,
-        workflow_spec_raw=workflow_spec_raw,
-    )
+    pack_bytes = build_pack(spec_raw, mode, scope, spec_path=args.spec)
     pack = json.loads(pack_bytes.decode("utf-8"))
     workflow_contract = {
         "workflow_entry_step_id": pack["workflow_entry_step_id"],
