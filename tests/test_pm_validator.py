@@ -93,33 +93,7 @@ def _authority_bytes(source_path: str) -> bytes:
 
 
 def _spec_bytes() -> bytes:
-    objects = [
-        {"type": "meta", "id": "meta-1"},
-        {"type": "binding_meta", "id": "binding-meta-1"},
-        {"type": "oracle", "id": "oracle-1"},
-        {
-            "type": "obligation_binding",
-            "id": "pack-rule-1",
-            "binding_type": "constraint_pack",
-            "match": {"phase": "final", "target": "implementation_scope"},
-            "symbol_role": "constraint_pack",
-            "authoritative_semantics": "constraint pack enforcement",
-            "peer_renderers": [],
-            "shared_contract_refs": [],
-            "downstream_consumers": [],
-            "exception_state_refs": [],
-            "required_wiring": [],
-            "forbidden": [],
-            "required_validation": [],
-            "verification_mode": "machine",
-            "verification_method": "validator",
-            "semantic_group": "constraint_pack",
-            "conflict_policy": "fail_closed",
-            "oracle_ref": "oracle-1",
-        },
-    ]
-    payload = "\n".join(json.dumps(obj, sort_keys=True, ensure_ascii=True) for obj in objects)
-    return (payload + "\n").encode("utf-8")
+    return (Path(__file__).resolve().parents[1] / "governance/specification.jsonl").read_bytes()
 
 
 def _pack_bytes(
@@ -127,7 +101,7 @@ def _pack_bytes(
     *,
     mode: str = "final",
     scope: str = "implementation_scope",
-    source_path: str = "governance/governance.jsonl",
+    source_path: str = "governance/specification.jsonl",
 ) -> bytes:
     active_binding = {
         "type": "obligation_binding",
@@ -183,23 +157,15 @@ def _instructions_zip(
     *,
     mode: str = "final",
     scope: str = "implementation_scope",
-    source_path: str = "governance/governance.jsonl",
+    source_path: str = "governance/specification.jsonl",
 ) -> Path:
     spec_raw = _authority_bytes(source_path)
-    if source_path == "governance/governance.jsonl":
-        pack_raw = build_resolver_pack(
-            spec_raw,
-            mode,
-            scope,
-            spec_path=source_path,
-        )
-    else:
-        pack_raw = _pack_bytes(
-            spec_raw,
-            mode=mode,
-            scope=scope,
-            source_path=source_path,
-        )
+    pack_raw = build_resolver_pack(
+        spec_raw,
+        mode,
+        scope,
+        spec_path=source_path,
+    )
     _write_zip(
         path,
         {
@@ -214,7 +180,7 @@ def _instructions_zip(
 def _with_spec(
     members: dict[str, bytes],
     *,
-    source_path: str = "governance/governance.jsonl",
+    source_path: str = "governance/specification.jsonl",
 ) -> dict[str, bytes]:
     out = dict(members)
     out.setdefault(source_path, _authority_bytes(source_path))
@@ -883,7 +849,7 @@ def test_initial_mode_rejects_unexpected_root_entry(tmp_path: Path) -> None:
     assert "RULE PER_FILE_LAYOUT: FAIL - extra_entries=['notes.txt']" in proc.stdout
 
 
-def test_initial_mode_passes_with_governance_authority_source(tmp_path: Path) -> None:
+def test_initial_mode_uses_spec_source_for_rc_resolver(tmp_path: Path) -> None:
     relpath = "governance/rc_resolver.py"
     before = "VALUE = 1\n"
     after = "VALUE = 2\n"
@@ -891,13 +857,13 @@ def test_initial_mode_passes_with_governance_authority_source(tmp_path: Path) ->
     patch_zip = tmp_path / "issue_602_v1.zip"
     instructions_zip = _instructions_zip(
         tmp_path / "instructions_gov.zip",
-        source_path="governance/governance.jsonl",
+        source_path="governance/specification.jsonl",
     )
     _snapshot_zip(
         snapshot,
         _with_spec(
             {relpath: before.encode("utf-8")},
-            source_path="governance/governance.jsonl",
+            source_path="governance/specification.jsonl",
         ),
     )
     _patch_zip(

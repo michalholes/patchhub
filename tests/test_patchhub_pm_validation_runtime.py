@@ -102,7 +102,7 @@ def _write_zip(path: Path, members: dict[str, bytes]) -> None:
 def _with_spec(
     members: dict[str, bytes],
     *,
-    source_path: str = "governance/governance.jsonl",
+    source_path: str = "governance/specification.jsonl",
 ) -> dict[str, bytes]:
     out = dict(members)
     out.setdefault(source_path, _authority_bytes(source_path))
@@ -141,7 +141,7 @@ def _instructions_zip(
     path: Path,
     *,
     issue: str,
-    source_path: str = "governance/governance.jsonl",
+    source_path: str = "governance/specification.jsonl",
 ) -> Path:
     spec_raw = _authority_bytes(source_path)
     pack_raw = build_pack(
@@ -180,7 +180,7 @@ def _write_instructions_artifact(
     patches_root: Path,
     issue: str,
     *,
-    source_path: str = "governance/governance.jsonl",
+    source_path: str = "governance/specification.jsonl",
 ) -> Path:
     return _instructions_zip(
         patches_root / f"instructions_issue{issue}.zip",
@@ -506,7 +506,7 @@ def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay
     assert str(foreign_path) not in payload["authority_sources"]
 
 
-def test_build_pm_validation_accepts_governance_authority_source(tmp_path: Path) -> None:
+def test_pm_validation_uses_spec_source_for_rc_resolver(tmp_path: Path) -> None:
     s = _mk_self(tmp_path)
     relpath = "governance/rc_resolver.py"
     before = "VALUE = 1\n"
@@ -515,13 +515,13 @@ def test_build_pm_validation_accepts_governance_authority_source(tmp_path: Path)
     instructions_path = _write_instructions_artifact(
         s.patches_root,
         "602",
-        source_path="governance/governance.jsonl",
+        source_path="governance/specification.jsonl",
     )
     _snapshot_zip(
         baseline_path,
         _with_spec(
             {relpath: before.encode("utf-8")},
-            source_path="governance/governance.jsonl",
+            source_path="governance/specification.jsonl",
         ),
     )
     _patch_zip(

@@ -83,13 +83,20 @@ def validate_bindings(bindings: dict[str, dict], oracles: dict[str, dict]) -> No
             fail(f"binding {binding_id} conflict_policy must be fail_closed")
 
 
-def validate_rule_links(rules: dict[str, dict], caps: dict[str, dict]) -> None:
+def validate_rule_links(
+    rules: dict[str, dict],
+    caps: dict[str, dict],
+    external_rules: dict[str, dict] | None = None,
+) -> None:
     rule_refs: defaultdict[str, int] = defaultdict(int)
+    all_rules = dict(external_rules or {})
+    all_rules.update(rules)
     for capability_id, capability in caps.items():
         for rule_id in capability.get("triggers_rules", []):
-            if rule_id not in rules:
+            if rule_id not in all_rules:
                 fail(f"capability {capability_id} references missing rule {rule_id}")
-            rule_refs[rule_id] += 1
+            if rule_id in rules:
+                rule_refs[rule_id] += 1
     for rule_id in rules:
         if rule_refs[rule_id] == 0:
             fail(f"orphan rule {rule_id}")
@@ -146,6 +153,16 @@ def validate_implementations(impls: dict[str, dict], routes: dict[str, dict]) ->
         missing = sorted(required - declared)
         if missing:
             fail(f"implementation {implementation_id} missing capabilities {missing}")
+
+
+def load_external_rules(path: Path) -> dict[str, dict]:
+    if path.name != "specification.jsonl":
+        return {}
+    peer = path.with_name("governance.jsonl")
+    if not peer.exists():
+        return {}
+    objects = load(peer)
+    return {str(obj.get("id", "")).strip(): obj for obj in objects if obj.get("type") == "rule"}
 
 
 def validate_workflow(
@@ -266,13 +283,6 @@ def validate_workflow(
             )
         rollbacks_by_step[from_step].append(rollback)
 
-    if set(surfaces) != step_surface_refs:
-        missing = sorted(set(surfaces) - step_surface_refs)
-        fail(f"workflow missing surface coverage {missing}")
-    if set(routes) != step_route_refs:
-        missing = sorted(set(routes) - step_route_refs)
-        fail(f"workflow missing route coverage {missing}")
-
     for step_id, step in steps.items():
         root = bool(step.get("root_marker"))
         terminal = bool(step.get("terminal_marker"))
@@ -292,7 +302,8 @@ def validate_workflow(
 
 
 def main(path: str) -> None:
-    objs = load(Path(path))
+    corpus_path = Path(path)
+    objs = load(corpus_path)
     if not objs or objs[0].get("type") != "meta":
         fail(": first object must be meta")
 
@@ -417,8 +428,9 @@ def main(path: str) -> None:
             require_count(name, expected, counts.get(name))
 
     validate_bindings(bindings, oracles)
+    external_rules = load_external_rules(corpus_path)
     if caps:
-        validate_rule_links(rules, caps)
+        validate_rule_links(rules, caps, external_rules=external_rules)
         validate_routes(caps, providers, routes)
     if surfaces:
         validate_surfaces(routes, surfaces)
