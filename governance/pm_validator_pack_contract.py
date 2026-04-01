@@ -16,6 +16,18 @@ GOVERNANCE_SPEC_PATH = "governance/governance.jsonl"
 SUPPORTED_AUTHORITY_SOURCES = {REPO_SPEC_PATH, GOVERNANCE_SPEC_PATH}
 
 
+def _supplemental_governance_workflow_bytes(args):
+    if args.repair_overlay:
+        overlay = _iz(Path(args.repair_overlay))
+        if GOVERNANCE_SPEC_PATH in overlay:
+            return overlay[GOVERNANCE_SPEC_PATH]
+    if args.workspace_snapshot:
+        snapshot = _iz(Path(args.workspace_snapshot))
+        if GOVERNANCE_SPEC_PATH in snapshot:
+            return snapshot[GOVERNANCE_SPEC_PATH]
+    raise VE("missing_governance_workflow_source")
+
+
 def _supported_authority_sources(pack):
     sources = pack.get("authoritative_sources", [])
     if not isinstance(sources, list) or not sources:
@@ -304,14 +316,27 @@ def _resolve_workflow_contract(objects, target_scope, mode):
     }
 
 
-def _build_pack_from_spec_bytes(spec_raw, mode, target_scope, source_path):
+def _build_pack_from_spec_bytes(
+    spec_raw,
+    mode,
+    target_scope,
+    source_path,
+    governance_workflow_raw=None,
+):
     objs = _load_jsonl_bytes(spec_raw)
     if not objs or objs[0].get("type") != "meta":
         raise VE("spec_meta_missing")
     meta, bindings, oracles = _collect_binding_meta_and_bindings(objs)
     active = [b for b in bindings if _binding_is_active(b, mode, target_scope)]
     _ensure_binding_consistency(active, oracles)
-    workflow_contract = _resolve_workflow_contract(objs, target_scope, mode)
+    workflow_objects = objs
+    if target_scope == "implementation_scope" and not any(
+        obj.get("type") == "workflow_step" for obj in objs
+    ):
+        if governance_workflow_raw is None:
+            raise VE("missing_governance_workflow_source")
+        workflow_objects = _load_jsonl_bytes(governance_workflow_raw)
+    workflow_contract = _resolve_workflow_contract(workflow_objects, target_scope, mode)
     pack = {
         "target_symbol": None,
         "target_scope": target_scope,
@@ -363,19 +388,11 @@ def _scope_mapping_rule(decision_paths, pack):
     if not decision_paths:
         return _rr("PACK_SCOPE_MAPPING", "FAIL", "no_patch_paths")
     if scope == "authority_scope":
-        bad = [
-            path
-            for path in decision_paths
-            if not (
-                path.startswith("docs/")
-                or path.startswith("scripts/")
-                or path.startswith("governance/")
-            )
-        ]
+        bad = [path for path in decision_paths if path not in AOP]
         return _rr(
             "PACK_SCOPE_MAPPING",
             "PASS" if not bad else "FAIL",
-            "governance_authority_paths_ok" if not bad else f"out_of_scope={bad}",
+            "authority_paths_ok" if not bad else f"out_of_scope={bad}",
         )
     if scope == "implementation_scope":
         bad = [p for p in decision_paths if p in AOP]
@@ -410,11 +427,15 @@ def _recompute_pack_rule(args, pack, pack_raw):
     if not mode or not scope:
         return _rr("PACK_RECOMPUTE", "FAIL", "missing_mode_or_target_scope"), None
     try:
+        governance_workflow_raw = None
+        if scope == "implementation_scope" and source_path != GOVERNANCE_SPEC_PATH:
+            governance_workflow_raw = _supplemental_governance_workflow_bytes(args)
         rebuilt, _rebuilt_hash, active = _build_pack_from_spec_bytes(
             spec_raw,
             mode,
             scope,
             source_path,
+            governance_workflow_raw=governance_workflow_raw,
         )
     except VE as exc:
         return _rr("PACK_RECOMPUTE", "FAIL", str(exc)), None

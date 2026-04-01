@@ -771,11 +771,6 @@ BINDING_REQUIRED_FIELDS = (
     "conflict_policy",
 )
 AUTHORITY_ONLY_PATHS = {
-    "governance/AUDIOMASON2_PROJECT_CONTRACT.md",
-    "governance/instructions_project_chats.txt",
-    "governance/instructions_implementation_chats.txt",
-    "governance/am_patch_instructions.md",
-    "governance/pm_spec.md",
     "governance/governance.jsonl",
     "governance/specification.jsonl",
 }

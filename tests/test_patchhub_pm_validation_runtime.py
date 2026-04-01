@@ -105,6 +105,8 @@ def _with_spec(
     source_path: str = "governance/governance.jsonl",
 ) -> dict[str, bytes]:
     out = dict(members)
+    out.setdefault("governance/governance.jsonl", _governance_bytes())
+    out.setdefault("governance/specification.jsonl", _spec_bytes())
     out.setdefault(source_path, _authority_bytes(source_path))
     return out
 
@@ -144,11 +146,15 @@ def _instructions_zip(
     source_path: str = "governance/governance.jsonl",
 ) -> Path:
     spec_raw = _authority_bytes(source_path)
+    governance_workflow_raw = None
+    if source_path != "governance/governance.jsonl":
+        governance_workflow_raw = _governance_bytes()
     pack_raw = build_pack(
         spec_raw,
         "final",
         "implementation_scope",
         spec_path=source_path,
+        governance_workflow_raw=governance_workflow_raw,
     )
     handoff = handoff_text(
         "scripts/patchhub/pm_validation_runtime.py::build_patch_zip_pm_validation",
@@ -506,7 +512,7 @@ def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay
     assert str(foreign_path) not in payload["authority_sources"]
 
 
-def test_build_pm_validation_accepts_governance_authority_source(tmp_path: Path) -> None:
+def test_build_pm_validation_accepts_specification_authority_source(tmp_path: Path) -> None:
     s = _mk_self(tmp_path)
     relpath = "governance/rc_resolver.py"
     before = "VALUE = 1\n"
@@ -515,13 +521,13 @@ def test_build_pm_validation_accepts_governance_authority_source(tmp_path: Path)
     instructions_path = _write_instructions_artifact(
         s.patches_root,
         "602",
-        source_path="governance/governance.jsonl",
+        source_path="governance/specification.jsonl",
     )
     _snapshot_zip(
         baseline_path,
         _with_spec(
             {relpath: before.encode("utf-8")},
-            source_path="governance/governance.jsonl",
+            source_path="governance/specification.jsonl",
         ),
     )
     _patch_zip(

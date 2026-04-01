@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from governance.pm_validator import AUTHORITY_ONLY_PATHS
 from governance.rc_resolver import build_pack as build_resolver_pack
 
 SCRIPT = Path(__file__).resolve().parents[1] / "governance/pm_validator.py"
@@ -186,20 +187,16 @@ def _instructions_zip(
     source_path: str = "governance/governance.jsonl",
 ) -> Path:
     spec_raw = _authority_bytes(source_path)
-    if source_path == "governance/governance.jsonl":
-        pack_raw = build_resolver_pack(
-            spec_raw,
-            mode,
-            scope,
-            spec_path=source_path,
-        )
-    else:
-        pack_raw = _pack_bytes(
-            spec_raw,
-            mode=mode,
-            scope=scope,
-            source_path=source_path,
-        )
+    governance_workflow_raw = None
+    if scope == "implementation_scope" and source_path != "governance/governance.jsonl":
+        governance_workflow_raw = _governance_bytes()
+    pack_raw = build_resolver_pack(
+        spec_raw,
+        mode,
+        scope,
+        spec_path=source_path,
+        governance_workflow_raw=governance_workflow_raw,
+    )
     _write_zip(
         path,
         {
@@ -217,6 +214,8 @@ def _with_spec(
     source_path: str = "governance/governance.jsonl",
 ) -> dict[str, bytes]:
     out = dict(members)
+    out.setdefault("governance/governance.jsonl", _governance_bytes())
+    out.setdefault("governance/specification.jsonl", _spec_bytes())
     out.setdefault(source_path, _authority_bytes(source_path))
     return out
 
@@ -883,7 +882,14 @@ def test_initial_mode_rejects_unexpected_root_entry(tmp_path: Path) -> None:
     assert "RULE PER_FILE_LAYOUT: FAIL - extra_entries=['notes.txt']" in proc.stdout
 
 
-def test_initial_mode_passes_with_governance_authority_source(tmp_path: Path) -> None:
+def test_authority_only_paths_are_corpus_only() -> None:
+    assert {
+        "governance/governance.jsonl",
+        "governance/specification.jsonl",
+    } == AUTHORITY_ONLY_PATHS
+
+
+def test_initial_mode_passes_with_specification_authority_source(tmp_path: Path) -> None:
     relpath = "governance/rc_resolver.py"
     before = "VALUE = 1\n"
     after = "VALUE = 2\n"
@@ -891,13 +897,13 @@ def test_initial_mode_passes_with_governance_authority_source(tmp_path: Path) ->
     patch_zip = tmp_path / "issue_602_v1.zip"
     instructions_zip = _instructions_zip(
         tmp_path / "instructions_gov.zip",
-        source_path="governance/governance.jsonl",
+        source_path="governance/specification.jsonl",
     )
     _snapshot_zip(
         snapshot,
         _with_spec(
             {relpath: before.encode("utf-8")},
-            source_path="governance/governance.jsonl",
+            source_path="governance/specification.jsonl",
         ),
     )
     _patch_zip(
