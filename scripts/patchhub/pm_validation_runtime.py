@@ -164,6 +164,8 @@ def _parse_status(returncode: int, raw_output: str) -> str:
     if (
         "RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found" in raw_output
         or "RULE INSTRUCTIONS_LAYOUT: FAIL - missing_instructions_zip" in raw_output
+        or "RULE INSTRUCTIONS_HANDOFF: FAIL - missing_instructions_zip" in raw_output
+        or "RULE PACK_JSON: FAIL - missing_instructions_zip" in raw_output
     ):
         return _STATUS_MISSING_CONTEXT
     return _STATUS_FAIL
