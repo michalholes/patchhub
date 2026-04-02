@@ -246,6 +246,11 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         html = core.render_debug().encode("utf-8")
         return HTMLResponse(content=html, status_code=200)
 
+    @app.get("/editor")
+    async def editor() -> HTMLResponse:
+        html = core.render_editor().encode("utf-8")
+        return HTMLResponse(content=html, status_code=200)
+
     @app.get("/static/{rel_path:path}")
     async def static(rel_path: str) -> FileResponse:
         def _resolve_static_sync(rel_path: str) -> Path | None:
@@ -261,6 +266,38 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         if p is None:
             raise HTTPException(status_code=404, detail="Not found")
         return FileResponse(p, media_type=_guess_content_type(p))
+
+    @app.get("/api/editor/bootstrap")
+    async def api_editor_bootstrap(request: Request) -> Response:
+        qs = dict(request.query_params)
+        status, data = await to_thread(core.api_editor_bootstrap, qs)
+        return _json_bytes_response(status, data)
+
+    @app.get("/api/editor/document")
+    async def api_editor_document(request: Request) -> Response:
+        qs = dict(request.query_params)
+        status, data = await to_thread(core.api_editor_document, qs)
+        return _json_bytes_response(status, data)
+
+    @app.post("/api/editor/validate")
+    async def api_editor_validate(body: dict[str, Any]) -> Response:
+        status, data = await to_thread(core.api_editor_validate, body)
+        return _json_bytes_response(status, data)
+
+    @app.post("/api/editor/save")
+    async def api_editor_save(body: dict[str, Any]) -> Response:
+        status, data = await to_thread(core.api_editor_save, body)
+        return _json_bytes_response(status, data)
+
+    @app.post("/api/editor/save_unsafe")
+    async def api_editor_save_unsafe(body: dict[str, Any]) -> Response:
+        status, data = await to_thread(core.api_editor_save_unsafe, body)
+        return _json_bytes_response(status, data)
+
+    @app.post("/api/editor/apply_fix")
+    async def api_editor_apply_fix(body: dict[str, Any]) -> Response:
+        status, data = await to_thread(core.api_editor_apply_fix, body)
+        return _json_bytes_response(status, data)
 
     @app.get("/api/config")
     async def api_config() -> Response:

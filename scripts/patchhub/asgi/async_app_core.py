@@ -9,6 +9,7 @@ from typing import Any
 
 from patchhub import app_api_amp as _amp
 from patchhub import app_api_core as _core
+from patchhub import app_api_editor as _editor
 from patchhub import app_api_fs as _fs
 from patchhub import app_api_jobs as _jobs
 from patchhub import app_api_upload as _upload
@@ -281,6 +282,13 @@ class AsyncAppCore:
     api_amp_config_get = _amp.api_amp_config_get
     api_amp_config_post = _amp.api_amp_config_post
 
+    api_editor_bootstrap = _editor.api_editor_bootstrap
+    api_editor_document = _editor.api_editor_document
+    api_editor_validate = _editor.api_editor_validate
+    api_editor_save = _editor.api_editor_save
+    api_editor_save_unsafe = _editor.api_editor_save_unsafe
+    api_editor_apply_fix = _editor.api_editor_apply_fix
+
     def _backend_db_probe_sync(self, memory_job_ids: set[str]) -> dict[str, object]:
         mode = str(self.backend_mode_state.mode or "")
         db_path = str(self.web_jobs_db_cfg.db_path)
@@ -471,3 +479,4 @@ class AsyncAppCore:
     render_template = _ui.render_template
     render_index = _ui.render_index
     render_debug = _ui.render_debug
+    render_editor = _ui.render_editor

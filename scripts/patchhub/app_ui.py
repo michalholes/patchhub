@@ -20,3 +20,13 @@ def render_index(self) -> str:
 
 def render_debug(self) -> str:
     return self.render_template("debug.html")
+
+
+def render_editor(self) -> str:
+    tpl = self.render_template("editor.html")
+    version = ""
+    try:
+        version = str(self.cfg.meta.version)
+    except Exception:
+        version = ""
+    return tpl.replace("{{PATCHHUB_STATIC_VERSION}}", version)
