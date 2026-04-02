@@ -290,6 +290,11 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         return _json_bytes_response(status, data)
 
     @app.post("/api/editor/save_unsafe")
+    async def api_editor_save_unsafe_compat(body: dict[str, Any]) -> Response:
+        status, data = await to_thread(core.api_editor_save_unsafe, body)
+        return _json_bytes_response(status, data)
+
+    @app.post("/api/editor/save-unsafe")
     async def api_editor_save_unsafe(body: dict[str, Any]) -> Response:
         status, data = await to_thread(core.api_editor_save_unsafe, body)
         return _json_bytes_response(status, data)

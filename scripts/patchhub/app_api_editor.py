@@ -22,15 +22,13 @@ from .editor_codec import (
     jsonl_text_from_objects,
     parse_human_text,
     parse_jsonl_text,
+    recompute_meta_counts,
+    scaffold_object,
     validate_human_text,
 )
-from .editor_fixups import (
-    CLIENT_ONLY_ACTIONS,
-    EditorFixupError,
-    apply_fix_action,
-    build_failure,
-    empty_failure,
-)
+from .editor_fixup_apply import apply_fix_action
+from .editor_fixup_shared import CLIENT_ONLY_ACTIONS, EditorFixupError
+from .editor_fixups import build_failure, empty_failure
 from .targeting import resolve_targeting_runtime, validate_selected_target_repo
 
 DOC_OPTIONS = OrderedDict(
@@ -141,6 +139,11 @@ def _doc_path(self: Any, target_repo: str, document: str) -> Path:
     return path
 
 
+def _require_existing_doc(path: Path) -> None:
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(f"Target file does not exist: {path}")
+
+
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as fh:
@@ -170,6 +173,15 @@ def _persist(
     )
 
 
+def _scaffold_text_map() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for object_type in OBJECT_TYPE_ORDER:
+        obj = deepcopy(scaffold_object(object_type))
+        recompute_meta_counts([obj])
+        out[object_type] = human_text_from_objects([obj])
+    return out
+
+
 def api_editor_bootstrap(self: Any, qs: dict[str, str] | None = None) -> tuple[int, bytes]:
     try:
         runtime = _runtime(self)
@@ -185,6 +197,7 @@ def api_editor_bootstrap(self: Any, qs: dict[str, str] | None = None) -> tuple[i
             "ops_levels": OPS_LEVELS,
             "unsafe_warning": UNSAFE_WARNING,
             "add_type_options": OBJECT_TYPE_ORDER,
+            "scaffolds": _scaffold_text_map(),
         }
     )
 
@@ -215,7 +228,9 @@ def api_editor_document(self: Any, qs: dict[str, str] | None = None) -> tuple[in
                 "revision_token": token,
                 "human_text": human,
                 "format_name": FORMAT_NAME,
-                "status": "",
+                "status": "Loaded",
+                "last_action_state": "Loaded",
+                "dirty_state": "clean",
                 "add_type_options": OBJECT_TYPE_ORDER,
                 "loaded_ids": [str(obj.get("id", "")) for obj in state.loaded_objects],
                 "ops": ops,
@@ -242,16 +257,34 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
         if not ok:
             failed = failure or empty_failure("validate_failure", "Validation failed")
             ops.append(_op("Error", "VALIDATE_FAIL", failed["failure_code"]))
-            return _ok({"validated": False, "failure": failed, "ops": ops})
+            return _ok(
+                {
+                    "validated": False,
+                    "failure": failed,
+                    "last_action_state": "Validation failed",
+                    "dirty_state": "dirty",
+                    "ops": ops,
+                }
+            )
         token, _ = _persist(target_repo, document, state, human_text, objects)
         ops.append(_op("Info", "VALIDATE_OK", "Validation passed"))
-        return _ok({"validated": True, "revision_token": token, "ops": ops})
+        return _ok(
+            {
+                "validated": True,
+                "revision_token": token,
+                "last_action_state": "Validation passed",
+                "dirty_state": "dirty",
+                "ops": ops,
+            }
+        )
     except Exception as exc:
         ops.append(_op("Error", "VALIDATE_FAIL", str(exc)))
         return _ok(
             {
                 "validated": False,
                 "failure": empty_failure("validate_exception", str(exc)),
+                "last_action_state": "Validation failed",
+                "dirty_state": "dirty",
                 "ops": ops,
             }
         )
@@ -275,6 +308,7 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
             ops.append(_op("Error", "SAVE_FAIL", failed["failure_code"]))
             return _ok({"saved": False, "failure": failed, "ops": ops})
         path = _doc_path(self, target_repo, document)
+        _require_existing_doc(path)
         _write_text(path, jsonl_text_from_objects(objects))
         normalized = human_text_from_objects(objects)
         token, _ = _store_state(
@@ -290,6 +324,8 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                 "saved": True,
                 "revision_token": token,
                 "human_text": normalized,
+                "last_action_state": "Saved",
+                "dirty_state": "clean",
                 "ops": ops,
             }
         )
@@ -299,6 +335,8 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
             {
                 "saved": False,
                 "failure": empty_failure("save_exception", str(exc)),
+                "last_action_state": "Save failed",
+                "dirty_state": "dirty",
                 "ops": ops,
             }
         )
@@ -308,10 +346,14 @@ def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]
     target_repo = str(body.get("target_repo", "")).strip()
     document = str(body.get("document", "")).strip()
     human_text = str(body.get("human_text", ""))
+    confirmed = bool(body.get("confirm_unsafe_write") is True)
     ops = [_op("Warning", "UNSAFE_SAVE_START", f"Unsafe save for {document}")]
     try:
+        if not confirmed:
+            raise ValueError("Unsafe save requires explicit confirmation")
         parsed = parse_human_text(human_text)
         path = _doc_path(self, target_repo, document)
+        _require_existing_doc(path)
         _write_text(path, jsonl_text_from_objects(parsed.objects))
         normalized = human_text_from_objects(parsed.objects)
         token, _ = _store_state(
@@ -322,13 +364,24 @@ def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]
             current_text=normalized,
         )
         ops.append(_op("Warning", "UNSAFE_SAVE_OK", f"Saved {path.name} without validation"))
-        return _ok({"saved": True, "revision_token": token, "human_text": normalized, "ops": ops})
+        return _ok(
+            {
+                "saved": True,
+                "revision_token": token,
+                "human_text": normalized,
+                "last_action_state": "Unsafe save complete",
+                "dirty_state": "clean",
+                "ops": ops,
+            }
+        )
     except Exception as exc:
         ops.append(_op("Error", "UNSAFE_SAVE_FAIL", str(exc)))
         return _ok(
             {
                 "saved": False,
                 "failure": empty_failure("unsafe_save_exception", str(exc)),
+                "last_action_state": "Unsafe save failed",
+                "dirty_state": "dirty",
                 "ops": ops,
             }
         )
