@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -923,3 +924,171 @@ def test_initial_mode_passes_with_specification_authority_source(tmp_path: Path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "RULE PACK_RECOMPUTE: PASS - recompute_match" in proc.stdout
     assert "RULE PACK_SCOPE_MAPPING: PASS - implementation_paths_ok" in proc.stdout
+
+
+def _run_env(
+    instructions_zip: Path, env: dict[str, str], *args: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args, str(instructions_zip)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+
+def _fake_tool(directory: Path, name: str, exit_code: int) -> Path:
+    path = directory / name
+    path.write_text(f"#!/bin/sh\nexit {exit_code}\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _git_only_env(directory: Path) -> dict[str, str]:
+    env = dict(os.environ)
+    git_path = subprocess.run(
+        ["which", "git"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    link = directory / "git"
+    if not link.exists():
+        link.symlink_to(git_path)
+    env["PATH"] = str(directory)
+    return env
+
+
+def test_missing_instructions_zip_continues_into_core_checks(tmp_path: Path) -> None:
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
+    patch_zip = tmp_path / "issue_601_v2.zip"
+    missing_instructions = tmp_path / "missing.zip"
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
+    _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
+
+    proc = _run(
+        missing_instructions,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
+    assert proc.returncode == 1
+    assert "RULE VALIDATION_ERROR" not in proc.stdout
+    assert "RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found" in proc.stdout
+    assert "RULE MONOLITH: PASS - gate_passed" in proc.stdout
+
+
+def test_skip_external_gates_emits_cli_disabled(tmp_path: Path) -> None:
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
+    patch_zip = tmp_path / "issue_601_v2.zip"
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
+    _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
+
+    proc = _run(
+        instructions_zip,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+        "--skip-external-gates",
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "RULE EXTERNAL_GATE:RUFF: SKIP - cli_disabled" in proc.stdout
+    assert "RULE EXTERNAL_GATE:MYPY: SKIP - cli_disabled" in proc.stdout
+    assert "RESULT: PASS" in proc.stdout
+
+
+def test_external_gate_pass_when_tool_succeeds(tmp_path: Path) -> None:
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
+    patch_zip = tmp_path / "issue_601_v2.zip"
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
+    _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
+    tools = tmp_path / "tools_pass"
+    tools.mkdir()
+    _fake_tool(tools, "ruff", 0)
+    _fake_tool(tools, "mypy", 0)
+    env = _git_only_env(tools)
+
+    proc = _run_env(
+        instructions_zip,
+        env,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "RULE EXTERNAL_GATE:RUFF: PASS - files=1" in proc.stdout
+    assert "RULE EXTERNAL_GATE:MYPY: PASS - files=1" in proc.stdout
+    assert "RESULT: PASS" in proc.stdout
+
+
+def test_external_gate_fail_causes_overall_fail(tmp_path: Path) -> None:
+    relpath = "tests/test_sample.py"
+    before = "def test_value():\n    assert 1 == 1\n"
+    after = "def test_value():\n    assert 2 == 2\n"
+    snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
+    patch_zip = tmp_path / "issue_601_v2.zip"
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
+    _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
+    tools = tmp_path / "tools_fail"
+    tools.mkdir()
+    _fake_tool(tools, "pytest", 5)
+    _fake_tool(tools, "ruff", 0)
+    _fake_tool(tools, "mypy", 0)
+    env = _git_only_env(tools)
+
+    proc = _run_env(
+        instructions_zip,
+        env,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
+    assert proc.returncode == 1
+    assert "RULE EXTERNAL_GATE:PYTEST: FAIL" in proc.stdout
+    assert "RESULT: FAIL" in proc.stdout
+
+
+def test_external_gate_unverified_does_not_force_fail(tmp_path: Path) -> None:
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    snapshot = tmp_path / f"{DEFAULT_TARGET}-main_666.zip"
+    patch_zip = tmp_path / "issue_601_v2.zip"
+    instructions_zip = _instructions_zip(tmp_path / "instructions.zip")
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
+    _patch_zip(patch_zip, {_safe_member(relpath): _git_patch(relpath, before, after)})
+    tools = tmp_path / "tools_unverified"
+    tools.mkdir()
+    env = _git_only_env(tools)
+
+    proc = _run_env(
+        instructions_zip,
+        env,
+        "601",
+        COMMIT,
+        str(patch_zip),
+        "--workspace-snapshot",
+        str(snapshot),
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "RULE EXTERNAL_GATE:RUFF: UNVERIFIED_ENVIRONMENT - tool_not_found:ruff" in proc.stdout
+    assert "RULE EXTERNAL_GATE:MYPY: UNVERIFIED_ENVIRONMENT - tool_not_found:mypy" in proc.stdout
+    assert "RESULT: PASS" in proc.stdout

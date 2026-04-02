@@ -115,10 +115,42 @@ def _bm(bindings, key, value):
 
 
 def _read_instructions_zip(path):
+    if path is None or not Path(path).is_file():
+        out = [
+            _rr("INSTRUCTIONS_EXTENSION", "FAIL", "instructions_zip_not_found"),
+            _rr("INSTRUCTIONS_LAYOUT", "FAIL", "missing_instructions_zip"),
+            _rr("INSTRUCTIONS_HANDOFF", "FAIL", "missing_instructions_zip"),
+            _rr("PACK_JSON", "FAIL", "missing_instructions_zip"),
+            _rr("PACK_HASH_FILE", "FAIL", "missing_instructions_zip"),
+            _rr("PACK_HASH_INTEGRITY", "FAIL", "hash_integrity_prerequisite_missing"),
+        ]
+        return out, None, None, None
+    path = Path(path)
     out = [_rr("INSTRUCTIONS_EXTENSION", "PASS" if path.suffix == ".zip" else "FAIL", str(path))]
     if path.suffix != ".zip":
+        out.extend(
+            [
+                _rr("INSTRUCTIONS_LAYOUT", "FAIL", "instructions_zip_not_zip"),
+                _rr("INSTRUCTIONS_HANDOFF", "FAIL", "instructions_zip_not_zip"),
+                _rr("PACK_JSON", "FAIL", "instructions_zip_not_zip"),
+                _rr("PACK_HASH_FILE", "FAIL", "instructions_zip_not_zip"),
+                _rr("PACK_HASH_INTEGRITY", "FAIL", "hash_integrity_prerequisite_missing"),
+            ]
+        )
         return out, None, None, None
-    names, items = _rz(path)
+    try:
+        names, items = _rz(path)
+    except Exception:
+        out.extend(
+            [
+                _rr("INSTRUCTIONS_LAYOUT", "FAIL", "instructions_zip_unreadable"),
+                _rr("INSTRUCTIONS_HANDOFF", "FAIL", "instructions_zip_unreadable"),
+                _rr("PACK_JSON", "FAIL", "instructions_zip_unreadable"),
+                _rr("PACK_HASH_FILE", "FAIL", "instructions_zip_unreadable"),
+                _rr("PACK_HASH_INTEGRITY", "FAIL", "hash_integrity_prerequisite_missing"),
+            ]
+        )
+        return out, None, None, None
     roots = sorted(name for name in names if not name.endswith("/"))
     ok = roots == sorted(IR)
     out.append(_rr("INSTRUCTIONS_LAYOUT", "PASS" if ok else "FAIL", f"entries={','.join(roots)}"))

@@ -21,6 +21,14 @@ PATCH_SUFFIX = ".patch"
 TARGET_FILE_NAME = "target.txt"
 LINE_EXTS = {".py", ".js"}
 JS_EXTS = {".js", ".mjs", ".cjs"}
+EXTERNAL_JS_TS_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
+EXTERNAL_GATE_RULE_IDS = {
+    "EXTERNAL_GATE:PYTEST",
+    "EXTERNAL_GATE:RUFF",
+    "EXTERNAL_GATE:MYPY",
+    "EXTERNAL_GATE:TYPESCRIPT",
+    "EXTERNAL_GATE:BIOME",
+}
 CATCHALL_BASENAMES = {"utils.py", "common.py", "helpers.py", "misc.py"}
 CATCHALL_DIRS = {"utils", "common", "helpers", "misc"}
 AREAS = {"src", "plugins", "badguys", "scripts", "tests", "docs"}
@@ -777,7 +785,7 @@ AUTHORITY_ONLY_PATHS = {
 
 if TYPE_CHECKING:
     PackRulesFn = Callable[
-        [argparse.Namespace, Path, list[str], list[str]],
+        [argparse.Namespace, Path | None, list[str], list[str]],
         tuple[list[RuleResult], object | None],
     ]
 else:
@@ -794,16 +802,131 @@ def _load_pack_rules() -> PackRulesFn:
 
 def _run_pack_rules(
     args: argparse.Namespace,
-    instructions_path: Path,
+    instructions_path: Path | None,
     decision_paths: list[str],
     patch_member_names: list[str],
 ) -> tuple[list[RuleResult], object | None]:
     return _load_pack_rules()(args, instructions_path, decision_paths, patch_member_names)
 
 
+def _is_external_gate_rule_id(rule_id: str) -> bool:
+    return rule_id in EXTERNAL_GATE_RULE_IDS
+
+
+def _is_hard_fail_result(item: RuleResult) -> bool:
+    return item.status in {"FAIL", "MANUAL_REVIEW_REQUIRED"} or (
+        item.status == "UNVERIFIED_ENVIRONMENT" and not _is_external_gate_rule_id(item.rule_id)
+    )
+
+
+def _triggered_existing_paths(
+    root: Path, decision_paths: list[str], suffixes: set[str]
+) -> list[str]:
+    selected: list[str] = []
+    for relpath in decision_paths:
+        path = root / relpath
+        if not path.exists():
+            continue
+        if Path(relpath).suffix not in suffixes:
+            continue
+        selected.append(relpath)
+    return selected
+
+
+def _triggered_pytest_paths(root: Path, decision_paths: list[str]) -> list[str]:
+    selected: list[str] = []
+    for relpath in decision_paths:
+        parts = PurePosixPath(relpath).parts
+        if not parts or parts[0] != "tests":
+            continue
+        if Path(relpath).suffix != ".py":
+            continue
+        if not (root / relpath).exists():
+            continue
+        selected.append(relpath)
+    return selected
+
+
+def _external_gate_result(
+    *,
+    rule_id: str,
+    root: Path,
+    relpaths: list[str],
+    command_name: str,
+    command_builder: Callable[[list[str]], list[str]],
+    cli_disabled: bool,
+) -> RuleResult:
+    if not relpaths:
+        return RuleResult(rule_id, "SKIP", "not_triggered")
+    if cli_disabled:
+        return RuleResult(rule_id, "SKIP", "cli_disabled")
+    command_path = shutil.which(command_name)
+    if command_path is None:
+        return RuleResult(rule_id, "UNVERIFIED_ENVIRONMENT", f"tool_not_found:{command_name}")
+    try:
+        proc = _run([command_path, *command_builder(relpaths)], cwd=root)
+    except OSError as exc:
+        return RuleResult(
+            rule_id, "UNVERIFIED_ENVIRONMENT", f"exec_error:{command_name}:{exc.__class__.__name__}"
+        )
+    if proc.returncode == 0:
+        return RuleResult(rule_id, "PASS", f"files={len(relpaths)}")
+    detail = proc.stderr.strip() or proc.stdout.strip() or f"exit={proc.returncode}"
+    return RuleResult(rule_id, "FAIL", detail)
+
+
+def _run_external_gates(
+    root: Path, decision_paths: list[str], cli_disabled: bool
+) -> list[RuleResult]:
+    py_paths = _triggered_existing_paths(root, decision_paths, {".py"})
+    test_paths = _triggered_pytest_paths(root, decision_paths)
+    js_ts_paths = _triggered_existing_paths(root, decision_paths, EXTERNAL_JS_TS_EXTS)
+    return [
+        _external_gate_result(
+            rule_id="EXTERNAL_GATE:PYTEST",
+            root=root,
+            relpaths=test_paths,
+            command_name="pytest",
+            command_builder=lambda paths: ["-q", *paths],
+            cli_disabled=cli_disabled,
+        ),
+        _external_gate_result(
+            rule_id="EXTERNAL_GATE:RUFF",
+            root=root,
+            relpaths=py_paths,
+            command_name="ruff",
+            command_builder=lambda paths: ["check", *paths],
+            cli_disabled=cli_disabled,
+        ),
+        _external_gate_result(
+            rule_id="EXTERNAL_GATE:MYPY",
+            root=root,
+            relpaths=py_paths,
+            command_name="mypy",
+            command_builder=lambda paths: paths,
+            cli_disabled=cli_disabled,
+        ),
+        _external_gate_result(
+            rule_id="EXTERNAL_GATE:TYPESCRIPT",
+            root=root,
+            relpaths=js_ts_paths,
+            command_name="tsc",
+            command_builder=lambda paths: ["--noEmit", "--pretty", "false", *paths],
+            cli_disabled=cli_disabled,
+        ),
+        _external_gate_result(
+            rule_id="EXTERNAL_GATE:BIOME",
+            root=root,
+            relpaths=js_ts_paths,
+            command_name="biome",
+            command_builder=lambda paths: ["check", *paths],
+            cli_disabled=cli_disabled,
+        ),
+    ]
+
+
 def _format(results: list[RuleResult]) -> str:
-    hard_fail_statuses = {"FAIL", "UNVERIFIED_ENVIRONMENT", "MANUAL_REVIEW_REQUIRED"}
-    overall = "FAIL" if any(item.status in hard_fail_statuses for item in results) else "PASS"
+    overall = "FAIL" if any(_is_hard_fail_result(item) for item in results) else "PASS"
     lines = [f"RESULT: {overall}"]
     lines.extend(f"RULE {item.rule_id}: {item.status} - {item.detail}" for item in results)
     return "\n".join(lines) + "\n"
@@ -829,6 +952,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=[],
         help="Repeat per repo-relative file path allowed during repair escalation.",
     )
+    parser.add_argument(
+        "--skip-external-gates",
+        action="store_true",
+        help="Skip execution of external gates and emit SKIP cli_disabled verdicts.",
+    )
     return parser.parse_args(argv)
 
 
@@ -837,8 +965,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not Path(args.patch).is_file():
             raise ValidationError("patch_not_found")
-        if not Path(args.instructions_zip).is_file():
-            raise ValidationError("instructions_zip_not_found")
+        instructions_arg = Path(args.instructions_zip)
+        instructions_path = instructions_arg.resolve() if instructions_arg.is_file() else None
         if args.repair_overlay:
             if not Path(args.repair_overlay).is_file():
                 raise ValidationError("repair_overlay_not_found")
@@ -849,7 +977,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.supplemental_file and not args.repair_overlay:
             raise ValidationError("supplemental_file_requires_repair_mode")
         patch_path = Path(args.patch).resolve()
-        instructions_path = Path(args.instructions_zip).resolve()
         results = [_validate_basename(patch_path, args.issue_id)]
         more, patch_members, decision_paths, patch_target = _collect_patch_members(
             patch_path,
@@ -893,18 +1020,13 @@ def main(argv: list[str] | None = None) -> int:
             args, instructions_path, decision_paths, patch_member_names
         )
         results.extend(pack_results)
-        if any(
-            item.status in {"FAIL", "UNVERIFIED_ENVIRONMENT", "MANUAL_REVIEW_REQUIRED"}
-            for item in results
-        ):
-            sys.stdout.write(_format(results))
-            return 1
         baseline, _mode = _authority_files(args, decision_paths)
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write_tree(root, baseline)
-            results.extend(_apply_patches(root, patch_members))
-            if any(item.status == "FAIL" for item in results):
+            apply_results = _apply_patches(root, patch_members)
+            results.extend(apply_results)
+            if any(item.status == "FAIL" for item in apply_results):
                 sys.stdout.write(_format(results))
                 return 1
             results.extend(
@@ -914,15 +1036,9 @@ def main(argv: list[str] | None = None) -> int:
                     _monolith(root, baseline, decision_paths),
                 ]
             )
+            results.extend(_run_external_gates(root, decision_paths, args.skip_external_gates))
         sys.stdout.write(_format(results))
-        return (
-            0
-            if all(
-                item.status not in {"FAIL", "UNVERIFIED_ENVIRONMENT", "MANUAL_REVIEW_REQUIRED"}
-                for item in results
-            )
-            else 1
-        )
+        return 0 if not any(_is_hard_fail_result(item) for item in results) else 1
     except ValidationError as exc:
         sys.stdout.write(_format([RuleResult("VALIDATION_ERROR", "FAIL", str(exc))]))
         return 1
