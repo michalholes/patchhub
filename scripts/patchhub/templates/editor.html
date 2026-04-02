@@ -136,6 +136,27 @@
   <script>
     (function () {
       const originalFetch = window.fetch.bind(window);
+      let loadedBaseline = "";
+
+      function currentDocumentPath(select) {
+        return select && select.value === "governance"
+          ? "governance/governance.jsonl"
+          : "governance/specification.jsonl";
+      }
+
+      function syncLoadedBaselineFromStatus(statusText, body) {
+        const text = String(statusText || "").trim();
+        if (!body) {
+          return;
+        }
+        if (
+          text === "Loaded" ||
+          text === "Saved" ||
+          text === "Unsafe save complete"
+        ) {
+          loadedBaseline = body.value || "";
+        }
+      }
 
       function updateStatusStrip() {
         const repo = document.getElementById("editorTargetRepo");
@@ -144,28 +165,60 @@
         const statusRepo = document.getElementById("editorStatusRepo");
         const statusFile = document.getElementById("editorStatusFile");
         const dirtyState = document.getElementById("editorDirtyState");
-        const status = document.getElementById("editorStatus");
-        if (status && !status.textContent) {
-          status.textContent = "Loaded";
-        }
         if (statusRepo && repo) {
           statusRepo.textContent = String(repo.value || "");
         }
-        if (statusFile && documentSelect) {
-          statusFile.textContent =
-            documentSelect.value === "governance"
-              ? "governance/governance.jsonl"
-              : "governance/specification.jsonl";
+        if (statusFile) {
+          statusFile.textContent = currentDocumentPath(documentSelect);
         }
         if (dirtyState && body) {
-          const baseline = body.dataset.loadedValue || "";
-          dirtyState.textContent = body.value === baseline ? "clean" : "dirty";
+          dirtyState.textContent = body.value === loadedBaseline ? "clean" : "dirty";
         }
       }
 
+      function bindStatusEvents() {
+        const body = document.getElementById("editorBody");
+        const repo = document.getElementById("editorTargetRepo");
+        const documentSelect = document.getElementById("editorDocument");
+        const status = document.getElementById("editorStatus");
+        if (body) {
+          loadedBaseline = body.value || "";
+          body.addEventListener("input", updateStatusStrip);
+        }
+        if (repo) {
+          repo.addEventListener("change", updateStatusStrip);
+        }
+        if (documentSelect) {
+          documentSelect.addEventListener("change", updateStatusStrip);
+        }
+        if (status && body) {
+          new MutationObserver(function () {
+            syncLoadedBaselineFromStatus(status.textContent || "", body);
+            updateStatusStrip();
+          }).observe(status, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+          });
+        }
+        updateStatusStrip();
+      }
+
       window.fetch = async function (input, init) {
+        const status = document.getElementById("editorStatus");
         let url = typeof input === "string" ? input : String((input && input.url) || "");
         let nextInit = init || {};
+        if (status) {
+          if (url.startsWith("/api/editor/document?")) {
+            status.textContent = "Loading";
+          } else if (url === "/api/editor/validate") {
+            status.textContent = "Validating";
+          } else if (url === "/api/editor/save") {
+            status.textContent = "Saving";
+          } else if (url === "/api/editor/save_unsafe" || url === "/api/editor/save-unsafe") {
+            status.textContent = "Unsafe save in progress";
+          }
+        }
         if (url === "/api/editor/save_unsafe") {
           url = "/api/editor/save-unsafe";
           let payload = {};
@@ -185,60 +238,7 @@
         return response;
       };
 
-      window.addEventListener("load", function () {
-        const body = document.getElementById("editorBody");
-        const repo = document.getElementById("editorTargetRepo");
-        const documentSelect = document.getElementById("editorDocument");
-        const status = document.getElementById("editorStatus");
-        const revision = document.getElementById("editorRevision");
-        if (body) {
-          body.dataset.loadedValue = body.value || "";
-          body.addEventListener("input", updateStatusStrip);
-          new MutationObserver(function () {
-            body.dataset.loadedValue = body.value || "";
-            updateStatusStrip();
-          }).observe(body, {
-            attributes: true,
-            attributeFilter: ["data-loaded-value"],
-          });
-        }
-        if (repo) {
-          repo.addEventListener("change", updateStatusStrip);
-        }
-        if (documentSelect) {
-          documentSelect.addEventListener("change", updateStatusStrip);
-        }
-        if (status) {
-          new MutationObserver(updateStatusStrip).observe(status, {
-            childList: true,
-            subtree: true,
-            characterData: true,
-          });
-        }
-        if (revision) {
-          new MutationObserver(function () {
-            if (body) {
-              body.dataset.loadedValue = body.value || "";
-            }
-            updateStatusStrip();
-          }).observe(revision, {
-            childList: true,
-            subtree: true,
-            characterData: true,
-          });
-        }
-        const poll = window.setInterval(function () {
-          if (body) {
-            const current = body.value || "";
-            const baseline = body.dataset.loadedValue || "";
-            if (current === baseline && revision && revision.textContent) {
-              window.clearInterval(poll);
-            }
-          }
-          updateStatusStrip();
-        }, 150);
-        updateStatusStrip();
-      });
+      window.addEventListener("load", bindStatusEvents);
     })();
   </script>
   <script src="/static/editor_page.js?v={{PATCHHUB_STATIC_VERSION}}"></script>
