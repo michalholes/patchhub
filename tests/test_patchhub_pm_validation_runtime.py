@@ -366,9 +366,53 @@ def test_build_pm_validation_requires_local_instructions_artifact(
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
     assert payload["status"] == "missing_context"
     assert payload["effective_mode"] == "initial"
-    assert payload["authority_sources"] == []
+    assert payload["authority_sources"] == [
+        str(s.patches_root / "patchhub-main_20260315.zip"),
+        str(s.patches_root / "instructions_issue601.zip"),
+    ]
     assert payload["supplemental_files"] == []
-    assert "instructions_zip_missing:instructions_issue601.zip" in payload["raw_output"]
+    assert "RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found" in payload["raw_output"]
+    assert "RULE MONOLITH: PASS - gate_passed" in payload["raw_output"]
+    assert "instructions_zip_missing:instructions_issue601.zip" not in payload["raw_output"]
+
+
+def test_zip_manifest_surfaces_validator_missing_instructions_context(
+    tmp_path: Path,
+) -> None:
+    s = _mk_self(tmp_path)
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
+    _snapshot_zip(
+        baseline_path,
+        {relpath: before.encode("utf-8")},
+    )
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Use PM validator at zip load",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    status, raw = api_patch_zip_manifest(s, {"path": "issue_601_v1.zip"})
+    assert status == 200
+    payload = json.loads(raw.decode("utf-8"))
+    pm_validation = payload["pm_validation"]
+    assert pm_validation["status"] == "missing_context"
+    assert pm_validation["effective_mode"] == "initial"
+    assert pm_validation["authority_sources"] == [
+        str(baseline_path),
+        str(s.patches_root / "instructions_issue601.zip"),
+    ]
+    assert pm_validation["supplemental_files"] == []
+    assert (
+        "RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found"
+        in pm_validation["raw_output"]
+    )
+    assert "RULE MONOLITH: PASS - gate_passed" in pm_validation["raw_output"]
+    assert "instructions_zip_missing:instructions_issue601.zip" not in pm_validation["raw_output"]
 
 
 def test_build_pm_validation_initial_requires_target_matched_local_baseline(

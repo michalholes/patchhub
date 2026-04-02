@@ -33,7 +33,7 @@ def _instructions_zip_path(patches_root: Path, issue_id: str) -> Path | None:
         return None
     root = patches_root.resolve()
     candidate = (patches_root / f"instructions_issue{clean_issue}.zip").resolve()
-    if candidate.parent != root or not candidate.is_file():
+    if candidate.parent != root:
         return None
     return candidate
 
@@ -161,6 +161,11 @@ def _parse_status(returncode: int, raw_output: str) -> str:
         )
     ):
         return _STATUS_MISSING_CONTEXT
+    if (
+        "RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found" in raw_output
+        or "RULE INSTRUCTIONS_LAYOUT: FAIL - missing_instructions_zip" in raw_output
+    ):
+        return _STATUS_MISSING_CONTEXT
     return _STATUS_FAIL
 
 
@@ -271,7 +276,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
             patch_path=patch_rel,
             authority_sources=[],
             supplemental_files=[],
-            raw_output=(f"instructions_zip_missing:instructions_issue{zip_issue_id}.zip"),
+            raw_output=(f"instructions_zip_invalid:instructions_issue{zip_issue_id}.zip"),
         )
     overlay_path = _latest_repair_overlay(self.patches_root, zip_issue_id)
     effective_mode = "repair-overlay-only" if overlay_path is not None else "initial"
