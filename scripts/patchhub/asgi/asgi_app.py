@@ -304,6 +304,11 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         status, data = await to_thread(core.api_editor_apply_fix, body)
         return _json_bytes_response(status, data)
 
+    @app.post("/api/editor/preview_action")
+    async def api_editor_preview_action(body: dict[str, Any]) -> Response:
+        status, data = await to_thread(core.api_editor_preview_action, body)
+        return _json_bytes_response(status, data)
+
     @app.get("/api/config")
     async def api_config() -> Response:
         status, data = await to_thread(core.api_config)

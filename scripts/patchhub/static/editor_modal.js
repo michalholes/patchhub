@@ -38,6 +38,22 @@
 		while (el && el.firstChild) el.removeChild(el.firstChild);
 	}
 
+	/** @param {string} name @param {string} className @param {string | undefined} text */
+	function el(name, className, text) {
+		const node = document.createElement(name);
+		if (className) node.className = className;
+		if (text !== undefined) node.textContent = String(text);
+		return node;
+	}
+
+	/** @param {string} label @param {string} value */
+	function renderMetaCard(label, value) {
+		const wrap = el("div", "editor-inline-card", undefined);
+		wrap.appendChild(el("div", "editor-muted", label));
+		wrap.appendChild(el("div", "", value || "-"));
+		return wrap;
+	}
+
 	/** @param {PatchHubEditorModalFailure} failure @param {HelperCallbacks} callbacks */
 	function openHelperModal(failure, callbacks) {
 		const modal = byId("editorHelperModal");
@@ -48,36 +64,45 @@
 			byId("editorHelperClose")
 		);
 		if (!modal || !title || !body || !actions || !close) return;
-		title.textContent = String(failure.title || "Validation failed");
+		title.textContent = String(failure.title || "Validation needs attention");
 		clearChildren(body);
-		const meta = document.createElement("div");
-		meta.className = "editor-helper-meta";
-		/** @type {Array<[string, string]>} */
-		const rows = [
-			["failure class", String(failure.failure_class || "")],
-			["failure code", String(failure.failure_code || "")],
-			["error", String(failure.error_text || "")],
-			["primary object id", String(failure.primary_id || "")],
-			["secondary object id", String(failure.secondary_id || "")],
-		];
-		rows.forEach(([label, value]) => {
-			const wrap = document.createElement("div");
-			const strong = document.createElement("strong");
-			strong.textContent = `${label}: `;
-			const code = document.createElement("code");
-			code.textContent = value;
-			wrap.appendChild(strong);
-			wrap.appendChild(code);
-			meta.appendChild(wrap);
-		});
-		body.appendChild(meta);
+		const intro = el(
+			"div",
+			"editor-browser-subtitle",
+			"Review the safest fix first. Alternative actions stay available below if you need them.",
+		);
+		body.appendChild(intro);
+		const grid = el("div", "editor-helper-grid", undefined);
+		grid.appendChild(
+			renderMetaCard("Current problem", String(failure.failure_class || "")),
+		);
+		grid.appendChild(
+			renderMetaCard("Technical reason", String(failure.failure_code || "")),
+		);
+		grid.appendChild(
+			renderMetaCard("Main object", String(failure.primary_id || "")),
+		);
+		grid.appendChild(
+			renderMetaCard("Related object", String(failure.secondary_id || "")),
+		);
+		body.appendChild(grid);
+		if (failure.error_text) {
+			body.appendChild(
+				renderMetaCard("Validator message", String(failure.error_text || "")),
+			);
+		}
 		clearChildren(actions);
-		(Array.isArray(failure.actions) ? failure.actions : []).forEach((item) => {
-			const button = document.createElement("button");
-			button.type = "button";
+		const available = Array.isArray(failure.actions) ? failure.actions : [];
+		available.forEach((item, index) => {
 			const actionId = String(item.action_id || "");
-			button.textContent = String(item.label || actionId || "Action");
-			button.dataset.actionId = actionId;
+			const button = /** @type {HTMLButtonElement} */ (
+				el(
+					"button",
+					index === 0 ? "editor-primary" : "",
+					String(item.label || actionId || "Action"),
+				)
+			);
+			button.type = "button";
 			button.addEventListener("click", () => callbacks.onAction?.(actionId));
 			actions.appendChild(button);
 		});

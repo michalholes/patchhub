@@ -8,7 +8,10 @@
 </head>
 <body>
   <header class="editor-bar">
-    <div class="editor-title">PatchHub - Editor</div>
+    <div>
+      <div class="editor-title">PatchHub - Editor</div>
+      <div class="editor-subtitle">Operator-first workspace for governance and specification changes</div>
+    </div>
     <div class="editor-links">
       <a class="editor-link" href="/">Home</a>
       <a class="editor-link" href="/debug">Debug</a>
@@ -16,8 +19,8 @@
   </header>
 
   <main class="editor-layout">
-    <section class="editor-panel editor-controls">
-      <div class="editor-row editor-grid-two">
+    <section class="editor-panel editor-toolbar-panel">
+      <div class="editor-toolbar-grid">
         <label class="editor-field">
           <span>Target repo</span>
           <select id="editorTargetRepo"></select>
@@ -29,16 +32,23 @@
             <option value="governance">governance/governance.jsonl</option>
           </select>
         </label>
+        <label class="editor-field">
+          <span>Add block</span>
+          <select id="editorAddType"></select>
+        </label>
+        <div class="editor-field editor-field-actions">
+          <span>Workspace actions</span>
+          <div class="editor-inline-actions">
+            <button type="button" id="editorReload">Reload</button>
+            <button type="button" id="editorValidate">Validate</button>
+            <button type="button" id="editorSave">Save</button>
+            <button type="button" id="editorUnsafeSave">Unsafe save</button>
+            <button type="button" id="editorAddBlock">Append scaffold</button>
+          </div>
+        </div>
       </div>
 
-      <div class="editor-row editor-actions">
-        <button type="button" id="editorReload">Reload</button>
-        <button type="button" id="editorValidate">Validate</button>
-        <button type="button" id="editorSave">Save</button>
-        <button type="button" id="editorUnsafeSave">Unsafe save</button>
-      </div>
-
-      <div class="editor-row editor-grid-two">
+      <div class="editor-status-grid">
         <div class="editor-status-box">
           <div class="editor-status-label">Last action</div>
           <div id="editorStatus"></div>
@@ -47,9 +57,6 @@
           <div class="editor-status-label">Revision</div>
           <div id="editorRevision"></div>
         </div>
-      </div>
-
-      <div class="editor-row editor-grid-two">
         <div class="editor-status-box">
           <div class="editor-status-label">Target repo</div>
           <div id="editorStatusRepo"></div>
@@ -58,50 +65,52 @@
           <div class="editor-status-label">Target file</div>
           <div id="editorStatusFile"></div>
         </div>
-      </div>
-
-      <div class="editor-row">
         <div class="editor-status-box">
           <div class="editor-status-label">Dirty state</div>
           <div id="editorDirtyState"></div>
         </div>
       </div>
-
-      <div class="editor-row editor-grid-two">
-        <label class="editor-field">
-          <span>Add block</span>
-          <select id="editorAddType"></select>
-        </label>
-        <div class="editor-field editor-field-actions">
-          <span>&nbsp;</span>
-          <button type="button" id="editorAddBlock">Append scaffold</button>
-        </div>
-      </div>
-
-      <div class="editor-format">Visible format: PHB-HR-TOML v1</div>
-      <textarea id="editorBody" spellcheck="false"></textarea>
     </section>
 
-    <aside class="editor-panel editor-ops-panel">
-      <div class="editor-row editor-grid-two">
-        <label class="editor-field">
-          <span>Ops filter</span>
-          <select id="editorOpsLevel">
-            <option value="(all)">(all)</option>
-            <option value="Info">Info</option>
-            <option value="Warning">Warning</option>
-            <option value="Error">Error</option>
-          </select>
-        </label>
-        <div class="editor-field editor-field-actions">
-          <span>&nbsp;</span>
-          <div class="editor-inline-actions">
-            <button type="button" id="editorOpsCopy">Copy visible</button>
-            <button type="button" id="editorOpsClear">Clear visible</button>
+    <section class="editor-panel editor-nav-panel">
+      <div id="editorTaskFirst"></div>
+    </section>
+
+    <section class="editor-panel editor-current-panel">
+      <div id="editorCurrentWork"></div>
+      <details class="editor-advanced-raw">
+        <summary>Advanced raw editor</summary>
+        <div class="editor-advanced-copy">
+          <div class="editor-format">Visible format: PHB-HR-TOML v1</div>
+          <p>This service surface stays available for deep inspection and last-resort manual edits.</p>
+        </div>
+        <textarea id="editorBody" spellcheck="false"></textarea>
+      </details>
+    </section>
+
+    <aside class="editor-panel editor-side-panel">
+      <div id="editorSafetyPanel"></div>
+      <section class="editor-ops-shell">
+        <div class="editor-row editor-grid-two">
+          <label class="editor-field">
+            <span>Ops filter</span>
+            <select id="editorOpsLevel">
+              <option value="(all)">(all)</option>
+              <option value="Info">Info</option>
+              <option value="Warning">Warning</option>
+              <option value="Error">Error</option>
+            </select>
+          </label>
+          <div class="editor-field editor-field-actions">
+            <span>Ops log</span>
+            <div class="editor-inline-actions">
+              <button type="button" id="editorOpsCopy">Copy visible</button>
+              <button type="button" id="editorOpsClear">Clear visible</button>
+            </div>
           </div>
         </div>
-      </div>
-      <pre id="editorOpsLog"></pre>
+        <pre id="editorOpsLog"></pre>
+      </section>
     </aside>
   </main>
 
@@ -113,6 +122,17 @@
       </div>
       <div id="editorHelperBody"></div>
       <div id="editorHelperActions" class="editor-modal-actions"></div>
+    </div>
+  </div>
+
+  <div id="editorPreviewModal" class="editor-modal" hidden>
+    <div class="editor-modal-card">
+      <div class="editor-modal-header">
+        <h2 id="editorPreviewTitle"></h2>
+        <button type="button" id="editorPreviewClose">Close</button>
+      </div>
+      <div id="editorPreviewBody"></div>
+      <div id="editorPreviewActions" class="editor-modal-actions"></div>
     </div>
   </div>
 
@@ -133,114 +153,8 @@
   </div>
 
   <script src="/static/editor_modal.js?v={{PATCHHUB_STATIC_VERSION}}"></script>
-  <script>
-    (function () {
-      const originalFetch = window.fetch.bind(window);
-      let loadedBaseline = "";
-
-      function currentDocumentPath(select) {
-        return select && select.value === "governance"
-          ? "governance/governance.jsonl"
-          : "governance/specification.jsonl";
-      }
-
-      function syncLoadedBaselineFromStatus(statusText, body) {
-        const text = String(statusText || "").trim();
-        if (!body) {
-          return;
-        }
-        if (
-          text === "Loaded" ||
-          text === "Saved" ||
-          text === "Unsafe save complete"
-        ) {
-          loadedBaseline = body.value || "";
-        }
-      }
-
-      function updateStatusStrip() {
-        const repo = document.getElementById("editorTargetRepo");
-        const documentSelect = document.getElementById("editorDocument");
-        const body = document.getElementById("editorBody");
-        const statusRepo = document.getElementById("editorStatusRepo");
-        const statusFile = document.getElementById("editorStatusFile");
-        const dirtyState = document.getElementById("editorDirtyState");
-        if (statusRepo && repo) {
-          statusRepo.textContent = String(repo.value || "");
-        }
-        if (statusFile) {
-          statusFile.textContent = currentDocumentPath(documentSelect);
-        }
-        if (dirtyState && body) {
-          dirtyState.textContent = body.value === loadedBaseline ? "clean" : "dirty";
-        }
-      }
-
-      function bindStatusEvents() {
-        const body = document.getElementById("editorBody");
-        const repo = document.getElementById("editorTargetRepo");
-        const documentSelect = document.getElementById("editorDocument");
-        const status = document.getElementById("editorStatus");
-        if (body) {
-          loadedBaseline = body.value || "";
-          body.addEventListener("input", updateStatusStrip);
-        }
-        if (repo) {
-          repo.addEventListener("change", updateStatusStrip);
-        }
-        if (documentSelect) {
-          documentSelect.addEventListener("change", updateStatusStrip);
-        }
-        if (status && body) {
-          new MutationObserver(function () {
-            syncLoadedBaselineFromStatus(status.textContent || "", body);
-            updateStatusStrip();
-          }).observe(status, {
-            childList: true,
-            subtree: true,
-            characterData: true,
-          });
-        }
-        updateStatusStrip();
-      }
-
-      window.fetch = async function (input, init) {
-        const status = document.getElementById("editorStatus");
-        let url = typeof input === "string" ? input : String((input && input.url) || "");
-        let nextInit = init || {};
-        if (status) {
-          if (url.startsWith("/api/editor/document?")) {
-            status.textContent = "Loading";
-          } else if (url === "/api/editor/validate") {
-            status.textContent = "Validating";
-          } else if (url === "/api/editor/save") {
-            status.textContent = "Saving";
-          } else if (url === "/api/editor/save_unsafe" || url === "/api/editor/save-unsafe") {
-            status.textContent = "Unsafe save in progress";
-          }
-        }
-        if (url === "/api/editor/save_unsafe") {
-          url = "/api/editor/save-unsafe";
-          let payload = {};
-          try {
-            payload = JSON.parse(String(nextInit.body || "{}"));
-          } catch (_error) {
-            payload = {};
-          }
-          payload.confirm_unsafe_write = true;
-          nextInit = {
-            ...nextInit,
-            body: JSON.stringify(payload),
-          };
-        }
-        const response = await originalFetch(url, nextInit);
-        queueMicrotask(updateStatusStrip);
-        return response;
-      };
-
-      window.addEventListener("load", bindStatusEvents);
-    })();
-  </script>
+  <script src="/static/editor_workspace.js?v={{PATCHHUB_STATIC_VERSION}}"></script>
+  <script src="/static/editor_action_preview.js?v={{PATCHHUB_STATIC_VERSION}}"></script>
   <script src="/static/editor_page.js?v={{PATCHHUB_STATIC_VERSION}}"></script>
 </body>
 </html>

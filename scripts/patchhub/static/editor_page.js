@@ -10,6 +10,10 @@
 		currentHumanText: "",
 		addTypeOptions: [],
 		scaffolds: {},
+		workspace: null,
+		selectedObjectId: "",
+		navigationQuery: "",
+		navigationFilter: "all",
 	};
 
 	function byId(id) {
@@ -69,25 +73,27 @@
 		byId("editorRevision").textContent = String(text || "");
 	}
 
-	function payload() {
+	function currentDocumentPath() {
+		return state.document === "governance"
+			? "governance/governance.jsonl"
+			: "governance/specification.jsonl";
+	}
+
+	function updateStatusBoxes() {
+		byId("editorStatusRepo").textContent = state.targetRepo;
+		byId("editorStatusFile").textContent = currentDocumentPath();
+		byId("editorDirtyState").textContent =
+			textValue("editorBody") === state.currentHumanText ? "clean" : "dirty";
+	}
+
+	function payload(extra) {
 		return {
 			target_repo: state.targetRepo,
 			document: state.document,
 			revision_token: state.revisionToken,
 			human_text: textValue("editorBody"),
+			...(extra || {}),
 		};
-	}
-
-	function updateFromDocument(data) {
-		state.revisionToken = String(data.revision_token || "");
-		state.loadedIds = Array.isArray(data.loaded_ids)
-			? data.loaded_ids.slice()
-			: [];
-		state.currentHumanText = String(data.human_text || "");
-		byId("editorBody").value = state.currentHumanText;
-		setRevision(state.revisionToken);
-		setStatus(data.status || "Loaded");
-		updateAddTypeState();
 	}
 
 	function updateAddTypeState() {
@@ -112,6 +118,126 @@
 		addButton.disabled = !addType.value || addType.selectedOptions[0].disabled;
 	}
 
+	function jumpToRawObject(objectId) {
+		const body = byId("editorBody");
+		const idText = String(objectId || "").trim();
+		if (!body || !idText) return;
+		const details = document.querySelector(".editor-advanced-raw");
+		if (details) details.open = true;
+		const text = body.value;
+		const idNeedle = `id = "${idText}"`;
+		const idIndex = text.indexOf(idNeedle);
+		if (idIndex < 0) return;
+		const blockIndex = text.lastIndexOf("[[object]]", idIndex);
+		const start = blockIndex >= 0 ? blockIndex : idIndex;
+		let end = text.indexOf("\n[[object]]", idIndex + idNeedle.length);
+		if (end < 0) end = text.length;
+		body.focus();
+		body.setSelectionRange(start, end);
+	}
+
+	function focusObject(objectId) {
+		state.selectedObjectId = String(objectId || "");
+		if (state.workspace) {
+			state.workspace.selected_id = state.selectedObjectId;
+		}
+		renderWorkspace();
+		if (
+			window.PatchHubEditorWorkspace &&
+			window.PatchHubEditorWorkspace.focusSelection
+		) {
+			window.PatchHubEditorWorkspace.focusSelection(state.selectedObjectId);
+		}
+	}
+
+	function renderWorkspace() {
+		if (!window.PatchHubEditorWorkspace) return;
+		if (state.workspace && state.selectedObjectId) {
+			state.workspace.selected_id = state.selectedObjectId;
+		}
+		window.PatchHubEditorWorkspace.render({
+			navRoot: byId("editorTaskFirst"),
+			currentRoot: byId("editorCurrentWork"),
+			safetyRoot: byId("editorSafetyPanel"),
+			workspace: state.workspace || {},
+			query: state.navigationQuery,
+			filterValue: state.navigationFilter,
+			onQueryChange(query) {
+				state.navigationQuery = query;
+				renderWorkspace();
+			},
+			onFilterChange(value) {
+				state.navigationFilter = value;
+				renderWorkspace();
+			},
+			onSelectObject(objectId) {
+				focusObject(objectId);
+			},
+			onProblemFocus() {
+				if (state.currentFailure && state.currentFailure.primary_id) {
+					focusObject(state.currentFailure.primary_id);
+					openFailureModal();
+				}
+			},
+			onAddScaffold() {
+				appendScaffold();
+			},
+			onOpenTechnical() {
+				const details = document.querySelector(".editor-advanced-raw");
+				if (details) details.open = true;
+				jumpToRawObject(state.selectedObjectId);
+			},
+			onCheckImpact() {
+				if (
+					state.currentFailure &&
+					Array.isArray(state.currentFailure.actions) &&
+					state.currentFailure.actions[0]
+				) {
+					previewAction(
+						String(state.currentFailure.actions[0].action_id || ""),
+						String(state.currentFailure.primary_id || ""),
+						String(state.currentFailure.secondary_id || ""),
+					);
+				}
+			},
+			onAction(actionId, primaryId, secondaryId) {
+				previewAction(actionId, primaryId, secondaryId);
+			},
+		});
+	}
+
+	function syncWorkspaceFromResponse(data) {
+		state.workspace = data.workspace || state.workspace;
+		state.currentFailure =
+			data.failure || (data.validation && data.validation.failure) || null;
+		if (state.workspace && state.workspace.selected_id) {
+			state.selectedObjectId = String(state.workspace.selected_id || "");
+		}
+		renderWorkspace();
+	}
+
+	function updateFromDocument(data) {
+		state.revisionToken = String(data.revision_token || "");
+		state.loadedIds = Array.isArray(data.loaded_ids)
+			? data.loaded_ids.slice()
+			: [];
+		state.currentHumanText = String(data.human_text || "");
+		byId("editorBody").value = state.currentHumanText;
+		setRevision(state.revisionToken);
+		setStatus(data.status || "Loaded");
+		syncWorkspaceFromResponse(data);
+		updateAddTypeState();
+		updateStatusBoxes();
+	}
+
+	function safeJsonError(text) {
+		try {
+			return JSON.parse(String(text || "{}"));
+		} catch (_err) {
+			return { error: String(text || "") };
+		}
+	}
+
 	async function loadBootstrap() {
 		const data = await fetchJson("/api/editor/bootstrap");
 		const target = byId("editorTargetRepo");
@@ -129,9 +255,7 @@
 			option.textContent = String(item);
 			target.appendChild(option);
 		});
-		if (!state.targetRepo) {
-			state.targetRepo = String(target.value || "");
-		}
+		if (!state.targetRepo) state.targetRepo = String(target.value || "");
 		addType.innerHTML = "";
 		state.addTypeOptions.forEach((item) => {
 			const option = document.createElement("option");
@@ -142,6 +266,7 @@
 		target.value = state.targetRepo;
 		byId("editorDocument").value = state.document;
 		updateAddTypeState();
+		updateStatusBoxes();
 	}
 
 	async function loadDocument() {
@@ -166,14 +291,6 @@
 		updateFromDocument(data);
 	}
 
-	function safeJsonError(text) {
-		try {
-			return JSON.parse(String(text || "{}"));
-		} catch (_err) {
-			return { error: String(text || "") };
-		}
-	}
-
 	async function validateDocument() {
 		const data = await fetchJson("/api/editor/validate", {
 			method: "POST",
@@ -181,14 +298,16 @@
 			body: JSON.stringify(payload()),
 		});
 		appendOps(data.ops || []);
+		syncWorkspaceFromResponse(data);
 		if (data.validated) {
 			state.revisionToken = String(data.revision_token || state.revisionToken);
 			setRevision(state.revisionToken);
 			setStatus("Validation passed");
+			updateStatusBoxes();
 			return true;
 		}
-		state.currentFailure = data.failure || null;
 		setStatus("Validation failed");
+		updateStatusBoxes();
 		openFailureModal();
 		return false;
 	}
@@ -200,18 +319,21 @@
 			body: JSON.stringify(payload()),
 		});
 		appendOps(data.ops || []);
+		syncWorkspaceFromResponse(data);
 		if (data.saved) {
 			state.revisionToken = String(data.revision_token || state.revisionToken);
-			byId("editorBody").value = String(
+			state.currentHumanText = String(
 				data.human_text || byId("editorBody").value,
 			);
+			byId("editorBody").value = state.currentHumanText;
 			setRevision(state.revisionToken);
 			setStatus("Saved");
 			updateAddTypeState();
+			updateStatusBoxes();
 			return;
 		}
-		state.currentFailure = data.failure || null;
 		setStatus("Save failed");
+		updateStatusBoxes();
 		openFailureModal();
 	}
 
@@ -219,93 +341,116 @@
 		const data = await fetchJson("/api/editor/save_unsafe", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify(payload()),
+			body: JSON.stringify(payload({ confirm_unsafe_write: true })),
 		});
 		appendOps(data.ops || []);
+		syncWorkspaceFromResponse(data);
 		if (data.saved) {
 			state.revisionToken = String(data.revision_token || state.revisionToken);
-			byId("editorBody").value = String(
+			state.currentHumanText = String(
 				data.human_text || byId("editorBody").value,
 			);
+			byId("editorBody").value = state.currentHumanText;
 			setRevision(state.revisionToken);
 			setStatus("Unsafe save complete");
 			updateAddTypeState();
+			updateStatusBoxes();
 			return;
 		}
 		setStatus("Unsafe save failed");
-		state.currentFailure = data.failure || null;
+		updateStatusBoxes();
+	}
+
+	async function previewAction(actionId, primaryId, secondaryId) {
+		if (!actionId) return;
+		const jumpOnly =
+			actionId === "jump_to_block" || actionId === "jump_to_conflict";
+		if (jumpOnly) {
+			focusObject(actionId === "jump_to_block" ? primaryId : secondaryId);
+			jumpToRawObject(actionId === "jump_to_block" ? primaryId : secondaryId);
+			return;
+		}
+		const data = await fetchJson("/api/editor/preview_action", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(
+				payload({
+					action_id: actionId,
+					primary_id: String(primaryId || ""),
+					secondary_id: String(secondaryId || ""),
+				}),
+			),
+		});
+		appendOps(data.ops || []);
+		if (!data.ok) {
+			setStatus(data.error || "Preview failed");
+			return;
+		}
+		window.PatchHubEditorActionPreview.openPreviewModal(data.preview || {}, {
+			onApply() {
+				applyAction(actionId, primaryId, secondaryId);
+				window.PatchHubEditorActionPreview.closePreviewModal();
+			},
+			onCancel() {},
+		});
+	}
+
+	async function applyAction(actionId, primaryId, secondaryId) {
+		const body = payload({
+			action_id: actionId,
+			primary_id: String(primaryId || ""),
+			secondary_id: String(secondaryId || ""),
+		});
+		const data = await fetchJson("/api/editor/apply_fix", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+		});
+		appendOps(data.ops || []);
+		syncWorkspaceFromResponse(data);
+		if (data.ok) {
+			byId("editorBody").value = String(
+				data.human_text || byId("editorBody").value,
+			);
+			state.revisionToken = String(data.revision_token || state.revisionToken);
+			setRevision(state.revisionToken);
+			updateAddTypeState();
+			setStatus(
+				data.validation && data.validation.validated
+					? "Fix applied"
+					: "Fix applied, validate again",
+			);
+			updateStatusBoxes();
+			if (data.validation && data.validation.validated) {
+				window.PatchHubEditorModal.closeHelperModal();
+			}
+			return;
+		}
+		setStatus("Fix failed");
+		openFailureModal();
 	}
 
 	function openFailureModal() {
 		if (!state.currentFailure) return;
+		focusObject(
+			String(
+				state.currentFailure.primary_id ||
+					state.currentFailure.secondary_id ||
+					"",
+			),
+		);
 		window.PatchHubEditorModal.openHelperModal(state.currentFailure, {
 			onClose() {
 				state.currentFailure = null;
 			},
-			async onAction(actionId) {
-				if (actionId === "jump_to_block" || actionId === "jump_to_conflict") {
-					const targetId =
-						actionId === "jump_to_block"
-							? state.currentFailure.primary_id
-							: state.currentFailure.secondary_id;
-					jumpToObject(targetId);
-					return;
-				}
-				const body = {
-					target_repo: state.targetRepo,
-					document: state.document,
-					revision_token: state.revisionToken,
-					human_text: textValue("editorBody"),
-					action_id: actionId,
-					primary_id: String(state.currentFailure.primary_id || ""),
-					secondary_id: String(state.currentFailure.secondary_id || ""),
-				};
-				const data = await fetchJson("/api/editor/apply_fix", {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify(body),
-				});
-				appendOps(data.ops || []);
-				if (data.ok) {
-					byId("editorBody").value = String(
-						data.human_text || byId("editorBody").value,
-					);
-					state.revisionToken = String(
-						data.revision_token || state.revisionToken,
-					);
-					setRevision(state.revisionToken);
-					updateAddTypeState();
-				}
-				const validation = data.validation || {
-					validated: false,
-					failure: state.currentFailure,
-				};
-				if (validation.validated) {
-					state.currentFailure = null;
-					setStatus("Fix applied");
-					window.PatchHubEditorModal.closeHelperModal();
-					return;
-				}
-				state.currentFailure = validation.failure || null;
-				openFailureModal();
+			onAction(actionId) {
+				previewAction(
+					actionId,
+					String(state.currentFailure.primary_id || ""),
+					String(state.currentFailure.secondary_id || ""),
+				);
 			},
 		});
-	}
-
-	function jumpToObject(objectId) {
-		const body = byId("editorBody");
-		const idText = String(objectId || "").trim();
-		if (!body || !idText) return;
-		const text = body.value;
-		const idNeedle = `id = "${idText}"`;
-		const idIndex = text.indexOf(idNeedle);
-		if (idIndex < 0) return;
-		const blockIndex = text.lastIndexOf("[[object]]", idIndex);
-		const start = blockIndex >= 0 ? blockIndex : idIndex;
-		let end = text.indexOf("\n[[object]]", idIndex + idNeedle.length);
-		if (end < 0) end = text.length;
-		body.focus();
-		body.setSelectionRange(start, end);
 	}
 
 	function appendScaffold() {
@@ -316,6 +461,7 @@
 		const prefix = body.value.trimEnd();
 		body.value = `${prefix}\n\n${scaffold}`.replace(/^\n+/, "");
 		updateAddTypeState();
+		updateStatusBoxes();
 		addLog("Info", "DIRTY_STATE", `Appended ${type}`);
 	}
 
@@ -346,6 +492,7 @@
 		byId("editorAddBlock").addEventListener("click", appendScaffold);
 		byId("editorBody").addEventListener("input", () => {
 			updateAddTypeState();
+			updateStatusBoxes();
 			addLog("Info", "DIRTY_STATE", "Document changed");
 		});
 		byId("editorOpsLevel").addEventListener("change", renderLog);

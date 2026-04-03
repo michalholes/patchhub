@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .app_support import _err, _ok
+from .editor_action_preview import preview_action
 from .editor_codec import (
     DOCUMENT_PATHS,
     FORMAT_NAME,
@@ -29,6 +30,7 @@ from .editor_codec import (
 from .editor_fixup_apply import apply_fix_action
 from .editor_fixup_shared import CLIENT_ONLY_ACTIONS, EditorFixupError
 from .editor_fixups import build_failure, empty_failure
+from .editor_workspace import build_workspace
 from .targeting import resolve_targeting_runtime, validate_selected_target_repo
 
 DOC_OPTIONS = OrderedDict(
@@ -173,6 +175,40 @@ def _persist(
     )
 
 
+def _workspace_payload(
+    *,
+    target_repo: str,
+    document: str,
+    objects: list[dict[str, Any]],
+    validated: bool,
+    failure: dict[str, Any] | None = None,
+    selected_id: str | None = None,
+) -> dict[str, Any]:
+    return build_workspace(
+        objects=objects,
+        target_repo=target_repo,
+        document=document,
+        validated=validated,
+        failure=failure,
+        selected_id=selected_id,
+    )
+
+
+def _validate_current(
+    self: Any,
+    *,
+    target_repo: str,
+    human_text: str,
+    loaded_objects: list[dict[str, Any]],
+) -> tuple[bool, list[dict[str, Any]], dict[str, Any] | None]:
+    return validate_human_text(
+        target_root=_target_root(self, target_repo),
+        human_text=human_text,
+        loaded_objects=loaded_objects,
+        failure_builder=build_failure,
+    )
+
+
 def _scaffold_text_map() -> dict[str, str]:
     out: dict[str, str] = {}
     for object_type in OBJECT_TYPE_ORDER:
@@ -219,6 +255,19 @@ def api_editor_document(self: Any, qs: dict[str, str] | None = None) -> tuple[in
             loaded_objects=objects,
             current_text=human,
         )
+        ok, validated_objects, failure = _validate_current(
+            self,
+            target_repo=target_repo,
+            human_text=human,
+            loaded_objects=state.loaded_objects,
+        )
+        workspace = _workspace_payload(
+            target_repo=target_repo,
+            document=document,
+            objects=validated_objects if ok else state.loaded_objects,
+            validated=ok,
+            failure=failure,
+        )
         ops.append(_op("Info", "LOAD_OK", f"Loaded {path.name}"))
         return _ok(
             {
@@ -233,6 +282,9 @@ def api_editor_document(self: Any, qs: dict[str, str] | None = None) -> tuple[in
                 "dirty_state": "clean",
                 "add_type_options": OBJECT_TYPE_ORDER,
                 "loaded_ids": [str(obj.get("id", "")) for obj in state.loaded_objects],
+                "workspace": workspace,
+                "validated": ok,
+                "failure": failure,
                 "ops": ops,
             }
         )
@@ -248,11 +300,11 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
     state = _state(str(body.get("revision_token", "")).strip(), target_repo, document)
     ops = [_op("Info", "VALIDATE_START", f"Validating {document}")]
     try:
-        ok, objects, failure = validate_human_text(
-            target_root=_target_root(self, target_repo),
+        ok, objects, failure = _validate_current(
+            self,
+            target_repo=target_repo,
             human_text=human_text,
             loaded_objects=state.loaded_objects if state else [],
-            failure_builder=build_failure,
         )
         if not ok:
             failed = failure or empty_failure("validate_failure", "Validation failed")
@@ -261,6 +313,13 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                 {
                     "validated": False,
                     "failure": failed,
+                    "workspace": _workspace_payload(
+                        target_repo=target_repo,
+                        document=document,
+                        objects=state.loaded_objects if state else [],
+                        validated=False,
+                        failure=failed,
+                    ),
                     "last_action_state": "Validation failed",
                     "dirty_state": "dirty",
                     "ops": ops,
@@ -272,6 +331,13 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
             {
                 "validated": True,
                 "revision_token": token,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=objects,
+                    validated=True,
+                    failure=None,
+                ),
                 "last_action_state": "Validation passed",
                 "dirty_state": "dirty",
                 "ops": ops,
@@ -279,10 +345,18 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
         )
     except Exception as exc:
         ops.append(_op("Error", "VALIDATE_FAIL", str(exc)))
+        failed = empty_failure("validate_exception", str(exc))
         return _ok(
             {
                 "validated": False,
-                "failure": empty_failure("validate_exception", str(exc)),
+                "failure": failed,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=state.loaded_objects if state else [],
+                    validated=False,
+                    failure=failed,
+                ),
                 "last_action_state": "Validation failed",
                 "dirty_state": "dirty",
                 "ops": ops,
@@ -297,16 +371,29 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
     state = _state(str(body.get("revision_token", "")).strip(), target_repo, document)
     ops = [_op("Info", "SAVE_START", f"Saving {document}")]
     try:
-        ok, objects, failure = validate_human_text(
-            target_root=_target_root(self, target_repo),
+        ok, objects, failure = _validate_current(
+            self,
+            target_repo=target_repo,
             human_text=human_text,
             loaded_objects=state.loaded_objects if state else [],
-            failure_builder=build_failure,
         )
         if not ok:
             failed = failure or empty_failure("save_failure", "Save failed")
             ops.append(_op("Error", "SAVE_FAIL", failed["failure_code"]))
-            return _ok({"saved": False, "failure": failed, "ops": ops})
+            return _ok(
+                {
+                    "saved": False,
+                    "failure": failed,
+                    "workspace": _workspace_payload(
+                        target_repo=target_repo,
+                        document=document,
+                        objects=state.loaded_objects if state else [],
+                        validated=False,
+                        failure=failed,
+                    ),
+                    "ops": ops,
+                }
+            )
         path = _doc_path(self, target_repo, document)
         _require_existing_doc(path)
         _write_text(path, jsonl_text_from_objects(objects))
@@ -324,6 +411,13 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                 "saved": True,
                 "revision_token": token,
                 "human_text": normalized,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=objects,
+                    validated=True,
+                    failure=None,
+                ),
                 "last_action_state": "Saved",
                 "dirty_state": "clean",
                 "ops": ops,
@@ -331,10 +425,18 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
         )
     except Exception as exc:
         ops.append(_op("Error", "SAVE_FAIL", str(exc)))
+        failed = empty_failure("save_exception", str(exc))
         return _ok(
             {
                 "saved": False,
-                "failure": empty_failure("save_exception", str(exc)),
+                "failure": failed,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=state.loaded_objects if state else [],
+                    validated=False,
+                    failure=failed,
+                ),
                 "last_action_state": "Save failed",
                 "dirty_state": "dirty",
                 "ops": ops,
@@ -369,6 +471,13 @@ def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]
                 "saved": True,
                 "revision_token": token,
                 "human_text": normalized,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=parsed.objects,
+                    validated=False,
+                    failure=None,
+                ),
                 "last_action_state": "Unsafe save complete",
                 "dirty_state": "clean",
                 "ops": ops,
@@ -376,15 +485,58 @@ def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]
         )
     except Exception as exc:
         ops.append(_op("Error", "UNSAFE_SAVE_FAIL", str(exc)))
+        failed = empty_failure("unsafe_save_exception", str(exc))
+        try:
+            fallback_objects = parse_human_text(human_text).objects if human_text else []
+        except Exception:
+            fallback_objects = []
         return _ok(
             {
                 "saved": False,
-                "failure": empty_failure("unsafe_save_exception", str(exc)),
+                "failure": failed,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=fallback_objects,
+                    validated=False,
+                    failure=failed,
+                ),
                 "last_action_state": "Unsafe save failed",
                 "dirty_state": "dirty",
                 "ops": ops,
             }
         )
+
+
+def api_editor_preview_action(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
+    target_repo = str(body.get("target_repo", "")).strip()
+    document = str(body.get("document", "")).strip()
+    action_id = str(body.get("action_id", "")).strip()
+    primary_id = str(body.get("primary_id", "")).strip()
+    secondary_id = str(body.get("secondary_id", "")).strip()
+    state = _state(str(body.get("revision_token", "")).strip(), target_repo, document)
+    ops = [_op("Info", "FIX_APPLY", f"PREVIEW:{action_id}")]
+    try:
+        loaded_objects = state.loaded_objects if state else []
+        current_objects = parse_human_text(str(body.get("human_text", ""))).objects
+        preview, fixed = preview_action(
+            action_id=action_id,
+            objects=current_objects,
+            loaded_objects=loaded_objects,
+            primary_id=primary_id,
+            secondary_id=secondary_id,
+        )
+        ok, _objects, failure = _validate_current(
+            self,
+            target_repo=target_repo,
+            human_text=human_text_from_objects(fixed),
+            loaded_objects=loaded_objects,
+        )
+        preview["post_validation"] = {"validated": ok, "failure": failure}
+        return _ok({"ok": True, "preview": preview, "ops": ops})
+    except Exception as exc:
+        ops.append(_op("Error", "FIX_FAIL", str(exc)))
+        return _ok({"ok": False, "error": str(exc), "ops": ops})
 
 
 def api_editor_apply_fix(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
@@ -437,24 +589,41 @@ def api_editor_apply_fix(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                 "ok": True,
                 "human_text": human,
                 "revision_token": token,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=fixed,
+                    validated=ok,
+                    failure=failure,
+                    selected_id=primary_id or secondary_id,
+                ),
                 "ops": ops,
                 "validation": {"validated": ok, "failure": failure},
             }
         )
     except Exception as exc:
         ops.append(_op("Error", "FIX_FAIL", str(exc)))
+        failed = empty_failure(
+            "fix_exception",
+            str(exc),
+            primary_id=primary_id,
+            secondary_id=secondary_id,
+        )
         return _ok(
             {
                 "ok": False,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=state.loaded_objects if state else [],
+                    validated=False,
+                    failure=failed,
+                    selected_id=primary_id or secondary_id,
+                ),
                 "ops": ops,
                 "validation": {
                     "validated": False,
-                    "failure": empty_failure(
-                        "fix_exception",
-                        str(exc),
-                        primary_id=primary_id,
-                        secondary_id=secondary_id,
-                    ),
+                    "failure": failed,
                 },
             }
         )

@@ -288,6 +288,7 @@ class AsyncAppCore:
     api_editor_save = _editor.api_editor_save
     api_editor_save_unsafe = _editor.api_editor_save_unsafe
     api_editor_apply_fix = _editor.api_editor_apply_fix
+    api_editor_preview_action = _editor.api_editor_preview_action
 
     def _backend_db_probe_sync(self, memory_job_ids: set[str]) -> dict[str, object]:
         mode = str(self.backend_mode_state.mode or "")
