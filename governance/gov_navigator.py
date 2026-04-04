@@ -4,16 +4,37 @@ import argparse
 import json
 import sys
 from collections import defaultdict
+from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TypedDict, cast
 
 SEPARATOR = "-" * 80
 
 
-if TYPE_CHECKING or __package__:
-    from .rc_resolver import build_workflow_effective_context
-else:
-    from rc_resolver import build_workflow_effective_context
+class WorkflowEffectiveContext(TypedDict):
+    effective_step_ids: list[str]
+    effective_capabilities: list[str]
+    effective_rule_ids: list[str]
+    effective_full_rule_text: dict[str, str]
+
+
+WorkflowEffectiveContextFn = Callable[[list[dict], str], WorkflowEffectiveContext]
+
+
+def _load_build_workflow_effective_context() -> WorkflowEffectiveContextFn:
+    for module_name in ("governance.rc_resolver", "rc_resolver"):
+        try:
+            module = import_module(module_name)
+        except ModuleNotFoundError:
+            continue
+        func = getattr(module, "build_workflow_effective_context", None)
+        if callable(func):
+            return cast(WorkflowEffectiveContextFn, func)
+    raise ModuleNotFoundError("build_workflow_effective_context")
+
+
+build_workflow_effective_context = _load_build_workflow_effective_context()
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -60,6 +81,75 @@ def _heading_root(section: dict) -> str:
     if not heading:
         return "<no heading_path>"
     return heading.split(" > ", 1)[0]
+
+
+def _id_list(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    out: list[str] = []
+    for item in values:
+        text = str(item).strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _rule_ids_from_capabilities(
+    capability_ids: list[str], capabilities: dict[str, dict]
+) -> list[str]:
+    rule_ids: list[str] = []
+    seen: set[str] = set()
+    for capability_id in capability_ids:
+        capability = capabilities.get(capability_id, {})
+        for rule_id in _id_list(capability.get("triggers_rules", [])):
+            if rule_id in seen:
+                continue
+            seen.add(rule_id)
+            rule_ids.append(rule_id)
+    return rule_ids
+
+
+def _rule_text_by_ids(rule_ids: list[str], rules: dict[str, dict]) -> list[str]:
+    return [str(rules[rule_id].get("statement", "")) for rule_id in rule_ids]
+
+
+def _append_rule_text_block(
+    out: list[str],
+    rule_ids: list[str],
+    rules: dict[str, dict],
+    *,
+    show_rule_ids: bool = True,
+) -> None:
+    if show_rule_ids:
+        out.append(f"  rule_ids: {_fmt_list(rule_ids, limit=12)}")
+    rule_text = _rule_text_by_ids(rule_ids, rules)
+    if not rule_text:
+        out.append("  full_rule_text: -")
+        return
+    out.append("  full_rule_text:")
+    for statement in rule_text:
+        out.append(f"    - {statement}")
+
+
+def _entry_gate_rule_ids(gates: list[dict], capabilities: dict[str, dict]) -> list[str]:
+    rule_ids: list[str] = []
+    seen: set[str] = set()
+    for gate in gates:
+        for rule_id in _id_list(gate.get("gate_rule_ids", [])):
+            if rule_id in seen:
+                continue
+            seen.add(rule_id)
+            rule_ids.append(rule_id)
+        extra_rule_ids = _rule_ids_from_capabilities(
+            _id_list(gate.get("gate_capabilities", [])),
+            capabilities,
+        )
+        for rule_id in extra_rule_ids:
+            if rule_id in seen:
+                continue
+            seen.add(rule_id)
+            rule_ids.append(rule_id)
+    return rule_ids
 
 
 def _build_workflow_index(groups: dict[str, list[dict]]) -> dict[str, object]:
@@ -124,6 +214,8 @@ def _append_surface_navigation(out: list[str], groups: dict[str, list[dict]]) ->
     surfaces = {str(obj.get("id", "")): obj for obj in groups.get("surface", [])}
     routes = {str(obj.get("id", "")): obj for obj in groups.get("route", [])}
     providers = {str(obj.get("id", "")): obj for obj in groups.get("provider", [])}
+    capabilities = {str(obj.get("id", "")): obj for obj in groups.get("capability", [])}
+    rules = {str(obj.get("id", "")): obj for obj in groups.get("rule", [])}
     implementations = groups.get("implementation", [])
     route_impls: dict[str, list[str]] = defaultdict(list)
     for impl in implementations:
@@ -145,11 +237,18 @@ def _append_surface_navigation(out: list[str], groups: dict[str, list[dict]]) ->
             provided_caps = providers.get(provider_id, {}).get("provides_capabilities", [])
             provider_caps.extend(str(item) for item in provided_caps)
         out.append(f"  provider_capabilities: {_fmt_list(provider_caps, limit=12)}")
+        _append_rule_text_block(
+            out,
+            _rule_ids_from_capabilities(required_caps, capabilities),
+            rules,
+        )
         out.append("")
 
 
 def _append_route_navigation(out: list[str], groups: dict[str, list[dict]]) -> None:
     routes = {str(obj.get("id", "")): obj for obj in groups.get("route", [])}
+    capabilities = {str(obj.get("id", "")): obj for obj in groups.get("capability", [])}
+    rules = {str(obj.get("id", "")): obj for obj in groups.get("rule", [])}
     implementations = groups.get("implementation", [])
     route_impls: dict[str, list[str]] = defaultdict(list)
     for impl in implementations:
@@ -163,11 +262,17 @@ def _append_route_navigation(out: list[str], groups: dict[str, list[dict]]) -> N
         out.append("  covers_capabilities: " + _fmt_list(covered_caps, limit=12))
         out.append("  provider_chain: " + _fmt_list(provider_chain))
         out.append(f"  implementations: {_fmt_list(route_impls.get(route_id, []))}")
+        _append_rule_text_block(
+            out,
+            _rule_ids_from_capabilities(covered_caps, capabilities),
+            rules,
+        )
         out.append("")
 
 
 def _append_capability_navigation(out: list[str], groups: dict[str, list[dict]]) -> None:
     caps = {str(obj.get("id", "")): obj for obj in groups.get("capability", [])}
+    rules = {str(obj.get("id", "")): obj for obj in groups.get("rule", [])}
     providers = groups.get("provider", [])
     routes = groups.get("route", [])
     cap_routes: dict[str, list[str]] = defaultdict(list)
@@ -189,11 +294,14 @@ def _append_capability_navigation(out: list[str], groups: dict[str, list[dict]])
         out.append(f"  rules: {_fmt_list(rule_ids, limit=12)}")
         out.append(f"  routes: {_fmt_list(cap_routes.get(cap_id, []))}")
         out.append(f"  providers: {_fmt_list(cap_providers.get(cap_id, []))}")
+        _append_rule_text_block(out, rule_ids, rules, show_rule_ids=False)
         out.append("")
 
 
 def _append_implementation_navigation(out: list[str], groups: dict[str, list[dict]]) -> None:
     implementations = {str(obj.get("id", "")): obj for obj in groups.get("implementation", [])}
+    capabilities = {str(obj.get("id", "")): obj for obj in groups.get("capability", [])}
+    rules = {str(obj.get("id", "")): obj for obj in groups.get("rule", [])}
     _append_header(out, "IMPLEMENTATION NAVIGATION")
     for impl_id in sorted(implementations):
         impl = implementations[impl_id]
@@ -201,15 +309,22 @@ def _append_implementation_navigation(out: list[str], groups: dict[str, list[dic
         out.append(f"  implements_route: {impl.get('implements_route', '')}")
         declared_caps = [str(item) for item in impl.get("declared_capabilities", [])]
         out.append("  declared_capabilities: " + _fmt_list(declared_caps, limit=12))
+        _append_rule_text_block(
+            out,
+            _rule_ids_from_capabilities(declared_caps, capabilities),
+            rules,
+        )
         out.append("")
 
 
-def _append_workflow_roots(out: list[str], workflow: dict[str, object]) -> None:
+def _append_workflow_roots(out: list[str], workflow: dict[str, object], objs: list[dict]) -> None:
     steps: dict[str, dict] = workflow["steps"]  # type: ignore[assignment]
     roots: list[str] = workflow["roots"]  # type: ignore[assignment]
+    rules = {str(obj.get("id", "")): obj for obj in index_by_type(objs)[1].get("rule", [])}
     _append_header(out, "WORKFLOW ROOTS")
     for step_id in roots:
         step = steps[step_id]
+        ctx = build_workflow_effective_context(objs, step_id)
         out.append(f"[{step_id}]")
         out.append(f"  branch: {step.get('branch', '')}")
         entry_scope = "" if step.get("entry_scope") is None else step.get("entry_scope", "")
@@ -218,6 +333,7 @@ def _append_workflow_roots(out: list[str], workflow: dict[str, object]) -> None:
         out.append(f"  entry_mode: {entry_mode}")
         out.append(f"  route_ref: {step.get('route_ref', '')}")
         out.append(f"  surface_ref: {step.get('surface_ref', '')}")
+        _append_rule_text_block(out, ctx["effective_rule_ids"], rules)
         out.append("")
 
 
@@ -246,9 +362,13 @@ def _append_step_order(out: list[str], workflow: dict[str, object]) -> None:
         out.append("")
 
 
-def _append_entry_gates(out: list[str], workflow: dict[str, object]) -> None:
+def _append_entry_gates(
+    out: list[str], workflow: dict[str, object], groups: dict[str, list[dict]]
+) -> None:
     steps: dict[str, dict] = workflow["steps"]  # type: ignore[assignment]
     gates_by_step: dict[str, list[dict]] = workflow["gates_by_step"]  # type: ignore[assignment]
+    capabilities = {str(obj.get("id", "")): obj for obj in groups.get("capability", [])}
+    rules = {str(obj.get("id", "")): obj for obj in groups.get("rule", [])}
     _append_header(out, "ENTRY GATES")
     for step_id in sorted(steps):
         entry = [
@@ -258,6 +378,16 @@ def _append_entry_gates(out: list[str], workflow: dict[str, object]) -> None:
         ]
         out.append(f"[{step_id}]")
         out.append(f"  entry_gates: {_fmt_list(entry)}")
+        entry_gates = [
+            gate
+            for gate in gates_by_step.get(step_id, [])
+            if str(gate.get("gate_kind", "")) == "entry"
+        ]
+        _append_rule_text_block(
+            out,
+            _entry_gate_rule_ids(entry_gates, capabilities),
+            rules,
+        )
         out.append("")
 
 
@@ -305,19 +435,30 @@ def _append_effective_prestart_rules(
     out: list[str], workflow: dict[str, object], objs: list[dict]
 ) -> None:
     roots: list[str] = workflow["roots"]  # type: ignore[assignment]
+    rules = {str(obj.get("id", "")): obj for obj in index_by_type(objs)[1].get("rule", [])}
     _append_header(out, "EFFECTIVE PRESTART RULES")
     for step_id in roots:
         ctx = build_workflow_effective_context(objs, step_id)
         out.append(f"[{step_id}]")
         out.append(f"  rules: {_fmt_list(ctx['effective_rule_ids'])}")
+        _append_rule_text_block(
+            out,
+            ctx["effective_rule_ids"],
+            rules,
+            show_rule_ids=False,
+        )
         out.append("")
 
 
-def _append_workflow_step_details(out: list[str], workflow: dict[str, object]) -> None:
+def _append_workflow_step_details(
+    out: list[str], workflow: dict[str, object], groups: dict[str, list[dict]]
+) -> None:
     steps: dict[str, dict] = workflow["steps"]  # type: ignore[assignment]
     next_steps: dict[str, list[str]] = workflow["next_steps"]  # type: ignore[assignment]
     invalidations_by_step: dict[str, list[str]] = workflow["invalidations_by_step"]  # type: ignore[assignment]
     rollbacks_by_step: dict[str, list[str]] = workflow["rollbacks_by_step"]  # type: ignore[assignment]
+    capabilities = {str(obj.get("id", "")): obj for obj in groups.get("capability", [])}
+    rules = {str(obj.get("id", "")): obj for obj in groups.get("rule", [])}
     _append_header(out, "WORKFLOW STEP DETAILS")
     for step_id in sorted(steps):
         step = steps[step_id]
@@ -333,6 +474,11 @@ def _append_workflow_step_details(out: list[str], workflow: dict[str, object]) -
         out.append(f"  next_steps: {_fmt_list(next_steps.get(step_id, []))}")
         out.append(f"  invalidates: {_fmt_list(invalidations_by_step.get(step_id, []))}")
         out.append(f"  rollback_to: {_fmt_list(rollbacks_by_step.get(step_id, []))}")
+        _append_rule_text_block(
+            out,
+            _rule_ids_from_capabilities(required_caps, capabilities),
+            rules,
+        )
         out.append("")
 
 
@@ -371,12 +517,12 @@ def build_navigation_lines(objs: list[dict]) -> list[str]:
         _append_implementation_navigation(out, groups)
         if groups.get("workflow_step"):
             workflow = _build_workflow_index(groups)
-            _append_workflow_roots(out, workflow)
+            _append_workflow_roots(out, workflow, objs)
             _append_step_order(out, workflow)
-            _append_entry_gates(out, workflow)
+            _append_entry_gates(out, workflow, groups)
             _append_invalidation_map(out, workflow)
             _append_rollback_map(out, workflow)
-            _append_workflow_step_details(out, workflow)
+            _append_workflow_step_details(out, workflow, groups)
             _append_effective_prestart_steps(out, workflow, objs)
             _append_effective_prestart_capabilities(out, workflow, objs)
             _append_effective_prestart_rules(out, workflow, objs)
@@ -392,7 +538,31 @@ def build_navigation_json(objs: list[dict]) -> dict:
     next_steps: dict[str, list[str]] = workflow["next_steps"]  # type: ignore[assignment]
     invalidations_by_step: dict[str, list[str]] = workflow["invalidations_by_step"]  # type: ignore[assignment]
     rollbacks_by_step: dict[str, list[str]] = workflow["rollbacks_by_step"]  # type: ignore[assignment]
-    return {
+    capabilities = {str(obj.get("id", "")): obj for obj in groups.get("capability", [])}
+    rules = {str(obj.get("id", "")): obj for obj in groups.get("rule", [])}
+    step_payload: dict[str, dict] = {}
+    for step_id, step in sorted(steps.items()):
+        required_rule_ids = _rule_ids_from_capabilities(
+            _id_list(step.get("required_capabilities", [])),
+            capabilities,
+        )
+        step_payload[step_id] = {
+            "display_name": step.get("display_name", ""),
+            "branch": step.get("branch", ""),
+            "route_ref": step.get("route_ref", ""),
+            "surface_ref": step.get("surface_ref", ""),
+            "required_capabilities": step.get("required_capabilities", []),
+            "required_substeps": step.get("required_substeps", []),
+            "next_steps": next_steps.get(step_id, []),
+            "invalidates": invalidations_by_step.get(step_id, []),
+            "rollback_to": rollbacks_by_step.get(step_id, []),
+            "entry_scope": ("" if step.get("entry_scope") is None else step.get("entry_scope", "")),
+            "entry_mode": ("" if step.get("entry_mode") is None else step.get("entry_mode", "")),
+            "required_rule_ids": required_rule_ids,
+            "required_full_rule_text": _rule_text_by_ids(required_rule_ids, rules),
+        }
+    roots: list[str] = workflow["roots"]  # type: ignore[assignment]
+    payload = {
         "graph_counts": {
             "surfaces": len(groups.get("surface", [])),
             "routes": len(groups.get("route", [])),
@@ -401,28 +571,24 @@ def build_navigation_json(objs: list[dict]) -> dict:
             "implementations": len(groups.get("implementation", [])),
             "workflow_steps": len(groups.get("workflow_step", [])),
         },
-        "workflow_roots": workflow["roots"],
-        "steps": {
-            step_id: {
-                "display_name": step.get("display_name", ""),
-                "branch": step.get("branch", ""),
-                "route_ref": step.get("route_ref", ""),
-                "surface_ref": step.get("surface_ref", ""),
-                "required_capabilities": step.get("required_capabilities", []),
-                "required_substeps": step.get("required_substeps", []),
-                "next_steps": next_steps.get(step_id, []),
-                "invalidates": invalidations_by_step.get(step_id, []),
-                "rollback_to": rollbacks_by_step.get(step_id, []),
-                "entry_scope": (
-                    "" if step.get("entry_scope") is None else step.get("entry_scope", "")
-                ),
-                "entry_mode": (
-                    "" if step.get("entry_mode") is None else step.get("entry_mode", "")
+        "workflow_roots": roots,
+        "steps": step_payload,
+    }
+    if steps:
+        root_details: dict[str, dict] = {}
+        for step_id in roots:
+            ctx = build_workflow_effective_context(objs, step_id)
+            root_details[step_id] = {
+                "effective_step_ids": ctx["effective_step_ids"],
+                "effective_capabilities": ctx["effective_capabilities"],
+                "effective_rule_ids": ctx["effective_rule_ids"],
+                "effective_full_rule_text": _rule_text_by_ids(
+                    ctx["effective_rule_ids"],
+                    rules,
                 ),
             }
-            for step_id, step in sorted(steps.items())
-        },
-    }
+        payload["workflow_root_details"] = root_details
+    return payload
 
 
 def render(path_in: Path, path_out: Path, *, as_json: bool = False) -> None:
