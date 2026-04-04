@@ -9,8 +9,22 @@ import tempfile
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from governance.pm_validator import AUTHORITY_ONLY_PATHS
-from governance.rc_resolver import build_pack as build_resolver_pack
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+try:
+    from governance import rc_resolver
+    from governance.pm_validator import AUTHORITY_ONLY_PATHS
+    from governance.rc_resolver import build_pack as build_resolver_pack
+    from governance.workflow_effective_context import build_workflow_effective_context
+except ModuleNotFoundError as exc:
+    pytest.skip(
+        f"missing isolated dependency: {exc.name}",
+        allow_module_level=True,
+    )
 
 SCRIPT = Path(__file__).resolve().parents[1] / "governance/pm_validator.py"
 COMMIT = "Align PM validator monolith checks"
@@ -888,6 +902,12 @@ def test_authority_only_paths_are_corpus_only() -> None:
         "governance/governance.jsonl",
         "governance/specification.jsonl",
     } == AUTHORITY_ONLY_PATHS
+
+
+def test_resolver_reuses_canonical_workflow_effective_context() -> None:
+    assert build_resolver_pack.__module__ == "governance.rc_resolver"
+    assert build_workflow_effective_context.__module__ == ("governance.workflow_effective_context")
+    assert rc_resolver.build_workflow_effective_context is (build_workflow_effective_context)
 
 
 def test_initial_mode_passes_with_specification_authority_source(tmp_path: Path) -> None:

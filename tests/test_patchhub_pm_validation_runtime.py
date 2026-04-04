@@ -2,27 +2,40 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from governance.rc_resolver import build_pack, handoff_text
-from scripts.patchhub.app_api_jobs import api_patch_zip_manifest
-from scripts.patchhub.config import (
-    AppConfig,
-    AutofillConfig,
-    IndexingConfig,
-    IssueConfig,
-    MetaConfig,
-    PathsConfig,
-    RunnerConfig,
-    ServerConfig,
-    UiConfig,
-    UploadConfig,
-)
-from scripts.patchhub.fs_jail import FsJail
-from scripts.patchhub.pm_validation_runtime import build_patch_zip_pm_validation
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+try:
+    from governance.rc_resolver import build_pack, handoff_text
+    from scripts.patchhub.app_api_jobs import api_patch_zip_manifest
+    from scripts.patchhub.config import (
+        AppConfig,
+        AutofillConfig,
+        IndexingConfig,
+        IssueConfig,
+        MetaConfig,
+        PathsConfig,
+        RunnerConfig,
+        ServerConfig,
+        UiConfig,
+        UploadConfig,
+    )
+    from scripts.patchhub.fs_jail import FsJail
+    from scripts.patchhub.pm_validation_runtime import build_patch_zip_pm_validation
+except ModuleNotFoundError as exc:
+    pytest.skip(
+        f"missing isolated dependency: {exc.name}",
+        allow_module_level=True,
+    )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TARGET = "patchhub"
@@ -200,6 +213,7 @@ def _install_validator_runtime(tmp_path: Path) -> None:
         "governance/pm_validator.py",
         "governance/pm_validator_pack_contract.py",
         "governance/rc_resolver.py",
+        "governance/workflow_effective_context.py",
         "governance/specification.jsonl",
         "governance/governance.jsonl",
     ):

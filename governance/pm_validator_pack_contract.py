@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# Recomputes constraint-pack workflow context via the canonical authority module.
 import hashlib
 import json
 from pathlib import Path
@@ -18,12 +19,12 @@ SUPPORTED_AUTHORITY_SOURCES = {REPO_SPEC_PATH, GOVERNANCE_SPEC_PATH}
 
 
 if TYPE_CHECKING or __package__:
-    from .rc_resolver import (
+    from .workflow_effective_context import (
         WorkflowEffectiveContextError,
         build_workflow_effective_context,
     )
 else:
-    from rc_resolver import (
+    from workflow_effective_context import (
         WorkflowEffectiveContextError,
         build_workflow_effective_context,
     )

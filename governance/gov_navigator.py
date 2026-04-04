@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# Loads workflow-effective traversal from the canonical authority module.
 import argparse
 import json
 import sys
@@ -23,7 +24,10 @@ WorkflowEffectiveContextFn = Callable[[list[dict], str], WorkflowEffectiveContex
 
 
 def _load_build_workflow_effective_context() -> WorkflowEffectiveContextFn:
-    for module_name in ("governance.rc_resolver", "rc_resolver"):
+    for module_name in (
+        "governance.workflow_effective_context",
+        "workflow_effective_context",
+    ):
         try:
             module = import_module(module_name)
         except ModuleNotFoundError:
