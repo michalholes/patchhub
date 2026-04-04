@@ -18,15 +18,21 @@ SUPPORTED_AUTHORITY_SOURCES = {REPO_SPEC_PATH, GOVERNANCE_SPEC_PATH}
 
 
 if TYPE_CHECKING or __package__:
-    from .rc_resolver import (
+    from .workflow_effective_context import (
         WorkflowEffectiveContextError,
         build_workflow_effective_context,
     )
 else:
-    from rc_resolver import (
-        WorkflowEffectiveContextError,
-        build_workflow_effective_context,
-    )
+    try:
+        from workflow_effective_context import (
+            WorkflowEffectiveContextError,
+            build_workflow_effective_context,
+        )
+    except ModuleNotFoundError:
+        from rc_resolver import (
+            WorkflowEffectiveContextError,
+            build_workflow_effective_context,
+        )
 
 
 def _supplemental_governance_workflow_bytes(args):

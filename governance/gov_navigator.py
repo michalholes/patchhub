@@ -11,9 +11,12 @@ SEPARATOR = "-" * 80
 
 
 if TYPE_CHECKING or __package__:
-    from .rc_resolver import build_workflow_effective_context
+    from .workflow_effective_context import build_workflow_effective_context
 else:
-    from rc_resolver import build_workflow_effective_context
+    try:
+        from workflow_effective_context import build_workflow_effective_context
+    except ModuleNotFoundError:
+        from rc_resolver import build_workflow_effective_context
 
 
 def load_jsonl(path: Path) -> list[dict]:
