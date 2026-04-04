@@ -9,6 +9,7 @@ require_up_to_date = true
 enforce_main_branch = true
 ascii_only_patch = true
 
+
 [gates]
 compile_check = true
 compile_targets = ["."]
