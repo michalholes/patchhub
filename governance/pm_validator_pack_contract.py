@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import __main__ as _m
 
@@ -14,6 +15,18 @@ AOP, IR, SBT = _m.AUTHORITY_ONLY_PATHS, _m.INSTRUCTIONS_REQUIRED, _m.SUPPORTED_B
 REPO_SPEC_PATH = "governance/specification.jsonl"
 GOVERNANCE_SPEC_PATH = "governance/governance.jsonl"
 SUPPORTED_AUTHORITY_SOURCES = {REPO_SPEC_PATH, GOVERNANCE_SPEC_PATH}
+
+
+if TYPE_CHECKING or __package__:
+    from .rc_resolver import (
+        WorkflowEffectiveContextError,
+        build_workflow_effective_context,
+    )
+else:
+    from rc_resolver import (
+        WorkflowEffectiveContextError,
+        build_workflow_effective_context,
+    )
 
 
 def _supplemental_governance_workflow_bytes(args):
@@ -369,6 +382,13 @@ def _build_pack_from_spec_bytes(
             raise VE("missing_governance_workflow_source")
         workflow_objects = _load_jsonl_bytes(governance_workflow_raw)
     workflow_contract = _resolve_workflow_contract(workflow_objects, target_scope, mode)
+    try:
+        workflow_effective = build_workflow_effective_context(
+            workflow_objects,
+            workflow_contract["workflow_entry_step_id"],
+        )
+    except WorkflowEffectiveContextError as exc:
+        raise VE(str(exc)) from exc
     pack = {
         "target_symbol": None,
         "target_scope": target_scope,
@@ -395,6 +415,10 @@ def _build_pack_from_spec_bytes(
             "target_scope": target_scope,
         },
         **workflow_contract,
+        "workflow_effective_step_ids": workflow_effective["effective_step_ids"],
+        "workflow_effective_capabilities": workflow_effective["effective_capabilities"],
+        "workflow_effective_rule_ids": workflow_effective["effective_rule_ids"],
+        "workflow_effective_full_rule_text": workflow_effective["effective_full_rule_text"],
     }
     raw = (json.dumps(pack, indent=2, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
     return raw, hashlib.sha256(raw).hexdigest(), active

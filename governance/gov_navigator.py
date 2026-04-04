@@ -5,8 +5,15 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 SEPARATOR = "-" * 80
+
+
+if TYPE_CHECKING or __package__:
+    from .rc_resolver import build_workflow_effective_context
+else:
+    from rc_resolver import build_workflow_effective_context
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -270,6 +277,42 @@ def _append_rollback_map(out: list[str], workflow: dict[str, object]) -> None:
     out.append("")
 
 
+def _append_effective_prestart_steps(
+    out: list[str], workflow: dict[str, object], objs: list[dict]
+) -> None:
+    roots: list[str] = workflow["roots"]  # type: ignore[assignment]
+    _append_header(out, "EFFECTIVE PRESTART STEPS")
+    for step_id in roots:
+        ctx = build_workflow_effective_context(objs, step_id)
+        out.append(f"[{step_id}]")
+        out.append(f"  steps: {_fmt_list(ctx['effective_step_ids'])}")
+        out.append("")
+
+
+def _append_effective_prestart_capabilities(
+    out: list[str], workflow: dict[str, object], objs: list[dict]
+) -> None:
+    roots: list[str] = workflow["roots"]  # type: ignore[assignment]
+    _append_header(out, "EFFECTIVE PRESTART CAPABILITIES")
+    for step_id in roots:
+        ctx = build_workflow_effective_context(objs, step_id)
+        out.append(f"[{step_id}]")
+        out.append(f"  capabilities: {_fmt_list(ctx['effective_capabilities'])}")
+        out.append("")
+
+
+def _append_effective_prestart_rules(
+    out: list[str], workflow: dict[str, object], objs: list[dict]
+) -> None:
+    roots: list[str] = workflow["roots"]  # type: ignore[assignment]
+    _append_header(out, "EFFECTIVE PRESTART RULES")
+    for step_id in roots:
+        ctx = build_workflow_effective_context(objs, step_id)
+        out.append(f"[{step_id}]")
+        out.append(f"  rules: {_fmt_list(ctx['effective_rule_ids'])}")
+        out.append("")
+
+
 def _append_workflow_step_details(out: list[str], workflow: dict[str, object]) -> None:
     steps: dict[str, dict] = workflow["steps"]  # type: ignore[assignment]
     next_steps: dict[str, list[str]] = workflow["next_steps"]  # type: ignore[assignment]
@@ -334,6 +377,9 @@ def build_navigation_lines(objs: list[dict]) -> list[str]:
             _append_invalidation_map(out, workflow)
             _append_rollback_map(out, workflow)
             _append_workflow_step_details(out, workflow)
+            _append_effective_prestart_steps(out, workflow, objs)
+            _append_effective_prestart_capabilities(out, workflow, objs)
+            _append_effective_prestart_rules(out, workflow, objs)
         return out
     _append_legacy_navigation(out, groups)
     return out
