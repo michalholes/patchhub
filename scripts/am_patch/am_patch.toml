@@ -22,7 +22,7 @@ ipc_handshake_wait_s = 0
 # Success archive naming stays bootstrap-owned.
 success_archive_enabled = true
 success_archive_name = "{repo}-{branch}_{issue}.zip"
-issue_diff_bundle_enabled = true
+issue_diff_bundle_enabled = false
 success_archive_dir = "patch_dir"
 success_archive_cleanup_glob_template = ""
 success_archive_keep_count = 0
