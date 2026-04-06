@@ -6,8 +6,6 @@
 
 PatchHub is the operator-facing control surface for the AM Patch workflow in this repository. It pairs a web UI and HTTP API with the `am_patch` runner, patch archive handling, workspace lifecycle management, live job monitoring, rollback/revert flows, governance tooling, and deterministic test infrastructure.
 
-At the moment, the repository README is effectively empty. This document is intended to replace it with a practical repo-level overview.
-
 ## What is in this repository
 
 This repository is not just the PatchHub web app. It bundles several tightly related subsystems:
@@ -45,25 +43,6 @@ The HTTP API is broader than the UI and includes families for:
 - jobs, runs, logs, and event streams
 - editor bootstrap, validation, preview, and save flows
 - AMP schema and AMP config access
-
-## Repository layout
-
-```text
-.
-├── README.md
-├── am_patch.repo.toml            # repo-local AM Patch policy
-├── badguys/                      # deterministic black-box test harness
-├── docs/                         # change fragments and repo docs
-├── governance/                   # governance corpus + validators + navigator tooling
-├── scripts/
-│   ├── am_patch.py               # runner entry point
-│   ├── am_patch/                 # runner implementation
-│   ├── patchhub.py               # PatchHub entry point
-│   └── patchhub/                 # PatchHub server, API, UI, static assets, config
-├── tests/                        # pytest-based test suite
-├── package.json                  # Biome + TypeScript tooling
-└── pyproject.toml                # Python project metadata and tool config
-```
 
 ## Key runtime entry points
 
