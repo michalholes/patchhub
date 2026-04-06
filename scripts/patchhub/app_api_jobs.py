@@ -34,10 +34,13 @@ from .patch_inventory import derive_patch_metadata
 from .pm_validation_runtime import build_patch_zip_pm_validation
 from .rollback_helper_actions import (
     RollbackHelperActionError,
+    persist_rollback_request_payload,
     run_helper_action,
 )
 from .rollback_preflight import (
     RollbackPreflightError,
+    job_db_manifest_loader,
+    load_job_manifest_authority,
     run_rollback_preflight,
     validate_source_job_authority,
 )
@@ -360,6 +363,22 @@ def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
     )
     payload["applied_files"] = files
     payload["applied_files_source"] = source
+    authority = load_job_manifest_authority(
+        jobs_root=jobs_root,
+        job=job,
+        manifest_loader=job_db_manifest_loader(getattr(self, "web_jobs_db", None)),
+        allow_filesystem_fallback=getattr(self, "web_jobs_db", None) is None,
+    )
+    payload["rollback_available"] = bool(authority)
+    if isinstance(authority, dict):
+        if not payload.get("rollback_authority_kind") and (
+            kind := str(authority.get("rollback_authority_kind") or "").strip()
+        ):
+            payload["rollback_authority_kind"] = kind
+        if not payload.get("rollback_authority_source_ref") and (
+            source_ref := str(authority.get("rollback_authority_source_ref") or "").strip()
+        ):
+            payload["rollback_authority_source_ref"] = source_ref
     return payload
 
 
@@ -462,6 +481,8 @@ def _run_source_job_preflight(
         scope_kind=scope_kind,
         selected_repo_paths=selected_repo_paths,
         all_jobs=_all_job_records_for_rollback(self, source_job),
+        load_manifest_for_job=job_db_manifest_loader(getattr(self, "web_jobs_db", None)),
+        allow_filesystem_fallback=getattr(self, "web_jobs_db", None) is None,
     )
 
 
@@ -502,11 +523,12 @@ def _api_jobs_enqueue_rollback(self, body: dict[str, Any]) -> tuple[int, bytes]:
     )
     if not commit_summary:
         commit_summary = f"Roll-back {source_job.job_id}"
-    job_dir = self.jobs_root / job_id
     try:
-        _write_rollback_request(
-            job_dir,
-            {
+        persist_rollback_request_payload(
+            job_db=getattr(self, "web_jobs_db", None),
+            jobs_root=self.jobs_root,
+            job_id=job_id,
+            payload={
                 "source_job_id": source_job_id,
                 "scope_kind": str(preflight.get("scope_kind") or ""),
                 "selected_repo_paths": list(preflight.get("selected_repo_paths") or []),
@@ -904,6 +926,7 @@ def api_rollback_helper_action(self, body: dict[str, Any]) -> tuple[int, bytes]:
             scope_kind=_rollback_scope_kind_from_body(body),
             selected_repo_paths=_rollback_selected_paths_from_body(body),
             all_jobs=_all_job_records_for_rollback(self, source_job),
+            load_manifest_for_job=job_db_manifest_loader(getattr(self, "web_jobs_db", None)),
         )
     except (RollbackHelperActionError, RollbackPreflightError, ValueError) as exc:
         return _err(str(exc), status=409)

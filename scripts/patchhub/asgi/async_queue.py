@@ -16,7 +16,7 @@ from patchhub.job_record_lookup import (
     load_job_record_any_async,
 )
 from patchhub.models import JobRecord
-from patchhub.rollback_scope_manifest import build_manifest_for_job, write_manifest
+from patchhub.rollback_scope_manifest import build_manifest_for_job
 from patchhub.run_applied_files import collect_job_applied_files
 from patchhub.web_jobs_db import WebJobsDatabase
 
@@ -299,13 +299,25 @@ class AsyncJobQueue:
         )
         if not list(manifest.get("entries") or []):
             return
-        rel_path, manifest_hash = await asyncio.to_thread(
-            write_manifest,
-            self._job_dir(job.job_id),
-            manifest,
-        )
-        job.rollback_scope_manifest_rel_path = rel_path
-        job.rollback_scope_manifest_hash = manifest_hash
+        if self._job_db is not None:
+            await asyncio.to_thread(
+                self._job_db.upsert_manifest_authority,
+                job,
+                manifest,
+                count_as_job_change=False,
+            )
+            job.rollback_scope_manifest_rel_path = None
+            job.rollback_scope_manifest_hash = None
+        else:
+            from patchhub.rollback_scope_manifest import write_manifest
+
+            rel_path, manifest_hash = await asyncio.to_thread(
+                write_manifest,
+                self._job_dir(job.job_id),
+                manifest,
+            )
+            job.rollback_scope_manifest_rel_path = rel_path
+            job.rollback_scope_manifest_hash = manifest_hash
         job.rollback_authority_kind = str(
             manifest.get("rollback_authority_kind") or "git_commit_range"
         )
@@ -352,10 +364,32 @@ class AsyncJobQueue:
                 jobs_root=self._jobs_root,
             )
 
+        def load_manifest_for_job(job: JobRecord) -> dict[str, object] | None:
+            if self._job_db is not None:
+                return self._job_db.load_rollback_manifest(job.job_id)
+            rel_path = str(getattr(job, "rollback_scope_manifest_rel_path", "") or "").strip()
+            manifest_hash = str(getattr(job, "rollback_scope_manifest_hash", "") or "").strip()
+            if not rel_path or not manifest_hash:
+                return None
+            try:
+                from patchhub.rollback_scope_manifest import load_manifest
+
+                return load_manifest(self._jobs_root, rel_path, manifest_hash)
+            except Exception:
+                return None
+
+        def load_request_for_job(job: JobRecord) -> dict[str, object] | None:
+            if self._job_db is not None:
+                return self._job_db.load_rollback_request(job.job_id)
+            return None
+
         return build_rollback_job_handler(
             jobs_root=self._jobs_root,
             load_job_record_any=load_job_record_any,
             load_all_jobs=load_all_jobs,
+            load_manifest_for_job=load_manifest_for_job,
+            load_request_for_job=load_request_for_job,
+            allow_filesystem_request_fallback=self._job_db is None,
             target_repo_roots=self._target_repo_roots,
             capture_head_sha_for_job=self._capture_head_sha,
             append_log=lambda job, line: self._append_log_line(job, line),

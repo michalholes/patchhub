@@ -35,6 +35,7 @@ def _job_json_matches_rollback_candidate(
     source_job_id: str,
     source_created_unix_ms: int,
     target_repo: str,
+    has_manifest_authority: Callable[[str], bool] | None = None,
 ) -> bool:
     job_id = str(payload.get("job_id", "") or "").strip()
     if not job_id or job_id == source_job_id:
@@ -45,6 +46,8 @@ def _job_json_matches_rollback_candidate(
         return False
     if _payload_int(payload, "created_unix_ms") <= source_created_unix_ms:
         return False
+    if has_manifest_authority is not None:
+        return has_manifest_authority(job_id)
     manifest_path = str(payload.get("rollback_scope_manifest_rel_path", "") or "").strip()
     manifest_hash = str(payload.get("rollback_scope_manifest_hash", "") or "").strip()
     return bool(manifest_path and manifest_hash)
@@ -56,6 +59,7 @@ def _job_record_matches_rollback_candidate(
     source_job_id: str,
     source_created_unix_ms: int,
     target_repo: str,
+    has_manifest_authority: Callable[[str], bool] | None = None,
 ) -> bool:
     if str(job.job_id or "") == source_job_id:
         return False
@@ -65,6 +69,8 @@ def _job_record_matches_rollback_candidate(
         return False
     if int(getattr(job, "created_unix_ms", 0) or 0) <= source_created_unix_ms:
         return False
+    if has_manifest_authority is not None:
+        return has_manifest_authority(str(job.job_id or ""))
     manifest_path = str(getattr(job, "rollback_scope_manifest_rel_path", "") or "").strip()
     manifest_hash = str(getattr(job, "rollback_scope_manifest_hash", "") or "").strip()
     return bool(manifest_path and manifest_hash)
@@ -184,6 +190,9 @@ def list_rollback_relevant_job_records_sync(
     target_repo = str(source_job.effective_runner_target_repo or "").strip()
     out = [source_job]
     seen = {source_job_id} if source_job_id else set()
+    has_manifest_authority = (
+        job_db.job_has_manifest_authority if isinstance(job_db, WebJobsDatabase) else None
+    )
     for job in current_jobs:
         job_id = str(job.job_id or "").strip()
         if not job_id or job_id in seen:
@@ -193,6 +202,7 @@ def list_rollback_relevant_job_records_sync(
             source_job_id=source_job_id,
             source_created_unix_ms=source_created_unix_ms,
             target_repo=target_repo,
+            has_manifest_authority=has_manifest_authority,
         ):
             continue
         seen.add(job_id)
@@ -211,6 +221,7 @@ def list_rollback_relevant_job_records_sync(
             source_job_id=source_job_id,
             source_created_unix_ms=source_created_unix_ms,
             target_repo=target_repo,
+            has_manifest_authority=has_manifest_authority,
         ):
             continue
         job_id = str(row.get("job_id", "") or "").strip()
@@ -228,6 +239,7 @@ def list_rollback_relevant_job_records_sync(
             source_job_id=source_job_id,
             source_created_unix_ms=source_created_unix_ms,
             target_repo=target_repo,
+            has_manifest_authority=has_manifest_authority,
         ):
             continue
         seen.add(job_id)

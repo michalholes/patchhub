@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,33 @@ class RollbackHelperActionError(RuntimeError):
     pass
 
 
+def persist_rollback_request_payload(
+    *,
+    job_db: Any,
+    jobs_root: Path,
+    job_id: str,
+    payload: dict[str, Any],
+) -> None:
+    if job_db is not None:
+        job_db.upsert_request_authority(
+            job_id=str(job_id or ""),
+            source_job_id=str(payload.get("source_job_id") or ""),
+            scope_kind=str(payload.get("scope_kind") or ""),
+            selected_repo_paths=[
+                str(item) for item in list(payload.get("selected_repo_paths") or [])
+            ],
+            rollback_preflight_token=str(payload.get("rollback_preflight_token") or ""),
+            count_as_job_change=False,
+        )
+        return
+    job_dir = Path(jobs_root) / str(job_id or "")
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "rollback_request.json").write_text(
+        json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def run_helper_action(
     *,
     action: str,
@@ -21,6 +50,7 @@ def run_helper_action(
     scope_kind: str,
     selected_repo_paths: list[str],
     all_jobs: list[JobRecord],
+    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     rel_path, manifest_hash, _kind, _source_ref = validate_source_job_authority(source_job)
     preflight = run_rollback_preflight(
@@ -32,6 +62,8 @@ def run_helper_action(
         scope_kind=scope_kind,
         selected_repo_paths=selected_repo_paths,
         all_jobs=all_jobs,
+        load_manifest_for_job=load_manifest_for_job,
+        allow_filesystem_fallback=load_manifest_for_job is None,
     )
     action_name = str(action or "").strip()
     if action_name in {"", "refresh", "recheck"}:
@@ -88,6 +120,8 @@ def run_helper_action(
         scope_kind=scope_kind,
         selected_repo_paths=selected_repo_paths,
         all_jobs=all_jobs,
+        load_manifest_for_job=load_manifest_for_job,
+        allow_filesystem_fallback=load_manifest_for_job is None,
     )
 
 

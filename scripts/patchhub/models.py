@@ -16,6 +16,7 @@ JobMode = Literal[
 ]
 JobStatus = Literal["queued", "running", "success", "fail", "canceled", "unknown"]
 RunResult = Literal["success", "fail", "unknown", "canceled"]
+RollbackAuthorityRole = Literal["manifest", "request", "manifest_and_request"]
 
 _VALID_JOB_MODES = {
     "patch",
@@ -83,6 +84,171 @@ class EventRow:
     ipc_seq: int | None
     frame_type: str | None
     frame_event: str | None
+
+
+@dataclass
+class RollbackAuthorityRecord:
+    job_id: str
+    authority_role: RollbackAuthorityRole
+    manifest_version: int | None = None
+    manifest_source_job_id: str | None = None
+    manifest_issue_id: str | None = None
+    manifest_selected_target_repo_token: str | None = None
+    manifest_effective_runner_target_repo: str | None = None
+    manifest_authority_kind: str | None = None
+    manifest_authority_source_ref: str | None = None
+    manifest_entries: list[dict[str, Any]] = field(default_factory=list)
+    request_source_job_id: str | None = None
+    request_scope_kind: str | None = None
+    request_selected_repo_paths: list[str] = field(default_factory=list)
+    request_preflight_token: str | None = None
+    updated_unix_ms: int = 0
+
+    def has_manifest(self) -> bool:
+        return self.authority_role in {"manifest", "manifest_and_request"}
+
+    def has_request(self) -> bool:
+        return self.authority_role in {"request", "manifest_and_request"}
+
+    @classmethod
+    def with_manifest(
+        cls,
+        *,
+        job_id: str,
+        manifest: dict[str, Any],
+        request_source_job_id: str | None = None,
+        request_scope_kind: str | None = None,
+        request_selected_repo_paths: list[str] | None = None,
+        request_preflight_token: str | None = None,
+        updated_unix_ms: int = 0,
+    ) -> RollbackAuthorityRecord:
+        role: RollbackAuthorityRole = (
+            "manifest_and_request"
+            if request_source_job_id
+            or request_scope_kind
+            or request_selected_repo_paths
+            or request_preflight_token
+            else "manifest"
+        )
+        return cls(
+            job_id=str(job_id or ""),
+            authority_role=role,
+            manifest_version=_coerce_optional_int(manifest.get("version")),
+            manifest_source_job_id=(
+                str(manifest.get("source_job_id"))
+                if manifest.get("source_job_id") is not None
+                else None
+            ),
+            manifest_issue_id=(
+                str(manifest.get("issue_id")) if manifest.get("issue_id") is not None else None
+            ),
+            manifest_selected_target_repo_token=(
+                str(manifest.get("selected_target_repo_token"))
+                if manifest.get("selected_target_repo_token") is not None
+                else None
+            ),
+            manifest_effective_runner_target_repo=(
+                str(manifest.get("effective_runner_target_repo"))
+                if manifest.get("effective_runner_target_repo") is not None
+                else None
+            ),
+            manifest_authority_kind=(
+                str(manifest.get("rollback_authority_kind"))
+                if manifest.get("rollback_authority_kind") is not None
+                else None
+            ),
+            manifest_authority_source_ref=(
+                str(manifest.get("rollback_authority_source_ref"))
+                if manifest.get("rollback_authority_source_ref") is not None
+                else None
+            ),
+            manifest_entries=[
+                item for item in list(manifest.get("entries") or []) if isinstance(item, dict)
+            ],
+            request_source_job_id=request_source_job_id,
+            request_scope_kind=request_scope_kind,
+            request_selected_repo_paths=[
+                str(item) for item in list(request_selected_repo_paths or [])
+            ],
+            request_preflight_token=request_preflight_token,
+            updated_unix_ms=int(updated_unix_ms or 0),
+        )
+
+    @classmethod
+    def with_request(
+        cls,
+        *,
+        job_id: str,
+        source_job_id: str,
+        scope_kind: str,
+        selected_repo_paths: list[str],
+        rollback_preflight_token: str,
+        manifest_record: RollbackAuthorityRecord | None = None,
+        updated_unix_ms: int = 0,
+    ) -> RollbackAuthorityRecord:
+        if manifest_record is not None and manifest_record.has_manifest():
+            return cls(
+                job_id=str(job_id or ""),
+                authority_role="manifest_and_request",
+                manifest_version=manifest_record.manifest_version,
+                manifest_source_job_id=manifest_record.manifest_source_job_id,
+                manifest_issue_id=manifest_record.manifest_issue_id,
+                manifest_selected_target_repo_token=(
+                    manifest_record.manifest_selected_target_repo_token
+                ),
+                manifest_effective_runner_target_repo=(
+                    manifest_record.manifest_effective_runner_target_repo
+                ),
+                manifest_authority_kind=manifest_record.manifest_authority_kind,
+                manifest_authority_source_ref=manifest_record.manifest_authority_source_ref,
+                manifest_entries=list(manifest_record.manifest_entries),
+                request_source_job_id=str(source_job_id or "") or None,
+                request_scope_kind=str(scope_kind or "") or None,
+                request_selected_repo_paths=[str(item) for item in list(selected_repo_paths or [])],
+                request_preflight_token=str(rollback_preflight_token or "") or None,
+                updated_unix_ms=int(updated_unix_ms or 0),
+            )
+        return cls(
+            job_id=str(job_id or ""),
+            authority_role="request",
+            manifest_version=None,
+            manifest_source_job_id=None,
+            manifest_issue_id=None,
+            manifest_selected_target_repo_token=None,
+            manifest_effective_runner_target_repo=None,
+            manifest_authority_kind=None,
+            manifest_authority_source_ref=None,
+            manifest_entries=[],
+            request_source_job_id=str(source_job_id or "") or None,
+            request_scope_kind=str(scope_kind or "") or None,
+            request_selected_repo_paths=[str(item) for item in list(selected_repo_paths or [])],
+            request_preflight_token=str(rollback_preflight_token or "") or None,
+            updated_unix_ms=int(updated_unix_ms or 0),
+        )
+
+    def manifest_payload(self) -> dict[str, Any] | None:
+        if not self.has_manifest():
+            return None
+        return {
+            "version": int(self.manifest_version or 0),
+            "source_job_id": str(self.manifest_source_job_id or ""),
+            "issue_id": str(self.manifest_issue_id or ""),
+            "selected_target_repo_token": str(self.manifest_selected_target_repo_token or ""),
+            "effective_runner_target_repo": str(self.manifest_effective_runner_target_repo or ""),
+            "rollback_authority_kind": str(self.manifest_authority_kind or ""),
+            "rollback_authority_source_ref": str(self.manifest_authority_source_ref or ""),
+            "entries": list(self.manifest_entries),
+        }
+
+    def request_payload(self) -> dict[str, Any] | None:
+        if not self.has_request():
+            return None
+        return {
+            "source_job_id": str(self.request_source_job_id or ""),
+            "scope_kind": str(self.request_scope_kind or ""),
+            "selected_repo_paths": list(self.request_selected_repo_paths),
+            "rollback_preflight_token": str(self.request_preflight_token or ""),
+        }
 
 
 @dataclass(frozen=True)

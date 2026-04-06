@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -28,8 +29,17 @@ def run_rollback_preflight(
     scope_kind: str,
     selected_repo_paths: list[str] | None,
     all_jobs: list[JobRecord],
+    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None = None,
+    allow_filesystem_fallback: bool = True,
 ) -> dict[str, Any]:
-    manifest = load_manifest(jobs_root, source_manifest_rel_path, source_manifest_hash)
+    manifest = _load_authority_manifest(
+        jobs_root=jobs_root,
+        job=source_job,
+        source_manifest_rel_path=source_manifest_rel_path,
+        source_manifest_hash=source_manifest_hash,
+        load_manifest_for_job=load_manifest_for_job,
+        allow_filesystem_fallback=allow_filesystem_fallback,
+    )
     selected = normalize_selected_entries(
         manifest,
         scope_kind=scope_kind,
@@ -46,8 +56,16 @@ def run_rollback_preflight(
         source_job=source_job,
         all_jobs=all_jobs,
         selected_restore_paths=selected["restore_paths"],
+        load_manifest_for_job=load_manifest_for_job,
+        allow_filesystem_fallback=allow_filesystem_fallback,
     )
-    latest_authority = _latest_authority_job(all_jobs, target_token)
+    latest_authority = _latest_authority_job(
+        all_jobs,
+        target_token,
+        jobs_root=jobs_root,
+        load_manifest_for_job=load_manifest_for_job,
+        allow_filesystem_fallback=allow_filesystem_fallback,
+    )
     sync_paths = _sync_overlap_paths(
         target_root=target_root,
         latest_authority_job=latest_authority,
@@ -115,14 +133,81 @@ def validate_source_job_authority(job: JobRecord) -> tuple[str, str, str, str]:
         str(job.effective_runner_target_repo or "").strip(),
         str(job.run_start_sha or "").strip(),
         str(job.run_end_sha or "").strip(),
-        rel_path,
-        manifest_hash,
         authority_kind,
         authority_source_ref,
     ]
     if not all(required):
         raise RollbackPreflightError("source job is not rollback-capable")
     return rel_path, manifest_hash, authority_kind, authority_source_ref
+
+
+def load_job_manifest_authority(
+    *,
+    jobs_root: Path,
+    job: JobRecord,
+    manifest_loader: Callable[[JobRecord], dict[str, Any] | None] | None,
+    allow_filesystem_fallback: bool = True,
+) -> dict[str, Any] | None:
+    if manifest_loader is not None:
+        manifest = manifest_loader(job)
+        if isinstance(manifest, dict):
+            return manifest
+        if not allow_filesystem_fallback:
+            return None
+    rel_path = str(getattr(job, "rollback_scope_manifest_rel_path", "") or "").strip()
+    manifest_hash = str(getattr(job, "rollback_scope_manifest_hash", "") or "").strip()
+    if not rel_path or not manifest_hash:
+        return None
+    try:
+        return load_manifest(jobs_root, rel_path, manifest_hash)
+    except Exception:
+        return None
+
+
+def _load_authority_manifest(
+    *,
+    jobs_root: Path,
+    job: JobRecord,
+    source_manifest_rel_path: str,
+    source_manifest_hash: str,
+    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None,
+    allow_filesystem_fallback: bool = True,
+) -> dict[str, Any]:
+    manifest = load_job_manifest_authority(
+        jobs_root=jobs_root,
+        job=job,
+        manifest_loader=load_manifest_for_job,
+        allow_filesystem_fallback=allow_filesystem_fallback,
+    )
+    if isinstance(manifest, dict):
+        return manifest
+    if allow_filesystem_fallback and source_manifest_rel_path and source_manifest_hash:
+        return load_manifest(jobs_root, source_manifest_rel_path, source_manifest_hash)
+    raise RollbackPreflightError("rollback authority payload is missing")
+
+
+def _job_has_manifest_authority(
+    job: JobRecord,
+    *,
+    jobs_root: Path,
+    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None,
+    allow_filesystem_fallback: bool = True,
+) -> bool:
+    return (
+        load_job_manifest_authority(
+            jobs_root=jobs_root,
+            job=job,
+            manifest_loader=load_manifest_for_job,
+            allow_filesystem_fallback=allow_filesystem_fallback,
+        )
+        is not None
+    )
+
+
+def job_db_manifest_loader(job_db: Any) -> Callable[[JobRecord], dict[str, Any] | None] | None:
+    if job_db is None:
+        return None
+    return lambda job: job_db.load_rollback_manifest(job.job_id)
 
 
 def _helper_state(
@@ -273,6 +358,8 @@ def _later_overlap_jobs(
     source_job: JobRecord,
     all_jobs: list[JobRecord],
     selected_restore_paths: list[str],
+    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None,
+    allow_filesystem_fallback: bool = True,
 ) -> list[dict[str, Any]]:
     source_created = int(getattr(source_job, "created_unix_ms", 0) or 0)
     target_token = str(source_job.effective_runner_target_repo or "")
@@ -287,12 +374,19 @@ def _later_overlap_jobs(
             continue
         if int(getattr(job, "created_unix_ms", 0) or 0) <= source_created:
             continue
-        rel_path = str(getattr(job, "rollback_scope_manifest_rel_path", "") or "").strip()
-        manifest_hash = str(getattr(job, "rollback_scope_manifest_hash", "") or "").strip()
-        if not rel_path or not manifest_hash:
-            continue
         try:
-            manifest = load_manifest(jobs_root, rel_path, manifest_hash)
+            manifest = _load_authority_manifest(
+                jobs_root=jobs_root,
+                job=job,
+                source_manifest_rel_path=str(
+                    getattr(job, "rollback_scope_manifest_rel_path", "") or ""
+                ).strip(),
+                source_manifest_hash=str(
+                    getattr(job, "rollback_scope_manifest_hash", "") or ""
+                ).strip(),
+                load_manifest_for_job=load_manifest_for_job,
+                allow_filesystem_fallback=allow_filesystem_fallback,
+            )
         except Exception:
             continue
         try:
@@ -321,14 +415,25 @@ def _later_overlap_jobs(
     return out
 
 
-def _latest_authority_job(all_jobs: list[JobRecord], target_token: str) -> JobRecord | None:
+def _latest_authority_job(
+    all_jobs: list[JobRecord],
+    target_token: str,
+    *,
+    jobs_root: Path,
+    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None,
+    allow_filesystem_fallback: bool = True,
+) -> JobRecord | None:
     items = [
         item
         for item in all_jobs
         if str(item.status or "") == "success"
         and str(item.effective_runner_target_repo or "") == str(target_token or "")
-        and str(getattr(item, "rollback_scope_manifest_rel_path", "") or "").strip()
-        and str(getattr(item, "rollback_scope_manifest_hash", "") or "").strip()
+        and _job_has_manifest_authority(
+            item,
+            jobs_root=jobs_root,
+            load_manifest_for_job=load_manifest_for_job,
+            allow_filesystem_fallback=allow_filesystem_fallback,
+        )
         and str(item.run_end_sha or "").strip()
     ]
     if not items:

@@ -5,7 +5,13 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
-from .models import EventRow, JobRecord, WebJobsDbConfig
+from .models import (
+    EventRow,
+    JobRecord,
+    RollbackAuthorityRecord,
+    RollbackAuthorityRole,
+    WebJobsDbConfig,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS web_jobs (
@@ -65,6 +71,23 @@ CREATE TABLE IF NOT EXISTS web_job_event_lines (
     frame_type TEXT,
     frame_event TEXT,
     PRIMARY KEY (job_id, seq)
+);
+CREATE TABLE IF NOT EXISTS web_job_rollback_authority (
+    job_id TEXT PRIMARY KEY,
+    authority_role TEXT NOT NULL,
+    manifest_version INTEGER,
+    manifest_source_job_id TEXT,
+    manifest_issue_id TEXT,
+    manifest_selected_target_repo_token TEXT,
+    manifest_effective_runner_target_repo TEXT,
+    manifest_authority_kind TEXT,
+    manifest_authority_source_ref TEXT,
+    manifest_entries_json TEXT NOT NULL DEFAULT '[]',
+    request_source_job_id TEXT,
+    request_scope_kind TEXT,
+    request_selected_repo_paths_json TEXT NOT NULL DEFAULT '[]',
+    request_preflight_token TEXT,
+    updated_unix_ms INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS web_jobs_meta (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -130,6 +153,12 @@ CREATE INDEX IF NOT EXISTS idx_web_job_log_lines_tail
     ON web_job_log_lines(job_id, seq DESC);
 CREATE INDEX IF NOT EXISTS idx_web_job_event_lines_tail
     ON web_job_event_lines(job_id, seq DESC);
+CREATE INDEX IF NOT EXISTS idx_web_job_rollback_authority_manifest_repo
+    ON web_job_rollback_authority(
+        manifest_effective_runner_target_repo,
+        updated_unix_ms DESC,
+        job_id DESC
+    );
 """
 
 
@@ -168,6 +197,17 @@ def _int_or_none(value: Any) -> int | None:
 def _none_if_blank(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _rollback_authority_role(value: Any) -> RollbackAuthorityRole:
+    text = str(value or "").strip()
+    if text == "manifest":
+        return "manifest"
+    if text == "request":
+        return "request"
+    if text == "manifest_and_request":
+        return "manifest_and_request"
+    raise ValueError(f"invalid rollback authority role: {text}")
 
 
 def _read_event_frame(text: str) -> dict[str, Any] | None:
@@ -352,6 +392,86 @@ class SqliteWebJobsStore:
             "last_event_seq": int(row["last_event_seq"]),
             "row_rev": int(row["row_rev"]),
         }
+
+    def _row_to_rollback_authority_record(self, row: sqlite3.Row) -> RollbackAuthorityRecord:
+        return RollbackAuthorityRecord(
+            job_id=str(row["job_id"]),
+            authority_role=_rollback_authority_role(row["authority_role"]),
+            manifest_version=_int_or_none(row["manifest_version"]),
+            manifest_source_job_id=_none_if_blank(row["manifest_source_job_id"]),
+            manifest_issue_id=_none_if_blank(row["manifest_issue_id"]),
+            manifest_selected_target_repo_token=_none_if_blank(
+                row["manifest_selected_target_repo_token"]
+            ),
+            manifest_effective_runner_target_repo=_none_if_blank(
+                row["manifest_effective_runner_target_repo"]
+            ),
+            manifest_authority_kind=_none_if_blank(row["manifest_authority_kind"]),
+            manifest_authority_source_ref=_none_if_blank(row["manifest_authority_source_ref"]),
+            manifest_entries=json.loads(str(row["manifest_entries_json"] or "[]")),
+            request_source_job_id=_none_if_blank(row["request_source_job_id"]),
+            request_scope_kind=_none_if_blank(row["request_scope_kind"]),
+            request_selected_repo_paths=json.loads(
+                str(row["request_selected_repo_paths_json"] or "[]")
+            ),
+            request_preflight_token=_none_if_blank(row["request_preflight_token"]),
+            updated_unix_ms=int(row["updated_unix_ms"] or 0),
+        )
+
+    def _rollback_authority_values(self, authority: RollbackAuthorityRecord) -> tuple[Any, ...]:
+        return (
+            authority.job_id,
+            authority.authority_role,
+            authority.manifest_version,
+            authority.manifest_source_job_id,
+            authority.manifest_issue_id,
+            authority.manifest_selected_target_repo_token,
+            authority.manifest_effective_runner_target_repo,
+            authority.manifest_authority_kind,
+            authority.manifest_authority_source_ref,
+            _json_dumps(list(authority.manifest_entries)),
+            authority.request_source_job_id,
+            authority.request_scope_kind,
+            _json_dumps(list(authority.request_selected_repo_paths)),
+            authority.request_preflight_token,
+            int(authority.updated_unix_ms or 0),
+        )
+
+    def _upsert_rollback_authority_row(
+        self,
+        conn: sqlite3.Connection,
+        authority: RollbackAuthorityRecord,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO web_job_rollback_authority(
+                job_id, authority_role, manifest_version, manifest_source_job_id,
+                manifest_issue_id, manifest_selected_target_repo_token,
+                manifest_effective_runner_target_repo, manifest_authority_kind,
+                manifest_authority_source_ref, manifest_entries_json,
+                request_source_job_id, request_scope_kind,
+                request_selected_repo_paths_json, request_preflight_token,
+                updated_unix_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id) DO UPDATE SET
+                authority_role = excluded.authority_role,
+                manifest_version = excluded.manifest_version,
+                manifest_source_job_id = excluded.manifest_source_job_id,
+                manifest_issue_id = excluded.manifest_issue_id,
+                manifest_selected_target_repo_token = excluded.manifest_selected_target_repo_token,
+                manifest_effective_runner_target_repo =
+                    excluded.manifest_effective_runner_target_repo,
+                manifest_authority_kind = excluded.manifest_authority_kind,
+                manifest_authority_source_ref = excluded.manifest_authority_source_ref,
+                manifest_entries_json = excluded.manifest_entries_json,
+                request_source_job_id = excluded.request_source_job_id,
+                request_scope_kind = excluded.request_scope_kind,
+                request_selected_repo_paths_json = excluded.request_selected_repo_paths_json,
+                request_preflight_token = excluded.request_preflight_token,
+                updated_unix_ms = excluded.updated_unix_ms
+            """,
+            self._rollback_authority_values(authority),
+        )
 
     def _current_row_rev(self, conn: sqlite3.Connection, job_id: str) -> int:
         row = conn.execute(

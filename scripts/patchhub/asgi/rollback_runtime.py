@@ -38,6 +38,9 @@ class RollbackJobHandler:
         jobs_root: Path,
         load_job_record_any: Callable[[str], Awaitable[JobRecord | None]],
         load_all_jobs: Callable[[], Awaitable[list[JobRecord]]],
+        load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None],
+        load_request_for_job: Callable[[JobRecord], dict[str, Any] | None],
+        allow_filesystem_request_fallback: bool,
         target_repo_roots: Mapping[str, Path],
         capture_head_sha_for_job: Callable[[JobRecord], Awaitable[str]],
         append_log: Callable[[JobRecord, str], Awaitable[None]],
@@ -46,6 +49,9 @@ class RollbackJobHandler:
         self._jobs_root = Path(jobs_root)
         self._load_job_record_any = load_job_record_any
         self._load_all_jobs = load_all_jobs
+        self._load_manifest_for_job = load_manifest_for_job
+        self._load_request_for_job = load_request_for_job
+        self._allow_filesystem_request_fallback = bool(allow_filesystem_request_fallback)
         self._target_repo_roots = {str(k): Path(v).resolve() for k, v in target_repo_roots.items()}
         self._capture_head_sha_for_job = capture_head_sha_for_job
         self._append_log = append_log
@@ -72,6 +78,8 @@ class RollbackJobHandler:
                 scope_kind=request.scope_kind,
                 selected_repo_paths=request.selected_repo_paths,
                 all_jobs=await self._load_all_jobs(),
+                load_manifest_for_job=self._load_manifest_for_job,
+                allow_filesystem_fallback=self._allow_filesystem_request_fallback,
             )
         except (RollbackPreflightError, ValueError) as exc:
             return await self._fail(job, broker, f"rollback preflight failed: {exc}")
@@ -144,10 +152,14 @@ class RollbackJobHandler:
         return steps
 
     def _load_request(self, job: JobRecord) -> RollbackRequest:
-        path = self._jobs_root / str(job.job_id or "") / "rollback_request.json"
-        if not path.is_file():
-            raise RollbackRuntimeError("missing rollback request payload")
-        parsed = json.loads(path.read_text(encoding="utf-8"))
+        parsed = self._load_request_for_job(job)
+        if parsed is None:
+            if not self._allow_filesystem_request_fallback:
+                raise RollbackRuntimeError("missing rollback request payload")
+            path = self._jobs_root / str(job.job_id or "") / "rollback_request.json"
+            if not path.is_file():
+                raise RollbackRuntimeError("missing rollback request payload")
+            parsed = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(parsed, dict):
             raise RollbackRuntimeError("invalid rollback request payload")
         return RollbackRequest(
@@ -235,6 +247,9 @@ def build_rollback_job_handler(
     jobs_root: Path,
     load_job_record_any: Callable[[str], Awaitable[JobRecord | None]],
     load_all_jobs: Callable[[], Awaitable[list[JobRecord]]],
+    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None],
+    load_request_for_job: Callable[[JobRecord], dict[str, Any] | None],
+    allow_filesystem_request_fallback: bool,
     target_repo_roots: Mapping[str, Path],
     capture_head_sha_for_job: Callable[[JobRecord], Awaitable[str]],
     append_log: Callable[[JobRecord, str], Awaitable[None]],
@@ -244,6 +259,9 @@ def build_rollback_job_handler(
         jobs_root=jobs_root,
         load_job_record_any=load_job_record_any,
         load_all_jobs=load_all_jobs,
+        load_manifest_for_job=load_manifest_for_job,
+        load_request_for_job=load_request_for_job,
+        allow_filesystem_request_fallback=allow_filesystem_request_fallback,
         target_repo_roots=target_repo_roots,
         capture_head_sha_for_job=capture_head_sha_for_job,
         append_log=append_log,

@@ -17,9 +17,10 @@ from .job_store import (
     _json_dumps,
     _none_if_blank,
     _read_event_frame,
+    _utc_now_ms,
 )
 from .live_event_retention import clamp_live_event_retention
-from .models import EventRow, JobRecord, VirtualEntry, WebJobsDbConfig
+from .models import EventRow, JobRecord, RollbackAuthorityRecord, VirtualEntry, WebJobsDbConfig
 from .run_applied_files import derive_applied_files_from_log_text
 
 __all__ = [
@@ -177,6 +178,91 @@ class WebJobsDatabase:
             rows = conn.execute(sql, params).fetchall()
         return [self._store._row_to_job_json(row) for row in rows]
 
+    def load_rollback_authority(self, job_id: str) -> RollbackAuthorityRecord | None:
+        with self._store._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM web_job_rollback_authority WHERE job_id = ?",
+                (str(job_id),),
+            ).fetchone()
+        return None if row is None else self._store._row_to_rollback_authority_record(row)
+
+    def job_has_manifest_authority(self, job_id: str) -> bool:
+        authority = self.load_rollback_authority(job_id)
+        return bool(authority is not None and authority.has_manifest())
+
+    def upsert_rollback_authority(
+        self,
+        authority: RollbackAuthorityRecord,
+        *,
+        count_as_job_change: bool = True,
+    ) -> None:
+        with self._store._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            self._store._upsert_rollback_authority_row(conn, authority)
+            self._store._touch_meta(conn, jobs_delta=1 if count_as_job_change else 0)
+            conn.commit()
+
+    def upsert_manifest_authority(
+        self,
+        job: JobRecord,
+        manifest: dict[str, Any],
+        *,
+        count_as_job_change: bool = True,
+    ) -> RollbackAuthorityRecord:
+        existing = self.load_rollback_authority(job.job_id)
+        authority = RollbackAuthorityRecord.with_manifest(
+            job_id=job.job_id,
+            manifest=manifest,
+            request_source_job_id=(
+                existing.request_source_job_id if existing and existing.has_request() else None
+            ),
+            request_scope_kind=(
+                existing.request_scope_kind if existing and existing.has_request() else None
+            ),
+            request_selected_repo_paths=(
+                list(existing.request_selected_repo_paths)
+                if existing and existing.has_request()
+                else None
+            ),
+            request_preflight_token=(
+                existing.request_preflight_token if existing and existing.has_request() else None
+            ),
+            updated_unix_ms=_utc_now_ms(),
+        )
+        self.upsert_rollback_authority(authority, count_as_job_change=count_as_job_change)
+        return authority
+
+    def upsert_request_authority(
+        self,
+        *,
+        job_id: str,
+        source_job_id: str,
+        scope_kind: str,
+        selected_repo_paths: list[str],
+        rollback_preflight_token: str,
+        count_as_job_change: bool = True,
+    ) -> RollbackAuthorityRecord:
+        existing = self.load_rollback_authority(job_id)
+        authority = RollbackAuthorityRecord.with_request(
+            job_id=job_id,
+            source_job_id=source_job_id,
+            scope_kind=scope_kind,
+            selected_repo_paths=selected_repo_paths,
+            rollback_preflight_token=rollback_preflight_token,
+            manifest_record=existing,
+            updated_unix_ms=_utc_now_ms(),
+        )
+        self.upsert_rollback_authority(authority, count_as_job_change=count_as_job_change)
+        return authority
+
+    def load_rollback_manifest(self, job_id: str) -> dict[str, Any] | None:
+        authority = self.load_rollback_authority(job_id)
+        return None if authority is None else authority.manifest_payload()
+
+    def load_rollback_request(self, job_id: str) -> dict[str, Any] | None:
+        authority = self.load_rollback_authority(job_id)
+        return None if authority is None else authority.request_payload()
+
     def list_rollback_candidate_job_jsons(
         self,
         *,
@@ -187,16 +273,15 @@ class WebJobsDatabase:
         with self._store._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT *
-                  FROM web_jobs
-                 WHERE status = ?
-                   AND effective_runner_target_repo = ?
-                   AND created_unix_ms > ?
-                   AND rollback_scope_manifest_rel_path IS NOT NULL
-                   AND rollback_scope_manifest_rel_path != ''
-                   AND rollback_scope_manifest_hash IS NOT NULL
-                   AND rollback_scope_manifest_hash != ''
-                 ORDER BY created_unix_ms DESC, job_id DESC
+                SELECT wj.*
+                  FROM web_jobs AS wj
+                  JOIN web_job_rollback_authority AS ra
+                    ON ra.job_id = wj.job_id
+                 WHERE wj.status = ?
+                   AND wj.effective_runner_target_repo = ?
+                   AND wj.created_unix_ms > ?
+                   AND ra.authority_role IN ('manifest', 'manifest_and_request')
+                 ORDER BY wj.created_unix_ms DESC, wj.job_id DESC
                  LIMIT ?
                 """,
                 (

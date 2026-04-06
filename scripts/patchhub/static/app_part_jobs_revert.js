@@ -1,9 +1,11 @@
+/// <reference path="../../../types/am2-globals.d.ts" />
 /**
  * @typedef {PatchhubJob & {
  *   rollback_scope_manifest_rel_path?: string,
  *   rollback_scope_manifest_hash?: string,
  *   rollback_authority_kind?: string,
  *   rollback_authority_source_ref?: string,
+ *   rollback_available?: boolean,
  * }} RollbackAwareJob
  * @typedef {{
  *   call?: (name: string, ...args: unknown[]) => unknown,
@@ -52,10 +54,8 @@ function rollbackRequiredAuthorityPresent(detail) {
 		String((detail && detail.effective_runner_target_repo) || "").trim() &&
 		String((detail && detail.run_start_sha) || "").trim() &&
 		String((detail && detail.run_end_sha) || "").trim() &&
-		String((detail && detail.rollback_scope_manifest_rel_path) || "").trim() &&
-		String((detail && detail.rollback_scope_manifest_hash) || "").trim() &&
-		String((detail && detail.rollback_authority_kind) || "").trim() &&
-		String((detail && detail.rollback_authority_source_ref) || "").trim()
+		detail &&
+		detail.rollback_available === true
 	);
 }
 

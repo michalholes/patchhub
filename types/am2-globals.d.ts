@@ -163,6 +163,11 @@ declare global {
 		effective_runner_target_repo?: string;
 		run_start_sha?: string;
 		run_end_sha?: string;
+		rollback_scope_manifest_rel_path?: string;
+		rollback_scope_manifest_hash?: string;
+		rollback_authority_kind?: string;
+		rollback_authority_source_ref?: string;
+		rollback_available?: boolean;
 	};
 
 	type RerunLatestValues = {
