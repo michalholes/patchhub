@@ -14,6 +14,39 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, cast
 from zipfile import ZipFile
 
+if TYPE_CHECKING or __package__:
+    from .pm_validator_runtime_support import (
+        SupportRule,
+    )
+    from .pm_validator_runtime_support import (
+        apply_patch_members as _support_apply_patch_members,
+    )
+    from .pm_validator_runtime_support import (
+        build_validation_context as _support_build_validation_context,
+    )
+    from .pm_validator_runtime_support import (
+        collect_patch_members as _support_collect_patch_members,
+    )
+    from .pm_validator_runtime_support import (
+        not_runnable_results as _support_not_runnable_results,
+    )
+else:
+    from pm_validator_runtime_support import (
+        SupportRule,
+    )
+    from pm_validator_runtime_support import (
+        apply_patch_members as _support_apply_patch_members,
+    )
+    from pm_validator_runtime_support import (
+        build_validation_context as _support_build_validation_context,
+    )
+    from pm_validator_runtime_support import (
+        collect_patch_members as _support_collect_patch_members,
+    )
+    from pm_validator_runtime_support import (
+        not_runnable_results as _support_not_runnable_results,
+    )
+
 PATCH_RE = re.compile(r"^issue_(?P<issue>\d+)_v(?P<version>[1-9]\d*)\.zip$")
 SNAPSHOT_TARGET_RE = re.compile(r"^(?P<target>.+)-main_[^/]+\.zip$")
 PATCH_PREFIX = "patches/per_file/"
@@ -222,82 +255,18 @@ def _collect_patch_members(
     issue_id: str,
     commit_message: str,
 ) -> tuple[list[RuleResult], list[tuple[str, bytes]], list[str], str | None]:
-    status = "PASS" if path.suffix == ".zip" else "FAIL"
-    results = [RuleResult("PATCH_EXTENSION", status, str(path))]
-    if path.suffix != ".zip":
-        return results, [], [], None
-    names, items = _read_zip(path)
-    zmsg = _zip_text(items, "COMMIT_MESSAGE.txt")
-    zid = _zip_text(items, "ISSUE_NUMBER.txt")
-    results.append(
-        RuleResult(
-            "COMMIT_MESSAGE_FILE",
-            "PASS" if zmsg == commit_message else "FAIL",
-            zmsg if zmsg is not None else "missing_or_non_ascii_commit_message",
-        )
+    return _support_collect_patch_members(
+        path,
+        issue_id,
+        commit_message,
+        read_zip=_read_zip,
+        validate_basename=_validate_basename,
+        validate_target_bytes=_validate_target_bytes,
+        validate_patch_headers=_validate_patch_headers,
+        check_line_lengths=_check_line_lengths,
+        line_exts=LINE_EXTS,
+        rule_factory=RuleResult,
     )
-    results.append(
-        RuleResult(
-            "ISSUE_NUMBER_FILE",
-            "PASS" if zid == issue_id else "FAIL",
-            zid if zid is not None else "missing_or_non_ascii_issue_number",
-        )
-    )
-    if zmsg != commit_message or zid != issue_id:
-        return results, [], [], None
-    target_rule, patch_target = _target_rule(items)
-    results.append(target_rule)
-    if target_rule.status != "PASS":
-        return results, [], [], None
-    non_dirs = [name for name in names if not name.endswith("/")]
-    members = [
-        name for name in non_dirs if name.startswith(PATCH_PREFIX) and name.endswith(PATCH_SUFFIX)
-    ]
-    if not members:
-        return results + [RuleResult("PER_FILE_LAYOUT", "FAIL", "entries=0")], [], [], None
-    allowed = {"COMMIT_MESSAGE.txt", "ISSUE_NUMBER.txt", TARGET_FILE_NAME, *members}
-    extras = sorted(name for name in non_dirs if name not in allowed)
-    if extras:
-        detail = f"extra_entries={extras}"
-        return results + [RuleResult("PER_FILE_LAYOUT", "FAIL", detail)], [], [], None
-    results.append(RuleResult("PER_FILE_LAYOUT", "PASS", f"entries={len(members)}"))
-    patch_members: list[tuple[str, bytes]] = []
-    decision_paths: list[str] = []
-    seen: set[str] = set()
-    for member in sorted(members):
-        repo_path = _member_repo_path(member)
-        if repo_path is None:
-            detail = f"invalid_member:{member}"
-            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
-        if not _is_ascii_text(member):
-            detail = f"non_ascii_member:{member}"
-            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
-        if not _is_ascii_text(repo_path):
-            detail = f"non_ascii_repo_path:{repo_path}"
-            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
-        if repo_path in seen:
-            detail = f"duplicate_repo_path:{repo_path}"
-            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
-        seen.add(repo_path)
-        if not _is_ascii_bytes(items[member]):
-            detail = f"{member}:non_ascii_patch_text"
-            return results + [RuleResult("PATCH_ASCII", "FAIL", detail)], [], [], None
-        text = items[member].decode("ascii")
-        header_err = _validate_patch_headers(repo_path, text)
-        if header_err is not None:
-            detail = f"{member}:{header_err}"
-            return results + [RuleResult("PATCH_MEMBER_PATHS", "FAIL", detail)], [], [], None
-        if Path(repo_path).suffix in LINE_EXTS:
-            line_err = _check_line_lengths(text)
-            if line_err is not None:
-                detail = f"{member}:{line_err}"
-                return results + [RuleResult("LINE_LENGTH", "FAIL", detail)], [], [], None
-        patch_members.append((member, items[member]))
-        decision_paths.append(repo_path)
-    results.append(RuleResult("PATCH_MEMBER_PATHS", "PASS", f"paths={len(decision_paths)}"))
-    results.append(RuleResult("PATCH_ASCII", "PASS", "patch_members_ascii_only"))
-    results.append(RuleResult("LINE_LENGTH", "PASS", "py_js_added_lines<=100"))
-    return results, patch_members, decision_paths, patch_target
 
 
 def _docs_gate(decision_paths: list[str]) -> RuleResult:
@@ -322,35 +291,36 @@ def _iter_zip_files(path: Path) -> dict[str, bytes]:
     return keep
 
 
+def _support_rules(items: list[SupportRule]) -> list[RuleResult]:
+    return [RuleResult(item.rule_id, item.status, item.detail) for item in items]
+
+
 def _authority_files(
     args: argparse.Namespace,
     decision_paths: list[str],
-) -> tuple[dict[str, bytes], str]:
-    if not args.repair_overlay:
-        snapshot = _iter_zip_files(Path(args.workspace_snapshot))
-        baseline = {path: snapshot[path] for path in decision_paths if path in snapshot}
-        return baseline, "initial"
-    overlay = _iter_zip_files(Path(args.repair_overlay))
-    baseline = {path: overlay[path] for path in decision_paths if path in overlay}
-    if not args.supplemental_file:
-        missing = [path for path in decision_paths if path not in baseline]
-        if missing:
-            raise ValidationError(f"repair_requires_supplemental_file:{missing}")
-        return baseline, "overlay-only"
-    if not args.workspace_snapshot:
-        raise ValidationError("supplemental_requires_workspace_snapshot")
-    snapshot = _iter_zip_files(Path(args.workspace_snapshot))
-    allowed = set(args.supplemental_file)
-    undeclared = [path for path in decision_paths if path not in baseline and path not in allowed]
-    if undeclared:
-        raise ValidationError(f"repair_requires_supplemental_file:{undeclared}")
-    missing = [path for path in allowed if path not in snapshot]
-    if missing:
-        raise ValidationError(f"supplemental_file_missing_in_snapshot:{sorted(missing)}")
-    for path in decision_paths:
-        if path in allowed and path in snapshot:
-            baseline[path] = snapshot[path]
-    return baseline, "overlay+supplemental"
+    patch_members: list[tuple[str, bytes]],
+) -> tuple[dict[str, bytes], list[str], list[tuple[str, bytes]], list[RuleResult], str]:
+    snapshot = (
+        None if not args.workspace_snapshot else _iter_zip_files(Path(args.workspace_snapshot))
+    )
+    overlay = None if not args.repair_overlay else _iter_zip_files(Path(args.repair_overlay))
+    try:
+        ctx = _support_build_validation_context(
+            decision_paths=decision_paths,
+            patch_members=patch_members,
+            snapshot_files=snapshot,
+            overlay_files=overlay,
+            supplemental_files=list(args.supplemental_file),
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    return (
+        ctx.baseline_files,
+        ctx.runnable_paths,
+        ctx.runnable_patch_members,
+        _support_rules(ctx.degraded_rules),
+        ctx.mode,
+    )
 
 
 def _write_tree(root: Path, files: dict[str, bytes]) -> None:
@@ -360,25 +330,26 @@ def _write_tree(root: Path, files: dict[str, bytes]) -> None:
         dst.write_bytes(data)
 
 
-def _apply_patches(root: Path, patch_members: list[tuple[str, bytes]]) -> list[RuleResult]:
-    out: list[RuleResult] = []
-    for member, data in patch_members:
-        patch_file = root / ".pm_validator" / Path(member).name
-        patch_file.parent.mkdir(parents=True, exist_ok=True)
-        patch_file.write_bytes(data)
-        proc = _run(["git", "apply", "--check", str(patch_file)], cwd=root)
-        detail = (
-            "ok" if proc.returncode == 0 else (proc.stderr.strip() or proc.stdout.strip() or "fail")
+def _apply_patches(
+    root: Path, patch_members: list[tuple[str, bytes]]
+) -> tuple[list[RuleResult], bool]:
+    try:
+        return _support_apply_patch_members(
+            root,
+            patch_members,
+            run_cmd=_run,
+            rule_factory=RuleResult,
         )
-        status = "PASS" if proc.returncode == 0 else "FAIL"
-        out.append(RuleResult(f"GIT_APPLY_CHECK:{member}", status, detail))
-        if proc.returncode != 0:
-            return out
-        apply_proc = _run(["git", "apply", str(patch_file)], cwd=root)
-        if apply_proc.returncode != 0:
-            detail = apply_proc.stderr.strip() or apply_proc.stdout.strip() or member
-            raise ValidationError(detail)
-    return out
+    except RuntimeError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
+def _not_runnable_after_apply(cli_disabled: bool) -> list[RuleResult]:
+    return _support_not_runnable_results(
+        rule_factory=RuleResult,
+        cli_disabled=cli_disabled,
+        reason="apply_check_failed",
+    )
 
 
 def _compile_python(root: Path, decision_paths: list[str]) -> RuleResult:
@@ -1020,23 +991,26 @@ def main(argv: list[str] | None = None) -> int:
             args, instructions_path, decision_paths, patch_member_names
         )
         results.extend(pack_results)
-        baseline, _mode = _authority_files(args, decision_paths)
+        baseline, runnable_paths, runnable_members, degraded_results, _mode = _authority_files(
+            args, decision_paths, patch_members
+        )
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write_tree(root, baseline)
-            apply_results = _apply_patches(root, patch_members)
+            results.extend(degraded_results)
+            apply_results, applied_ok = _apply_patches(root, runnable_members)
             results.extend(apply_results)
-            if any(item.status == "FAIL" for item in apply_results):
-                sys.stdout.write(_format(results))
-                return 1
-            results.extend(
-                [
-                    _compile_python(root, decision_paths),
-                    _check_js(root, decision_paths),
-                    _monolith(root, baseline, decision_paths),
-                ]
-            )
-            results.extend(_run_external_gates(root, decision_paths, args.skip_external_gates))
+            if applied_ok:
+                results.extend(
+                    [
+                        _compile_python(root, runnable_paths),
+                        _check_js(root, runnable_paths),
+                        _monolith(root, baseline, runnable_paths),
+                    ]
+                )
+                results.extend(_run_external_gates(root, runnable_paths, args.skip_external_gates))
+            else:
+                results.extend(_not_runnable_after_apply(args.skip_external_gates))
         sys.stdout.write(_format(results))
         return 0 if not any(_is_hard_fail_result(item) for item in results) else 1
     except ValidationError as exc:

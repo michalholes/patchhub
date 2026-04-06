@@ -18,6 +18,11 @@ GOVERNANCE_SPEC_PATH = "governance/governance.jsonl"
 SUPPORTED_AUTHORITY_SOURCES = {REPO_SPEC_PATH, GOVERNANCE_SPEC_PATH}
 
 
+def _is_missing_repo_spec_error(err: str | None) -> bool:
+    text = str(err or "").strip()
+    return text.endswith(f":{REPO_SPEC_PATH}")
+
+
 if TYPE_CHECKING or __package__:
     from .workflow_effective_context import (
         WorkflowEffectiveContextError,
@@ -477,9 +482,13 @@ def _forbidden_bypass_rule(patch_member_names, pack, active_bindings):
 def _recompute_pack_rule(args, pack, pack_raw):
     spec_raw, err, source_path = _authority_spec_bytes(args, pack)
     if err is not None or spec_raw is None or source_path is None:
-        return _rr(
-            "PACK_RECOMPUTE", "UNVERIFIED_ENVIRONMENT", err or "missing_authority_spec"
-        ), None
+        status = "SKIP" if _is_missing_repo_spec_error(err) else "UNVERIFIED_ENVIRONMENT"
+        detail = (
+            "missing_repo_specification_jsonl"
+            if _is_missing_repo_spec_error(err)
+            else (err or "missing_authority_spec")
+        )
+        return _rr("PACK_RECOMPUTE", status, detail), None
     mode, scope = str(pack.get("mode", "")), str(pack.get("target_scope", ""))
     if not mode or not scope:
         return _rr("PACK_RECOMPUTE", "FAIL", "missing_mode_or_target_scope"), None
@@ -521,7 +530,7 @@ def _pack_rule_verdicts(pack, active_bindings, support_rules):
             first = fail[0]
             status = (
                 first.status
-                if first.status in {"UNVERIFIED_ENVIRONMENT", "MANUAL_REVIEW_REQUIRED"}
+                if first.status in {"SKIP", "UNVERIFIED_ENVIRONMENT", "MANUAL_REVIEW_REQUIRED"}
                 else "FAIL"
             )
             out.append(_rr(f"PACK_RULE:{bid}", status, first.rule_id))

@@ -55,6 +55,7 @@ def _workflow_objects(
 
 UNBOUND = "RULE RESOLVER: FAIL - unbound_target"
 CONFLICT = "RULE RESOLVER: FAIL - conflicting_obligations"
+MISSING_REPO_SPEC = "RULE RESOLVER: SKIP - missing_repo_specification_jsonl"
 REQUIRED_FIELDS = (
     "id",
     "binding_type",
@@ -86,6 +87,12 @@ def fail_unbound() -> NoReturn:
 def fail_conflict() -> NoReturn:
     print("RESULT: FAIL")
     print(CONFLICT)
+    raise SystemExit(1)
+
+
+def fail_missing_repo_spec() -> NoReturn:
+    print("RESULT: FAIL")
+    print(MISSING_REPO_SPEC)
     raise SystemExit(1)
 
 
@@ -392,6 +399,8 @@ def main(argv: list[str]) -> None:
         print("RESULT: FAIL")
         print(f"RULE RESOLVER: FAIL - spec_mismatch expected={expected_spec}:actual={args.spec}")
         raise SystemExit(1)
+    if scope == "implementation_scope" and REPO_SPEC_PATH not in entries:
+        fail_missing_repo_spec()
     spec_raw = Path(args.spec).read_bytes()
     governance_workflow_raw = None
     if scope == "implementation_scope" and args.spec != GOVERNANCE_SPEC_PATH:

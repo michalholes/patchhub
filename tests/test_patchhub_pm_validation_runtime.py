@@ -212,6 +212,7 @@ def _install_validator_runtime(tmp_path: Path) -> None:
     for relpath in (
         "governance/pm_validator.py",
         "governance/pm_validator_pack_contract.py",
+        "governance/pm_validator_runtime_support.py",
         "governance/rc_resolver.py",
         "governance/workflow_effective_context.py",
         "governance/specification.jsonl",
@@ -604,3 +605,35 @@ def test_build_pm_validation_accepts_specification_authority_source(tmp_path: Pa
         str(instructions_path),
     ]
     assert "RESULT: PASS" in payload["raw_output"]
+
+
+def test_build_pm_validation_accepts_repo_spec_absent_degraded_mode(tmp_path: Path) -> None:
+    s = _mk_self(tmp_path)
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    _write_instructions_artifact(
+        s.patches_root,
+        "601",
+        source_path="governance/specification.jsonl",
+    )
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Use PM validator at zip load",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+    _write_zip(
+        s.patches_root / "patchhub-main_20260315.zip",
+        {
+            "governance/governance.jsonl": _governance_bytes(),
+            relpath: before.encode("utf-8"),
+        },
+    )
+
+    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert payload["status"] == "pass"
+    assert payload["effective_mode"] == "initial"
+    assert "RULE PACK_RECOMPUTE: SKIP - missing_repo_specification_jsonl" in payload["raw_output"]
+    assert "RULE PACK_RULE:" in payload["raw_output"]
