@@ -59,6 +59,12 @@ class TestAmpSchema(unittest.TestCase):
             self.assertIn("target_repo_roots", policy)
             self.assertIn("target_repo_config_relpath", policy)
             self.assertIn("gates_order", policy)
+            self.assertIn("failure_zip_enabled", policy)
+            self.assertIn("success_archive_enabled", policy)
+            self.assertIn("issue_diff_bundle_enabled", policy)
+            self.assertEqual(policy["failure_zip_enabled"].get("type"), "bool")
+            self.assertEqual(policy["success_archive_enabled"].get("type"), "bool")
+            self.assertEqual(policy["issue_diff_bundle_enabled"].get("type"), "bool")
 
             self.assertNotIn("json_out", policy)
             self.assertNotIn("pytest_routing_mode", policy)

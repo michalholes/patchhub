@@ -89,6 +89,9 @@ def render_name(*, policy: Any, issue: str, log_path: Path, attempt: int | None)
 def cleanup_for_issue(*, patch_dir: Path, policy: Any, issue: str) -> None:
     """Apply per-issue retention for failure zips (best-effort)."""
 
+    if not bool(getattr(policy, "failure_zip_enabled", True)):
+        return
+
     keep_raw = getattr(policy, "failure_zip_keep_per_issue", 1)
     keep = int(keep_raw) if keep_raw is not None else 1
     if keep < 0:
@@ -113,6 +116,9 @@ def cleanup_for_issue(*, patch_dir: Path, policy: Any, issue: str) -> None:
 
 def cleanup_on_success_commit(*, patch_dir: Path, policy: Any, issue: str) -> None:
     """Remove failure zips for issue after a successful commit (best-effort)."""
+
+    if not bool(getattr(policy, "failure_zip_enabled", True)):
+        return
 
     if not bool(getattr(policy, "failure_zip_delete_on_success_commit", True)):
         return

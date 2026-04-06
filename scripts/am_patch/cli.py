@@ -7,6 +7,7 @@ from typing import Any
 
 from am_patch.version import RUNNER_VERSION
 
+from .cli_artifact_surface import add_artifact_override_args
 from .cli_badguys import add_badguys_cli_args
 from .cli_help_text import fmt_full_help, fmt_short_help
 from .cli_ipc_surface import add_ipc_override_args
@@ -318,6 +319,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     )
 
     add_ipc_override_args(p, append_override=AppendOverride)
+    add_artifact_override_args(p, append_override=AppendOverride)
 
     p.add_argument(
         "--patch-dir-name",
@@ -384,25 +386,6 @@ def parse_args(argv: list[str]) -> CliArgs:
         "--log-template-finalize",
         action=AppendOverride,
         key="log_template_finalize",
-        dest="overrides",
-    )
-
-    p.add_argument(
-        "--failure-zip-name",
-        action=AppendOverride,
-        key="failure_zip_name",
-        dest="overrides",
-    )
-    p.add_argument(
-        "--failure-zip-log-dir",
-        action=AppendOverride,
-        key="failure_zip_log_dir",
-        dest="overrides",
-    )
-    p.add_argument(
-        "--failure-zip-patch-dir",
-        action=AppendOverride,
-        key="failure_zip_patch_dir",
         dest="overrides",
     )
 
@@ -528,35 +511,6 @@ def parse_args(argv: list[str]) -> CliArgs:
     p.add_argument("--keep-workspace", dest="keep_workspace", action="store_true", default=None)
     p.add_argument("--test-mode", dest="test_mode", action="store_true", default=None)
     p.add_argument("--no-compile-check", dest="compile_check", action="store_false", default=None)
-    p.add_argument(
-        "--success-archive-name",
-        dest="success_archive_name",
-        default=None,
-        help="Success archive zip name template (placeholders: {repo}, {branch}, {issue}, {ts}).",
-    )
-
-    p.add_argument(
-        "--success-archive-dir",
-        dest="overrides",
-        action=AppendOverride,
-        key="success_archive_dir",
-        help="Success archive destination: patch_dir|successful_dir.",
-    )
-    p.add_argument(
-        "--success-archive-cleanup-glob",
-        dest="overrides",
-        action=AppendOverride,
-        key="success_archive_cleanup_glob_template",
-        help="Glob template for success archive retention candidate selection.",
-    )
-    p.add_argument(
-        "--success-archive-keep-count",
-        dest="overrides",
-        action=AppendOverride,
-        key="success_archive_keep_count",
-        help="Keep the last N success archives matching the glob template (0=disabled).",
-    )
-
     vg = p.add_mutually_exclusive_group()
     vg.add_argument("-q", dest="verbosity", action="store_const", const="quiet", default=None)
     vg.add_argument("-v", dest="verbosity", action="store_const", const="verbose", default=None)

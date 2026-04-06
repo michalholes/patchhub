@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
+from .config_artifact_surface import apply_artifact_cfg_surface, validate_artifact_cfg_surface
 from .config_file import _flatten_sections, load_config
 from .config_gate_execution import apply_gate_execution_cfg
 from .config_ipc_surface import apply_ipc_cfg_surface
@@ -19,7 +20,6 @@ from .pytest_namespace_config import (
     PYTEST_ROOTS_DEFAULT,
     PYTEST_TREE_DEFAULT,
 )
-from .success_archive_retention import validate_success_archive_retention
 
 __all__ = [
     "Policy",
@@ -69,6 +69,7 @@ class Policy(PolicyMonolithMixin):
     log_template_issue: str = "am_patch_issue_{issue}_{ts}.log"
     log_template_finalize: str = "am_patch_finalize_{ts}.log"
 
+    failure_zip_enabled: bool = True
     failure_zip_name: str = "patched.zip"
     failure_zip_template: str = ""
     failure_zip_cleanup_glob_template: str = "patched_issue{issue}_*.zip"
@@ -115,7 +116,9 @@ class Policy(PolicyMonolithMixin):
 
     default_branch: str = "main"
 
+    success_archive_enabled: bool = True
     success_archive_name: str = "{repo}-{branch}.zip"
+    issue_diff_bundle_enabled: bool = True
 
     success_archive_dir: str = "patch_dir"
     success_archive_cleanup_glob_template: str = ""
@@ -609,27 +612,12 @@ def build_policy(
     p.log_template_finalize = str(cfg.get("log_template_finalize", p.log_template_finalize))
     _mark_cfg(p, cfg, "log_template_finalize")
 
-    p.failure_zip_name = str(cfg.get("failure_zip_name", p.failure_zip_name))
-    _mark_cfg(p, cfg, "failure_zip_name")
-    p.failure_zip_template = str(cfg.get("failure_zip_template", p.failure_zip_template))
-    _mark_cfg(p, cfg, "failure_zip_template")
-    p.failure_zip_cleanup_glob_template = str(
-        cfg.get("failure_zip_cleanup_glob_template", p.failure_zip_cleanup_glob_template)
-    )
-    _mark_cfg(p, cfg, "failure_zip_cleanup_glob_template")
-    if "failure_zip_keep_per_issue" in cfg:
-        p.failure_zip_keep_per_issue = int(cfg["failure_zip_keep_per_issue"])
-        _mark_cfg(p, cfg, "failure_zip_keep_per_issue")
-    p.failure_zip_delete_on_success_commit = _as_bool(
+    apply_artifact_cfg_surface(
         cfg,
-        "failure_zip_delete_on_success_commit",
-        p.failure_zip_delete_on_success_commit,
+        p,
+        as_bool=_as_bool,
+        mark_cfg=_mark_cfg,
     )
-    _mark_cfg(p, cfg, "failure_zip_delete_on_success_commit")
-    p.failure_zip_log_dir = str(cfg.get("failure_zip_log_dir", p.failure_zip_log_dir))
-    _mark_cfg(p, cfg, "failure_zip_log_dir")
-    p.failure_zip_patch_dir = str(cfg.get("failure_zip_patch_dir", p.failure_zip_patch_dir))
-    _mark_cfg(p, cfg, "failure_zip_patch_dir")
 
     for key in ("self_backup_mode", "self_backup_dir", "self_backup_template"):
         setattr(p, key, _as_str_required(cfg, key, getattr(p, key)))
@@ -691,21 +679,6 @@ def build_policy(
 
     p.default_branch = str(cfg.get("default_branch", p.default_branch))
     _mark_cfg(p, cfg, "default_branch")
-    p.success_archive_name = str(cfg.get("success_archive_name", p.success_archive_name))
-    _mark_cfg(p, cfg, "success_archive_name")
-
-    p.success_archive_dir = str(cfg.get("success_archive_dir", p.success_archive_dir))
-    _mark_cfg(p, cfg, "success_archive_dir")
-    p.success_archive_cleanup_glob_template = str(
-        cfg.get(
-            "success_archive_cleanup_glob_template",
-            p.success_archive_cleanup_glob_template,
-        )
-    )
-    _mark_cfg(p, cfg, "success_archive_cleanup_glob_template")
-    if "success_archive_keep_count" in cfg:
-        p.success_archive_keep_count = int(cfg["success_archive_keep_count"])
-        _mark_cfg(p, cfg, "success_archive_keep_count")
 
     p.require_up_to_date = _as_bool(cfg, "require_up_to_date", p.require_up_to_date)
     _mark_cfg(p, cfg, "require_up_to_date")
@@ -798,35 +771,9 @@ def build_policy(
     p.current_log_symlink_name = _validate_basename(
         p.current_log_symlink_name, field="current_log_symlink_name"
     )
-    p.failure_zip_name = _validate_basename(p.failure_zip_name, field="failure_zip_name")
-
-    p.failure_zip_template = str(p.failure_zip_template).strip()
-    if p.failure_zip_template and "{issue}" not in p.failure_zip_template:
-        raise RunnerError("CONFIG", "INVALID", "failure_zip_template must contain {issue}")
-
-    if p.failure_zip_template:
-        uniqueness_keys = ("{ts}", "{nonce}", "{attempt")
-        if not any(k in p.failure_zip_template for k in uniqueness_keys):
-            raise RunnerError(
-                "CONFIG",
-                "INVALID",
-                "failure_zip_template must contain at least one of {ts}, {nonce}, {attempt}",
-            )
-
-    p.failure_zip_cleanup_glob_template = _validate_basename(
-        p.failure_zip_cleanup_glob_template,
-        field="failure_zip_cleanup_glob_template",
-    )
-    if p.failure_zip_keep_per_issue < 0:
-        raise RunnerError(
-            "CONFIG",
-            "INVALID",
-            "failure_zip_keep_per_issue must be >= 0",
-        )
-    validate_success_archive_retention(p)
-    p.failure_zip_log_dir = _validate_basename(p.failure_zip_log_dir, field="failure_zip_log_dir")
-    p.failure_zip_patch_dir = _validate_basename(
-        p.failure_zip_patch_dir, field="failure_zip_patch_dir"
+    validate_artifact_cfg_surface(
+        p,
+        validate_basename=lambda value, field: _validate_basename(value, field=field),
     )
 
     normalize_self_backup_policy(p)

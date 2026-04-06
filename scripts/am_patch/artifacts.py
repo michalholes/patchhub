@@ -56,83 +56,88 @@ def build_artifacts(
     issue_diff_zip: Path | None = None
 
     if exit_code == 0:
-        repo_name = repo_root.name
-        branch_name = git_ops.current_branch(logger, repo_root).strip()
-        if branch_name == "HEAD":
-            branch_name = "detached"
+        if bool(getattr(policy, "success_archive_enabled", True)):
+            repo_name = repo_root.name
+            branch_name = git_ops.current_branch(logger, repo_root).strip()
+            if branch_name == "HEAD":
+                branch_name = "detached"
 
-        issue = str(cli.issue_id) if cli.issue_id is not None else "noissue"
-        epoch_s = git_ops.head_commit_epoch_s(logger, repo_root)
-        ts = git_ops.format_epoch_utc_ts(epoch_s)
+            issue = str(cli.issue_id) if cli.issue_id is not None else "noissue"
+            epoch_s = git_ops.head_commit_epoch_s(logger, repo_root)
+            ts = git_ops.format_epoch_utc_ts(epoch_s)
 
-        template = policy.success_archive_name
-        try:
-            rendered = template.format(
-                repo=repo_name,
-                branch=branch_name,
-                issue=issue,
-                ts=ts,
-            )
-        except Exception as e:
-            raise RunnerError(
-                "POSTHOOK",
-                "CONFIG",
-                f"invalid success_archive_name template: {template!r} ({e!r})",
-            ) from e
+            template = policy.success_archive_name
+            try:
+                rendered = template.format(
+                    repo=repo_name,
+                    branch=branch_name,
+                    issue=issue,
+                    ts=ts,
+                )
+            except Exception as e:
+                raise RunnerError(
+                    "POSTHOOK",
+                    "CONFIG",
+                    f"invalid success_archive_name template: {template!r} ({e!r})",
+                ) from e
 
-        name = Path(rendered).name
-        if not name.lower().endswith(".zip"):
-            name = f"{name}.zip"
+            name = Path(rendered).name
+            if not name.lower().endswith(".zip"):
+                name = f"{name}.zip"
 
-        target_dir = paths.patch_dir
-        if getattr(policy, "success_archive_dir", "patch_dir") == "successful_dir":
-            target_dir = paths.successful_dir
+            target_dir = paths.patch_dir
+            if getattr(policy, "success_archive_dir", "patch_dir") == "successful_dir":
+                target_dir = paths.successful_dir
 
-        success_zip = target_dir / name
-        git_ops.git_archive(logger, repo_root, success_zip, treeish="HEAD")
+            success_zip = target_dir / name
+            git_ops.git_archive(logger, repo_root, success_zip, treeish="HEAD")
 
-        keep_count = int(getattr(policy, "success_archive_keep_count", 0))
-        glob_template = str(getattr(policy, "success_archive_cleanup_glob_template", "")).strip()
-        if glob_template:
-            candidates = [p for p in target_dir.glob(glob_template) if p.is_file()]
-            candidates = sorted(candidates, key=lambda p: p.name)
-            candidates = [p for p in candidates if p.resolve() != success_zip.resolve()]
-            while len(candidates) > keep_count:
-                doomed = candidates.pop(0)
-                with contextlib.suppress(FileNotFoundError):
-                    doomed.unlink()
+            keep_count = int(getattr(policy, "success_archive_keep_count", 0))
+            glob_template = str(
+                getattr(policy, "success_archive_cleanup_glob_template", "")
+            ).strip()
+            if glob_template:
+                candidates = [p for p in target_dir.glob(glob_template) if p.is_file()]
+                candidates = sorted(candidates, key=lambda p: p.name)
+                candidates = [p for p in candidates if p.resolve() != success_zip.resolve()]
+                while len(candidates) > keep_count:
+                    doomed = candidates.pop(0)
+                    with contextlib.suppress(FileNotFoundError):
+                        doomed.unlink()
 
+        issue_diff_enabled = bool(getattr(policy, "issue_diff_bundle_enabled", True))
         logger.line(f"issue_diff_base_sha={issue_diff_base_sha}")
         logger.line(f"issue_diff_paths_count={len(issue_diff_paths)}")
+        logger.line(f"issue_diff_bundle_enabled={issue_diff_enabled}")
 
-        if issue_diff_base_sha is None:
-            raise RunnerError("POSTHOOK", "DIFF", "missing issue_diff_base_sha")
+        if issue_diff_enabled:
+            if issue_diff_base_sha is None:
+                raise RunnerError("POSTHOOK", "DIFF", "missing issue_diff_base_sha")
 
-        if cli.issue_id is not None:
-            issue_id = cli.issue_id
-            logs = collect_issue_logs(
+            if cli.issue_id is not None:
+                issue_id = cli.issue_id
+                logs = collect_issue_logs(
+                    logs_dir=paths.logs_dir,
+                    issue_id=issue_id,
+                    issue_template=policy.log_template_issue,
+                )
+            else:
+                issue_id = derive_finalize_pseudo_issue_id(
+                    log_path=log_path,
+                    finalize_template=policy.log_template_finalize,
+                )
+                logs = [log_path]
+
+            issue_diff_zip = make_issue_diff_zip(
+                logger=logger,
+                repo_root=repo_root,
+                artifacts_dir=paths.artifacts_dir,
                 logs_dir=paths.logs_dir,
+                base_sha=issue_diff_base_sha,
                 issue_id=issue_id,
-                issue_template=policy.log_template_issue,
+                files_to_promote=issue_diff_paths,
+                log_paths=logs,
             )
-        else:
-            issue_id = derive_finalize_pseudo_issue_id(
-                log_path=log_path,
-                finalize_template=policy.log_template_finalize,
-            )
-            logs = [log_path]
-
-        make_issue_diff_zip(
-            logger=logger,
-            repo_root=repo_root,
-            artifacts_dir=paths.artifacts_dir,
-            logs_dir=paths.logs_dir,
-            base_sha=issue_diff_base_sha,
-            issue_id=issue_id,
-            files_to_promote=issue_diff_paths,
-            log_paths=logs,
-        )
-        issue_diff_zip = None
     else:
         pseudo_issue_id: str | None = None
         if cli.issue_id is None:
@@ -145,11 +150,19 @@ def build_artifacts(
             issue_id=cli.issue_id,
             pseudo_issue_id=pseudo_issue_id,
         )
-        cleanup_failure_zips_for_issue(
-            patch_dir=paths.patch_dir,
-            policy=policy,
-            issue=issue,
-        )
+        if bool(getattr(policy, "failure_zip_enabled", True)):
+            cleanup_failure_zips_for_issue(
+                patch_dir=paths.patch_dir,
+                policy=policy,
+                issue=issue,
+            )
+
+        if not bool(getattr(policy, "failure_zip_enabled", True)):
+            return ArtifactSummary(
+                success_zip=success_zip,
+                failure_zip=failure_zip,
+                issue_diff_zip=issue_diff_zip,
+            )
 
         name = render_failure_zip_name(
             policy=policy,

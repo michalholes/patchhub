@@ -241,6 +241,9 @@ effective selected target token from the normative target-selection
 contract in `scripts/am_patch_specification.md` section 3.1.1. The file
 uses the token format defined in section 3.1.2.
 
+Failure zip creation and its cleanup side effects run only when `failure_zip_enabled = true`
+(CLI: `--failure-zip` / `--no-failure-zip`).
+
 -
 Note on failure subsets:
 - On `-w` / `--finalize-workspace` failure, `patched.zip` includes the log plus the
@@ -465,7 +468,8 @@ If the audit step fails:
 ## Success archive (SUCCESS: clean repo snapshot)
 
 On SUCCESS (in `workspace`, `finalize`, and `finalize_workspace` modes; excluding `--test-mode`), the runner
-creates a git-archive success zip as a clean `git archive HEAD` snapshot of the final live repository state.
+creates a git-archive success zip as a clean `git archive HEAD` snapshot of the final live repository state
+only when `success_archive_enabled = true` (CLI: `--success-archive` / `--no-success-archive`).
 
 Naming:
 - The filename is controlled by `success_archive_name` / `--success-archive-name`
@@ -495,7 +499,7 @@ It contains only git-tracked files and does not include logs, workspaces, caches
 
 ## Issue diff bundle (SUCCESS: per-file unified diffs + logs)
 
-On SUCCESS (in `workspace`, `finalize`, and `finalize_workspace` modes; excluding `--test-mode`), the runner also creates an issue diff bundle zip under `patches/artifacts/`.
+On SUCCESS (in `workspace`, `finalize`, and `finalize_workspace` modes; excluding `--test-mode`), the runner also creates an issue diff bundle zip under `patches/artifacts/` only when `issue_diff_bundle_enabled = true` (CLI: `--issue-diff-bundle` / `--no-issue-diff-bundle`).
 
 Naming:
 - `issue_<ISSUE>_diff.zip`

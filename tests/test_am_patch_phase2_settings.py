@@ -31,6 +31,7 @@ def test_phase2_cfg_keys_apply() -> None:
         "log_ts_format": "%Y",
         "log_template_issue": "i_{issue}_{ts}.log",
         "log_template_finalize": "f_{ts}.log",
+        "failure_zip_enabled": False,
         "failure_zip_name": "fail.zip",
         "failure_zip_log_dir": "L",
         "failure_zip_patch_dir": "P",
@@ -49,6 +50,8 @@ def test_phase2_cfg_keys_apply() -> None:
         "scope_ignore_prefixes": [".x/"],
         "scope_ignore_suffixes": [".y"],
         "scope_ignore_contains": ["/z/"],
+        "success_archive_enabled": False,
+        "issue_diff_bundle_enabled": False,
         "venv_bootstrap_mode": "never",
         "venv_bootstrap_python": ".venv/bin/python3",
         "gate_pytest_py_prefixes": ["badguys", "scripts/am_patch"],
@@ -63,6 +66,7 @@ def test_phase2_cfg_keys_apply() -> None:
     assert p.log_ts_format == "%Y"
     assert p.log_template_issue == "i_{issue}_{ts}.log"
     assert p.log_template_finalize == "f_{ts}.log"
+    assert p.failure_zip_enabled is False
     assert p.failure_zip_name == "fail.zip"
     assert p.failure_zip_log_dir == "L"
     assert p.failure_zip_patch_dir == "P"
@@ -81,6 +85,8 @@ def test_phase2_cfg_keys_apply() -> None:
     assert p.scope_ignore_prefixes == [".x/"]
     assert p.scope_ignore_suffixes == [".y"]
     assert p.scope_ignore_contains == ["/z/"]
+    assert p.success_archive_enabled is False
+    assert p.issue_diff_bundle_enabled is False
     assert p.venv_bootstrap_mode == "never"
     assert p.venv_bootstrap_python == ".venv/bin/python3"
     assert p.gate_pytest_py_prefixes == ["badguys", "scripts/am_patch"]
@@ -105,6 +111,7 @@ def test_phase2_cli_flags_set_overrides() -> None:
             "x_{issue}_{ts}.log",
             "--log-template-finalize",
             "y_{ts}.log",
+            "--no-failure-zip",
             "--failure-zip-name",
             "z.zip",
             "--failure-zip-log-dir",
@@ -145,6 +152,8 @@ def test_phase2_cli_flags_set_overrides() -> None:
             ".tmp",
             "--scope-ignore-contains",
             "/__X__/",
+            "--no-success-archive",
+            "--no-issue-diff-bundle",
             "--venv-bootstrap-mode",
             "never",
             "--venv-bootstrap-python",
@@ -170,6 +179,7 @@ def test_phase2_cli_flags_set_overrides() -> None:
     assert p.log_ts_format == "%Y%m%d"
     assert p.log_template_issue == "x_{issue}_{ts}.log"
     assert p.log_template_finalize == "y_{ts}.log"
+    assert p.failure_zip_enabled is False
     assert p.failure_zip_name == "z.zip"
     assert p.failure_zip_log_dir == "LOGS"
     assert p.failure_zip_patch_dir == "PATCHES"
@@ -189,6 +199,8 @@ def test_phase2_cli_flags_set_overrides() -> None:
     assert ".am/" in p.scope_ignore_prefixes
     assert ".tmp" in p.scope_ignore_suffixes
     assert "/__X__/" in p.scope_ignore_contains
+    assert p.success_archive_enabled is False
+    assert p.issue_diff_bundle_enabled is False
     assert p.venv_bootstrap_mode == "never"
     assert p.venv_bootstrap_python == ".venv/bin/python"
 

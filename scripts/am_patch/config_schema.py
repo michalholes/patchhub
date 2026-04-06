@@ -19,7 +19,7 @@ from typing import Any, get_args, get_origin, get_type_hints
 
 from am_patch.config import BOOTSTRAP_OWNED_KEYS, Policy
 
-SCHEMA_VERSION = "9"
+SCHEMA_VERSION = "10"
 
 
 # Explicit mapping of policy keys to TOML sections.
@@ -149,6 +149,7 @@ _SECTION_BY_KEY: dict[str, str] = {
     "log_ts_format": "",
     "log_template_issue": "",
     "log_template_finalize": "",
+    "failure_zip_enabled": "",
     "failure_zip_name": "",
     "failure_zip_template": "",
     "failure_zip_cleanup_glob_template": "",
@@ -174,7 +175,9 @@ _SECTION_BY_KEY: dict[str, str] = {
     "venv_bootstrap_mode": "",
     "venv_bootstrap_python": "",
     "default_branch": "",
+    "success_archive_enabled": "",
     "success_archive_name": "",
+    "issue_diff_bundle_enabled": "",
     "success_archive_dir": "",
     "success_archive_cleanup_glob_template": "",
     "success_archive_keep_count": "",
@@ -243,6 +246,7 @@ _LABEL_BY_KEY: dict[str, str] = {
     "skip_up_to_date": "Git safety: skip up-to-date",
     "audit_rubric_guard": "Audit: rubric guard",
     "default_branch": "Git: default branch",
+    "failure_zip_enabled": "Failure zip: enabled",
     "live_repo_guard": "Git safety: live repo guard",
     "live_repo_guard_scope": "Git safety: live repo guard scope",
     "repo_root": "Paths: repo root",
@@ -257,6 +261,8 @@ _LABEL_BY_KEY: dict[str, str] = {
     "self_backup_template": "Self-backup: template",
     "self_backup_include_relpaths": "Self-backup: include relpaths",
     "ruff_autofix": "Ruff: autofix",
+    "success_archive_enabled": "Success archive: enabled",
+    "issue_diff_bundle_enabled": "Issue diff bundle: enabled",
     "ruff_autofix_legalize_outside": "Ruff: autofix legalize outside",
     "ruff_format": "Ruff: format",
     "biome_format": "Biome: format",
@@ -548,6 +554,18 @@ _HELP_BY_KEY: dict[str, str] = {
     "test_mode_isolate_patch_dir": (
         "Isolate patch_dir during test_mode. "
         "See: scripts/am_patch_policy_glossary.md## Key: test_mode_isolate_patch_dir"
+    ),
+    "failure_zip_enabled": (
+        "Enable failure zip creation and cleanup side effects. "
+        "See: scripts/am_patch_policy_glossary.md## Key: failure_zip_enabled"
+    ),
+    "success_archive_enabled": (
+        "Enable success archive creation and retention cleanup. "
+        "See: scripts/am_patch_policy_glossary.md## Key: success_archive_enabled"
+    ),
+    "issue_diff_bundle_enabled": (
+        "Enable issue diff bundle creation on success. "
+        "See: scripts/am_patch_policy_glossary.md## Key: issue_diff_bundle_enabled"
     ),
     "update_workspace": (
         "Update the workspace repository before running. "
