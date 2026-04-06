@@ -51,10 +51,11 @@ gates_skip_biome = false
 biome_format = true
 biome_autofix = true
 biome_autofix_legalize_outside = true
-gate_biome_fix_command = ["npm", "run", "lint:files:fix", "--"]
-gate_biome_format_command = ["npx", "@biomejs/biome", "format", "--write", "."]
 gate_biome_extensions = [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"]
-gate_biome_command = ["npm", "run", "lint:files", "--"]
+gate_biome_format_command = ["npx", "--yes", "@biomejs/biome", "format", "--write"]
+gate_biome_command = ["npx", "--yes", "@biomejs/biome", "lint", "--diagnostic-level=error", "--max-diagnostics=10000"]
+gate_biome_fix_command = ["npx", "--yes", "@biomejs/biome", "lint", "--write", "--diagnostic-level=error", "--max-diagnostics=10000"]
+
 
 gates_skip_typescript = false
 gate_typescript_extensions = [".js", ".ts", ".tsx", ".mts", ".cts", ".d.ts"]
