@@ -52,7 +52,7 @@ biome_format = true
 biome_autofix = true
 biome_autofix_legalize_outside = true
 gate_biome_fix_command = ["npm", "run", "lint:files:fix", "--"]
-gate_biome_format_command = ["npx", "biome", "format", "--write", "."]
+gate_biome_format_command = ["npx", "@biomejs/biome", "format", "--write", "."]
 gate_biome_extensions = [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"]
 gate_biome_command = ["npm", "run", "lint:files", "--"]
 
