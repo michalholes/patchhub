@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -22,41 +21,21 @@ _STATUS_PASS = "pass"
 _STATUS_FAIL = "fail"
 _STATUS_ERROR = "error"
 _STATUS_MISSING_CONTEXT = "missing_context"
-_INSTRUCTIONS_BASENAME_RE = re.compile(r"^instructions_(?P<issue>\d+)_v(?P<version>[1-9]\d*)\.zip$")
 
 
 def _validator_script_path(repo_root: Path) -> Path:
     return (repo_root / "governance" / "pm_validator.py").resolve()
 
 
-def _instructions_paths(patches_root: Path, issue_id: str) -> tuple[Path | None, Path | None]:
+def _instructions_zip_path(patches_root: Path, issue_id: str) -> Path | None:
     clean_issue = str(issue_id or "").strip()
     if not clean_issue.isdigit():
-        return None, None
+        return None
     root = patches_root.resolve()
-    best: Path | None = None
-    best_version = -1
-    try:
-        candidates = list(root.iterdir())
-    except OSError:
-        candidates = []
-    for candidate in candidates:
-        if not candidate.is_file():
-            continue
-        match = _INSTRUCTIONS_BASENAME_RE.fullmatch(candidate.name)
-        if match is None or match.group("issue") != clean_issue:
-            continue
-        version = int(match.group("version"))
-        resolved = candidate.resolve()
-        if resolved.parent != root:
-            continue
-        if version > best_version:
-            best = resolved
-            best_version = version
-    placeholder = (patches_root / f"instructions_placeholder_{clean_issue}.zip").resolve()
-    if placeholder.parent != root:
-        return best, None
-    return best, placeholder
+    candidate = (patches_root / f"instructions_issue{clean_issue}.zip").resolve()
+    if candidate.parent != root:
+        return None
+    return candidate
 
 
 def _append_authority_source(authority_sources: list[str], path: Path) -> list[str]:
@@ -173,6 +152,22 @@ def _raw_output(stdout: str, stderr: str) -> str:
 def _parse_status(returncode: int, raw_output: str) -> str:
     if returncode == 0 and "RESULT: PASS" in raw_output:
         return _STATUS_PASS
+    if any(
+        token in raw_output
+        for token in (
+            "workspace_snapshot_required_for_initial_mode",
+            "repair_overlay_not_found",
+            "supplemental_requires_workspace_snapshot",
+        )
+    ):
+        return _STATUS_MISSING_CONTEXT
+    if (
+        "RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found" in raw_output
+        or "RULE INSTRUCTIONS_LAYOUT: FAIL - missing_instructions_zip" in raw_output
+        or "RULE INSTRUCTIONS_HANDOFF: FAIL - missing_instructions_zip" in raw_output
+        or "RULE PACK_JSON: FAIL - missing_instructions_zip" in raw_output
+    ):
+        return _STATUS_MISSING_CONTEXT
     return _STATUS_FAIL
 
 
@@ -194,7 +189,6 @@ def _run_validator(
         str(commit_message),
         str(patch_zip),
         str(instructions_zip),
-        "--skip-external-gates",
     ]
     if workspace_snapshot is not None:
         cmd.extend(["--workspace-snapshot", str(workspace_snapshot)])
@@ -275,11 +269,8 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
             supplemental_files=[],
             raw_output=f"zip_issue_missing_or_invalid:{zip_issue_err or 'unknown'}",
         )
-    instructions_authority, instructions_placeholder = _instructions_paths(
-        self.patches_root,
-        zip_issue_id,
-    )
-    if instructions_placeholder is None:
+    instructions_zip = _instructions_zip_path(self.patches_root, zip_issue_id)
+    if instructions_zip is None:
         return _missing_context_payload(
             effective_mode="initial",
             issue_id=issue_id,
@@ -287,11 +278,8 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
             patch_path=patch_rel,
             authority_sources=[],
             supplemental_files=[],
-            raw_output=f"instructions_placeholder_invalid:{zip_issue_id}",
+            raw_output=(f"instructions_zip_invalid:instructions_issue{zip_issue_id}.zip"),
         )
-    instructions_zip = (
-        instructions_authority if instructions_authority is not None else instructions_placeholder
-    )
     overlay_path = _latest_repair_overlay(self.patches_root, zip_issue_id)
     effective_mode = "repair-overlay-only" if overlay_path is not None else "initial"
     authority_sources: list[str] = []
@@ -330,9 +318,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
         repair_overlay=overlay_path,
         supplemental_files=[],
     )
-    passed_sources = list(authority_sources)
-    if instructions_authority is not None:
-        passed_sources = _append_authority_source(passed_sources, instructions_authority)
+    passed_sources = _append_authority_source(authority_sources, instructions_zip)
     raw = _raw_output(proc.stdout, proc.stderr)
 
     if overlay_path is not None:
@@ -347,13 +333,29 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                     patch_path=patch_rel,
                     authority_sources=passed_sources,
                     supplemental_files=supplemental_files,
-                    raw_output=f"repair_target_missing_or_invalid:{repair_target_err or 'unknown'}",
+                    raw_output=(
+                        raw.rstrip("\n")
+                        + "\n\n[repair supplemental missing context]\n"
+                        + "zip_target_missing_or_invalid:"
+                        + f"{repair_target_err or 'unknown'}"
+                    ),
                 )
             workspace_snapshot = _latest_local_baseline_snapshot(
                 self.patches_root,
                 repair_target,
             )
             if workspace_snapshot is None:
+                proc = _run_validator(
+                    repo_root=self.repo_root,
+                    issue_id=issue_id,
+                    commit_message=commit_message,
+                    patch_zip=patch_zip,
+                    instructions_zip=instructions_zip,
+                    workspace_snapshot=None,
+                    repair_overlay=overlay_path,
+                    supplemental_files=supplemental_files,
+                )
+                rerun_raw = _raw_output(proc.stdout, proc.stderr)
                 return _missing_context_payload(
                     effective_mode=effective_mode,
                     issue_id=issue_id,
@@ -361,7 +363,12 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                     patch_path=patch_rel,
                     authority_sources=passed_sources,
                     supplemental_files=supplemental_files,
-                    raw_output=f"repair_workspace_snapshot_missing:{repair_target}",
+                    raw_output=(
+                        "[overlay-only]\n"
+                        + raw.rstrip("\n")
+                        + "\n\n[repair-supplemental]\n"
+                        + rerun_raw
+                    ),
                 )
             authority_sources.append(str(workspace_snapshot))
             proc = _run_validator(
@@ -374,11 +381,10 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                 repair_overlay=overlay_path,
                 supplemental_files=supplemental_files,
             )
+            rerun_raw = _raw_output(proc.stdout, proc.stderr)
             effective_mode = "repair-supplemental"
-            passed_sources = list(authority_sources)
-            if instructions_authority is not None:
-                passed_sources = _append_authority_source(passed_sources, instructions_authority)
-            raw = _raw_output(proc.stdout, proc.stderr)
+            passed_sources = _append_authority_source(authority_sources, instructions_zip)
+            raw = "[overlay-only]\n" + raw.rstrip("\n") + "\n\n[repair-supplemental]\n" + rerun_raw
 
     return {
         "status": _parse_status(proc.returncode, raw),
