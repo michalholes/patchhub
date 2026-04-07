@@ -200,9 +200,10 @@ def _write_instructions_artifact(
     issue: str,
     *,
     source_path: str = "governance/governance.jsonl",
+    version: int = 1,
 ) -> Path:
     return _instructions_zip(
-        patches_root / f"instructions_issue{issue}.zip",
+        patches_root / f"instructions_{issue}_v{version}.zip",
         issue=issue,
         source_path=source_path,
     )
@@ -357,9 +358,10 @@ def test_zip_manifest_includes_pm_validation_without_initial_authority_fallback(
         str(instructions_path),
     ]
     assert "RESULT: PASS" in pm_validation["raw_output"]
+    assert "RULE EXTERNAL_GATE:RUFF: SKIP - cli_disabled" in pm_validation["raw_output"]
 
 
-def test_build_pm_validation_requires_local_instructions_artifact(
+def test_build_pm_validation_runs_validator_without_local_instructions_artifact(
     tmp_path: Path,
 ) -> None:
     s = _mk_self(tmp_path)
@@ -379,19 +381,19 @@ def test_build_pm_validation_requires_local_instructions_artifact(
     )
 
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
-    assert payload["status"] == "missing_context"
+    assert payload["status"] == "fail"
     assert payload["effective_mode"] == "initial"
     assert payload["authority_sources"] == [
         str(s.patches_root / "patchhub-main_20260315.zip"),
-        str(s.patches_root / "instructions_issue601.zip"),
     ]
     assert payload["supplemental_files"] == []
     assert "RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found" in payload["raw_output"]
     assert "RULE MONOLITH: PASS - gate_passed" in payload["raw_output"]
-    assert "instructions_zip_missing:instructions_issue601.zip" not in payload["raw_output"]
+    assert "RULE EXTERNAL_GATE:RUFF: SKIP - cli_disabled" in payload["raw_output"]
+    assert "instructions_placeholder_601.zip" not in payload["authority_sources"]
 
 
-def test_zip_manifest_surfaces_validator_missing_instructions_context(
+def test_zip_manifest_surfaces_validator_failure_without_instructions_authority(
     tmp_path: Path,
 ) -> None:
     s = _mk_self(tmp_path)
@@ -415,11 +417,10 @@ def test_zip_manifest_surfaces_validator_missing_instructions_context(
     assert status == 200
     payload = json.loads(raw.decode("utf-8"))
     pm_validation = payload["pm_validation"]
-    assert pm_validation["status"] == "missing_context"
+    assert pm_validation["status"] == "fail"
     assert pm_validation["effective_mode"] == "initial"
     assert pm_validation["authority_sources"] == [
         str(baseline_path),
-        str(s.patches_root / "instructions_issue601.zip"),
     ]
     assert pm_validation["supplemental_files"] == []
     assert (
@@ -427,7 +428,7 @@ def test_zip_manifest_surfaces_validator_missing_instructions_context(
         in pm_validation["raw_output"]
     )
     assert "RULE MONOLITH: PASS - gate_passed" in pm_validation["raw_output"]
-    assert "instructions_zip_missing:instructions_issue601.zip" not in pm_validation["raw_output"]
+    assert "RULE EXTERNAL_GATE:RUFF: SKIP - cli_disabled" in pm_validation["raw_output"]
 
 
 def test_build_pm_validation_initial_requires_target_matched_local_baseline(
@@ -451,7 +452,7 @@ def test_build_pm_validation_initial_requires_target_matched_local_baseline(
     )
 
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
-    assert payload["status"] == "missing_context"
+    assert payload["status"] == "fail"
     assert payload["effective_mode"] == "initial"
     assert payload["authority_sources"] == [str(instructions_path)]
     assert "workspace_snapshot_required_for_initial_mode" in payload["raw_output"]
@@ -523,8 +524,9 @@ def test_build_pm_validation_repair_escalates_with_exact_supplemental_files(
         str(baseline_path),
         str(instructions_path),
     ]
-    assert "[overlay-only]" in payload["raw_output"]
-    assert "[repair-supplemental]" in payload["raw_output"]
+    assert "[overlay-only]" not in payload["raw_output"]
+    assert "[repair-supplemental]" not in payload["raw_output"]
+    assert "RESULT: PASS" in payload["raw_output"]
 
 
 def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay(
@@ -569,6 +571,43 @@ def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay
         str(instructions_path),
     ]
     assert str(foreign_path) not in payload["authority_sources"]
+
+
+def test_build_pm_validation_selects_highest_versioned_instructions_artifact(
+    tmp_path: Path,
+) -> None:
+    s = _mk_self(tmp_path)
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
+    chosen_path = _write_instructions_artifact(s.patches_root, "601", version=3)
+    _write_instructions_artifact(s.patches_root, "601", version=1)
+    _instructions_zip(
+        s.patches_root / "instructions_issue601.zip",
+        issue="601",
+        source_path="governance/governance.jsonl",
+    )
+    _snapshot_zip(
+        baseline_path,
+        {relpath: before.encode("utf-8")},
+    )
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Use PM validator at zip load",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert payload["status"] == "pass"
+    assert payload["effective_mode"] == "initial"
+    assert payload["authority_sources"] == [
+        str(baseline_path),
+        str(chosen_path),
+    ]
+    assert str(s.patches_root / "instructions_issue601.zip") not in payload["authority_sources"]
 
 
 def test_build_pm_validation_accepts_specification_authority_source(tmp_path: Path) -> None:
