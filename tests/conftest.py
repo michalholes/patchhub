@@ -1,5 +1,6 @@
 """Pytest configuration and fixtures."""
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -9,6 +10,24 @@ import pytest
 repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
 sys.path.insert(0, str(repo_root / "src"))
+
+
+def pytest_addoption(parser):
+    """Register compatibility CLI options when optional pytest plugins are absent."""
+    if importlib.util.find_spec("pytest_forked") is None:
+        parser.addoption(
+            "--forked",
+            action="store_true",
+            default=False,
+            help="compatibility shim when pytest-forked is unavailable",
+        )
+    if importlib.util.find_spec("pytest_timeout") is None:
+        parser.addoption(
+            "--timeout",
+            action="store",
+            default=None,
+            help="compatibility shim when pytest-timeout is unavailable",
+        )
 
 
 @pytest.fixture(autouse=True)
