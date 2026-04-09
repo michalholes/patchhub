@@ -118,17 +118,17 @@ busy_timeout_ms = 5000
 connect_timeout_s = 5.0
 
 [web_jobs_migration]
-startup_migration_enabled = false
-startup_verify_enabled = false
-cleanup_enabled = false
+startup_migration_enabled = true
+startup_verify_enabled = true
+cleanup_enabled = true
 
 [web_jobs_backup]
 enabled = true
 destination_template = "artifacts/web_jobs_backup_{timestamp}.sqlite3"
-retain_count = 5
+retain_count = 2
 verify_after_write = true
 trigger_policy = "interval_hours"
-interval_hours = 4
+interval_hours = 12
 check_interval_minutes = 5
 restore_source_preference = ["explicit", "latest_backup"]
 
