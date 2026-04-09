@@ -118,9 +118,9 @@ busy_timeout_ms = 5000
 connect_timeout_s = 5.0
 
 [web_jobs_migration]
-startup_migration_enabled = true
-startup_verify_enabled = true
-cleanup_enabled = true
+startup_migration_enabled = false
+startup_verify_enabled = false
+cleanup_enabled = false
 
 [web_jobs_backup]
 enabled = true
