@@ -140,15 +140,15 @@ restore_source_preference = ["explicit", "latest_backup", "main_db"]
 virtual_artifacts_web_jobs_enabled = true
 
 [web_jobs_retention]
-jobs_keep_days = 30
-logs_keep_days = 30
-events_keep_days = 30
+jobs_keep_days = 75
+logs_keep_days = 7
+events_keep_days = 7
 compact_after_jobs = 10000
 compact_after_log_lines = 100000
 compact_after_event_lines = 100000
 max_completed_job_raw_log_lines = 100000
 max_completed_job_raw_event_lines = 100000
-max_completed_job_raw_age_days = 30
+max_completed_job_raw_age_days = 7
 keep_recent_terminal_jobs_per_mode = 5
 compact_tail_lines = 20000
 reclaim_trigger_policy = "after_compaction"
