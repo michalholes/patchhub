@@ -6,13 +6,19 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 from zipfile import ZipFile
 
-from .workflow_effective_context import (
-    WorkflowEffectiveContextError,
-    build_workflow_effective_context,
-)
+if TYPE_CHECKING or __package__:
+    from .workflow_effective_context import (
+        WorkflowEffectiveContextError,
+        build_workflow_effective_context,
+    )
+else:
+    from workflow_effective_context import (
+        WorkflowEffectiveContextError,
+        build_workflow_effective_context,
+    )
 
 GOVERNANCE_SPEC_PATH = "governance/governance.jsonl"
 REPO_SPEC_PATH = "governance/specification.jsonl"
