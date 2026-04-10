@@ -1,14 +1,19 @@
+# ruff: noqa: E402
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
 
-from scripts.patchhub.app_api_jobs import _job_detail_json, api_jobs_enqueue
-from scripts.patchhub.config import (
+_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(_SCRIPTS))
+
+from patchhub.app_api_jobs import _job_detail_json, api_jobs_enqueue
+from patchhub.config import (
     AppConfig,
     AutofillConfig,
     IndexingConfig,
@@ -20,7 +25,7 @@ from scripts.patchhub.config import (
     UiConfig,
     UploadConfig,
 )
-from scripts.patchhub.fs_jail import FsJail
+from patchhub.fs_jail import FsJail
 
 
 def _write_runner_config(
@@ -128,12 +133,22 @@ class _QueueDummy:
 
 
 @dataclass
+class _BackendStateDummy:
+    mode: str = "file_emergency"
+    authoritative_backend: str = "files"
+    last_recovery: dict[str, Any] | None = None
+
+
+@dataclass
 class _SelfDummy:
     repo_root: Path
     cfg: AppConfig
     jail: FsJail
     patches_root: Path
     queue: _QueueDummy
+    backend_mode_state: _BackendStateDummy
+    _backend_session_id: str = "session-test"
+    web_jobs_db: Any | None = None
 
 
 def _mk_self(
@@ -157,6 +172,13 @@ def _mk_self(
         jail=jail,
         patches_root=patches_root,
         queue=_QueueDummy(),
+        backend_mode_state=_BackendStateDummy(
+            last_recovery={
+                "status": "ok",
+                "recovery_action": "fallback_export",
+                "fallback_export_source": "legacy-tree",
+            }
+        ),
     )
 
 
@@ -366,7 +388,7 @@ def test_enqueue_patch_persists_commit_and_target_metadata(tmp_path: Path) -> No
 
 def test_job_detail_does_not_backfill_effective_target_for_revert_gating(tmp_path: Path) -> None:
     s = _mk_self(tmp_path)
-    job = __import__("scripts.patchhub.models", fromlist=["JobRecord"]).JobRecord(
+    job = __import__("patchhub.models", fromlist=["JobRecord"]).JobRecord(
         job_id="job-380-detail-no-fallback",
         created_utc="2026-03-20T10:00:00Z",
         mode="patch",
@@ -398,7 +420,7 @@ def test_job_detail_prefers_persisted_first_class_values(tmp_path: Path) -> None
     _make_zip(zpath, "Zip commit", issue="361", target="zip-target")
 
     job = s.queue.last_job = None
-    job = __import__("scripts.patchhub.models", fromlist=["JobRecord"]).JobRecord(
+    job = __import__("patchhub.models", fromlist=["JobRecord"]).JobRecord(
         job_id="job-361",
         created_utc="2026-03-20T10:00:00Z",
         mode="patch",
@@ -428,3 +450,57 @@ def test_job_detail_prefers_persisted_first_class_values(tmp_path: Path) -> None
     assert payload["selected_target_repo"] == "persisted-selected"
     assert payload["effective_runner_target_repo"] == "persisted-effective"
     assert payload["target_mismatch"] is False
+
+
+def test_enqueue_persists_job_origin_evidence(tmp_path: Path) -> None:
+    s = _mk_self(tmp_path)
+    zpath = s.patches_root / "issue_362_v1.zip"
+    _make_zip(zpath, "Persist origin", issue="362", target="patchhub")
+
+    status, raw = api_jobs_enqueue(
+        s,
+        {
+            "mode": "patch",
+            "issue_id": "362",
+            "commit_message": "Persist origin",
+            "patch_path": "issue_362_v1.zip",
+        },
+    )
+    assert status == 200
+    payload = json.loads(raw.decode("utf-8"))["job"]
+    assert payload["origin_backend_mode"] == "file_emergency"
+    assert payload["origin_authoritative_backend"] == "files"
+    assert payload["origin_backend_session_id"] == "session-test"
+    assert payload["origin_recovery_json"]
+    assert payload["origin_recovery"]["recovery_action"] == "fallback_export"
+
+
+def test_job_detail_parses_origin_recovery_json(tmp_path: Path) -> None:
+    s = _mk_self(tmp_path)
+    job = __import__("patchhub.models", fromlist=["JobRecord"]).JobRecord(
+        job_id="job-origin-detail",
+        created_utc="2026-03-20T10:00:00Z",
+        mode="patch",
+        issue_id="362",
+        commit_summary="Persisted summary",
+        patch_basename="issue_362_v1.zip",
+        raw_command="",
+        canonical_command=["python3", "scripts/am_patch.py", "362"],
+        origin_backend_mode="db_primary",
+        origin_authoritative_backend="db",
+        origin_backend_session_id="session-362",
+        origin_recovery_json=json.dumps(
+            {
+                "status": "ok",
+                "recovery_action": "main_db",
+                "main_db_validation": "validated",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    )
+
+    payload = _job_detail_json(s, job)
+    assert payload["origin_backend_mode"] == "db_primary"
+    assert payload["origin_recovery"]["recovery_action"] == "main_db"
+    assert payload["origin_recovery"]["main_db_validation"] == "validated"

@@ -6,6 +6,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from starlette.requests import Request
 
@@ -140,8 +141,8 @@ class TestPatchhubUiSnapshotDelta(unittest.TestCase):
         store.record_snapshot(self._snap(seq=1))
         store.record_snapshot(self._snap(seq=2, job_status="running"))
 
-        async def _call() -> dict[str, object]:
-            async def _recv() -> dict[str, object]:
+        async def _call() -> dict[str, Any]:
+            async def _recv() -> dict[str, Any]:
                 return {"type": "http.request", "body": b"", "more_body": False}
 
             request = Request(
@@ -160,7 +161,9 @@ class TestPatchhubUiSnapshotDelta(unittest.TestCase):
         payload = asyncio.run(_call())
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["seq"], 2)
-        self.assertEqual(payload["jobs"]["updated"][0]["status"], "running")
+        jobs = cast(dict[str, Any], payload["jobs"])
+        updated = cast(list[dict[str, Any]], jobs["updated"])
+        self.assertEqual(updated[0]["status"], "running")
 
     def test_delta_store_omits_header_when_header_is_unchanged(self) -> None:
         store = SnapshotDeltaStore()
@@ -171,3 +174,47 @@ class TestPatchhubUiSnapshotDelta(unittest.TestCase):
         self.assertTrue(delta["ok"])
         self.assertFalse(delta["header_changed"])
         self.assertNotIn("header", delta)
+
+    def test_delta_store_returns_resync_when_backend_mode_status_changes(self) -> None:
+        store = SnapshotDeltaStore()
+        store.record_snapshot(
+            self._snap(
+                seq=1,
+                operator_info_sig="operator_info:s10",
+                operator_info={
+                    "cleanup_recent_status": [],
+                    "backend_mode_status": {
+                        "mode": "db_primary",
+                        "authoritative_backend": "db",
+                        "backend_session_id": "session-a",
+                        "recovery_status": "ok",
+                        "recovery_action": "main_db",
+                        "recovery_detail": "validated",
+                        "degraded": False,
+                    },
+                },
+            )
+        )
+        store.record_snapshot(
+            self._snap(
+                seq=2,
+                operator_info_sig="operator_info:s11",
+                operator_info={
+                    "cleanup_recent_status": [],
+                    "backend_mode_status": {
+                        "mode": "file_emergency",
+                        "authoritative_backend": "files",
+                        "backend_session_id": "session-b",
+                        "recovery_status": "fallback",
+                        "recovery_action": "fallback_export",
+                        "recovery_detail": "legacy-tree",
+                        "degraded": True,
+                    },
+                },
+            )
+        )
+
+        delta = store.build_delta(1)
+        self.assertTrue(delta["ok"])
+        self.assertTrue(delta["resync_needed"])
+        self.assertEqual(delta["seq"], 2)

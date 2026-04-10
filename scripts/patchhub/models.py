@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -310,6 +311,10 @@ class JobRecord:
     rollback_scope_manifest_hash: str | None = None
     rollback_authority_kind: str | None = None
     rollback_authority_source_ref: str | None = None
+    origin_backend_mode: str | None = None
+    origin_authoritative_backend: str | None = None
+    origin_backend_session_id: str | None = None
+    origin_recovery_json: str | None = None
     applied_files: list[str] = field(default_factory=list)
     applied_files_source: str = "unavailable"
     last_log_seq: int = 0
@@ -456,6 +461,26 @@ class JobRecord:
                 if payload.get("rollback_authority_source_ref") is not None
                 else None
             ),
+            origin_backend_mode=(
+                str(payload.get("origin_backend_mode"))
+                if payload.get("origin_backend_mode") is not None
+                else None
+            ),
+            origin_authoritative_backend=(
+                str(payload.get("origin_authoritative_backend"))
+                if payload.get("origin_authoritative_backend") is not None
+                else None
+            ),
+            origin_backend_session_id=(
+                str(payload.get("origin_backend_session_id"))
+                if payload.get("origin_backend_session_id") is not None
+                else None
+            ),
+            origin_recovery_json=(
+                str(payload.get("origin_recovery_json"))
+                if payload.get("origin_recovery_json") is not None
+                else None
+            ),
             applied_files=[str(item) for item in list(payload.get("applied_files") or [])],
             applied_files_source=str(payload.get("applied_files_source", "unavailable")),
             last_log_seq=_coerce_int(payload.get("last_log_seq", 0), 0),
@@ -492,8 +517,65 @@ class JobRecord:
             payload.pop("rollback_authority_kind", None)
         if self.rollback_authority_source_ref is None:
             payload.pop("rollback_authority_source_ref", None)
+        if self.origin_backend_mode is None:
+            payload.pop("origin_backend_mode", None)
+        if self.origin_authoritative_backend is None:
+            payload.pop("origin_authoritative_backend", None)
+        if self.origin_backend_session_id is None:
+            payload.pop("origin_backend_session_id", None)
+        if self.origin_recovery_json is None:
+            payload.pop("origin_recovery_json", None)
         payload["target_mismatch"] = bool(self.target_mismatch)
         return payload
+
+
+def build_job_origin_fields(
+    *,
+    backend_mode_state: Any,
+    backend_session_id: str,
+    web_jobs_db_present: bool,
+) -> dict[str, str | None]:
+    mode = str(getattr(backend_mode_state, "mode", "") or "").strip()
+    if mode not in {"db_primary", "file_emergency"}:
+        mode = "db_primary" if web_jobs_db_present else "file_emergency"
+    authoritative_backend = str(
+        getattr(backend_mode_state, "authoritative_backend", "") or ""
+    ).strip()
+    if authoritative_backend not in {"db", "files"}:
+        authoritative_backend = "db" if mode == "db_primary" else "files"
+    recovery = getattr(backend_mode_state, "last_recovery", None)
+    if not isinstance(recovery, dict):
+        recovery = {}
+    return {
+        "origin_backend_mode": mode,
+        "origin_authoritative_backend": authoritative_backend,
+        "origin_backend_session_id": str(backend_session_id or ""),
+        "origin_recovery_json": json.dumps(
+            recovery,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ),
+    }
+
+
+def parse_origin_recovery_json(value: Any) -> dict[str, Any] | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def build_job_origin_fields_from_runtime(source: Any) -> dict[str, str | None]:
+    return build_job_origin_fields(
+        backend_mode_state=getattr(source, "backend_mode_state", None),
+        backend_session_id=str(getattr(source, "_backend_session_id", "") or ""),
+        web_jobs_db_present=getattr(source, "web_jobs_db", None) is not None,
+    )
 
 
 def compute_commit_summary(commit_message: str, *, max_len: int = 60) -> str:

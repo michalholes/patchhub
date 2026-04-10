@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -14,6 +15,7 @@ sys.path.insert(0, str(_SCRIPTS))
 from patchhub.asgi.asgi_app import create_app
 from patchhub.asgi.async_app_core import AsyncAppCore
 from patchhub.asgi.async_jobs_runs_indexer import IndexerSnapshot, build_header_sig
+from patchhub.asgi.operator_info_runtime import build_operator_info_sig
 from patchhub.asgi.route_ui_snapshot import _legacy_snapshot_payload
 from patchhub.config import load_config
 
@@ -246,10 +248,52 @@ class TestPatchhubUiSnapshot(unittest.TestCase):
             ),
             patch("patchhub.asgi.route_ui_snapshot.iter_runs", return_value=[]),
         ):
-            payload = asyncio.run(_legacy_snapshot_payload(core))
+            payload = asyncio.run(_legacy_snapshot_payload(cast(AsyncAppCore, core)))
 
         self.assertEqual(payload["seq"], 9)
         self.assertEqual(payload["snapshot"]["jobs"], [])
         self.assertEqual(payload["snapshot"]["runs"], [])
-        self.assertEqual(payload["snapshot"]["operator_info"], {"cleanup_recent_status": []})
+        self.assertEqual(
+            payload["snapshot"]["operator_info"],
+            {
+                "cleanup_recent_status": [],
+                "backend_mode_status": {
+                    "mode": "",
+                    "authoritative_backend": "",
+                    "backend_session_id": "",
+                    "recovery_status": "not_run",
+                    "recovery_action": "",
+                    "recovery_detail": "",
+                    "degraded": False,
+                },
+            },
+        )
         self.assertIn("operator_info", payload["sigs"])
+
+    def test_operator_info_sig_changes_when_backend_status_changes(self) -> None:
+        payload_a = {
+            "cleanup_recent_status": [],
+            "backend_mode_status": {
+                "mode": "db_primary",
+                "authoritative_backend": "db",
+                "backend_session_id": "session-a",
+                "recovery_status": "ok",
+                "recovery_action": "main_db",
+                "recovery_detail": "validated",
+                "degraded": False,
+            },
+        }
+        payload_b = {
+            "cleanup_recent_status": [],
+            "backend_mode_status": {
+                "mode": "file_emergency",
+                "authoritative_backend": "files",
+                "backend_session_id": "session-b",
+                "recovery_status": "fallback",
+                "recovery_action": "fallback_export",
+                "recovery_detail": "legacy-tree",
+                "degraded": True,
+            },
+        }
+
+        self.assertNotEqual(build_operator_info_sig(payload_a), build_operator_info_sig(payload_b))

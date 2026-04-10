@@ -1,6 +1,10 @@
 // PatchHub app core (refactored split: part files).
 /**
  * @typedef {{
+ *   saveLiveJobId?: function(string): void,
+ *   updateProgressPanelFromEvents?: function({ jobs: unknown[] }): void,
+ * }} PatchHubUiBridge
+ * @typedef {{
  *   loadScript?: function(string, string): Promise<boolean>,
  *   call?: function(string, ...*): *,
  *   has?: function(string): boolean,
@@ -14,16 +18,20 @@
  *   job_id?: string, issue_id?: string, created_utc?: string,
  *   deleted_count?: number, rules?: CleanupRecentStatusRule[], summary_text?: string,
  * }} CleanupRecentStatusItem
- * @typedef {{ cleanup_recent_status?: CleanupRecentStatusItem[] }} OperatorInfoSnapshot
  * @typedef {HTMLElement & {
  *   value?: string, disabled?: boolean, checked?: boolean, files?: FileList | null,
  * }} PatchHubUiElement
  * @typedef {Window & typeof globalThis & {
- *   AMP_PATCHHUB_UI?: PatchhubUiBridge,
+ *   AMP_PATCHHUB_UI?: PatchHubUiBridge,
  *   PH?: PatchHubRuntime | null,
  *   PH_BOOT?: { bootLog?: function(string, string): void },
  *   PH_APP_SHOW_DEGRADED?: function(string): void,
+ *   PH_BACKEND_DEGRADED_FROM_OPERATOR_INFO?: function(unknown): string,
+ *   PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER?: function(): void,
+ *   PH_GET_OPERATOR_INFO_SNAPSHOT?: function(): unknown,
+ *   PH_SET_OPERATOR_INFO_SNAPSHOT?: function(unknown): void,
  *   PH_APP_MAIN?: function(PatchHubRuntime): Promise<void>,
+ *   validateAndPreview?: function(): unknown,
  * }} PatchHubWindow
  */
 var appWindow = /** @type {PatchHubWindow} */ (window);
@@ -31,7 +39,7 @@ var appWindow = /** @type {PatchHubWindow} */ (window);
 var appPhRuntime = appWindow.PH || null;
 
 appWindow.AMP_PATCHHUB_UI = appWindow.AMP_PATCHHUB_UI || {};
-var AMP_UI = /** @type {PatchhubUiBridge} */ (appWindow.AMP_PATCHHUB_UI);
+var AMP_UI = /** @type {PatchHubUiBridge} */ (appWindow.AMP_PATCHHUB_UI);
 
 var activeJobId = /** @type {string | null} */ (null);
 var autoRefreshTimer = /** @type {ReturnType<typeof setInterval> | null} */ (
@@ -55,8 +63,6 @@ var infoPoolHintSeq = /** @type {PHNumMap} */ ({
 	parse: 0,
 });
 var infoPoolSeq = 0;
-/** @type {OperatorInfoSnapshot} */
-var backendOperatorInfo = { cleanup_recent_status: [] };
 
 var selectedJobId = /** @type {string | null} */ (null);
 var liveStreamJobId = /** @type {string | null} */ (null);
@@ -71,6 +77,12 @@ var runsVisible = false;
 var jobsVisible = false;
 var patchesCache = [];
 var workspacesCache = [];
+
+function runValidateAndPreview() {
+	if (typeof appWindow.validateAndPreview === "function") {
+		appWindow.validateAndPreview();
+	}
+}
 
 function appLog(/** @type {string} */ kind, /** @type {string} */ message) {
 	var msg = String(message || "");
@@ -99,16 +111,14 @@ function canRenderInfoPoolUi() {
 	);
 }
 
-function currentDegradedBannerMessage() {
-	if (backendDegradedNote) return backendDegradedNote;
-	if (degradedNotes.length)
-		return String(degradedNotes[degradedNotes.length - 1] || "");
-	return "";
-}
-
 function syncLegacyDegradedBanner() {
-	var msg = currentDegradedBannerMessage();
-	setLegacyPooledNode("uiDegradedBanner", msg ? "DEGRADED MODE: " + msg : "");
+	if (
+		typeof appWindow.PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER === "function"
+	) {
+		appWindow.PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER();
+		return;
+	}
+	setLegacyPooledNode("uiDegradedBanner", "");
 }
 
 function rememberDegraded(/** @type {string} */ message) {
@@ -383,27 +393,20 @@ function getInfoPoolSnapshot() {
 	};
 }
 
-/** @returns {OperatorInfoSnapshot} */
-function normalizeOperatorInfoSnapshot(/** @type {unknown} */ payload) {
-	var info = /** @type {OperatorInfoSnapshot} */ (
-		payload && typeof payload === "object" ? payload : {}
-	);
-	var cleanup = Array.isArray(info.cleanup_recent_status)
-		? info.cleanup_recent_status.map(
-				(/** @type {CleanupRecentStatusItem} */ item) => ({ ...item }),
-			)
-		: [];
-	return { cleanup_recent_status: cleanup };
-}
-
-/** @returns {OperatorInfoSnapshot} */
 function getOperatorInfoSnapshot() {
-	return normalizeOperatorInfoSnapshot(backendOperatorInfo);
+	if (typeof appWindow.PH_GET_OPERATOR_INFO_SNAPSHOT === "function") {
+		return appWindow.PH_GET_OPERATOR_INFO_SNAPSHOT();
+	}
+	return { cleanup_recent_status: [], backend_mode_status: {} };
 }
 
 function setOperatorInfoSnapshot(/** @type {unknown} */ payload) {
-	backendOperatorInfo = normalizeOperatorInfoSnapshot(payload);
-	if (canRenderInfoPoolUi()) appPhRuntime.call("renderInfoPoolUi");
+	if (typeof appWindow.PH_SET_OPERATOR_INFO_SNAPSHOT === "function") {
+		appWindow.PH_SET_OPERATOR_INFO_SNAPSHOT(payload);
+		return;
+	}
+	backendDegradedNote = "";
+	syncLegacyDegradedBanner();
 }
 
 function setInfoPoolHint(
@@ -469,7 +472,7 @@ function pushApiStatus(/** @type {PatchhubStatusPayload} */ payload) {
 	) {
 		return;
 	}
-	payload.status.forEach((line) => {
+	payload.status.forEach((/** @type {string} */ line) => {
 		pushUiStatusLine(String(line || ""));
 	});
 }
@@ -784,7 +787,7 @@ function triggerParse(/** @type {string} */ raw) {
 	if (!raw) {
 		clearParsedState();
 		setParseHint("");
-		validateAndPreview();
+		runValidateAndPreview();
 		return;
 	}
 
@@ -793,7 +796,7 @@ function triggerParse(/** @type {string} */ raw) {
 	lastParsed = null;
 	setParseHint("Parsing...");
 	setUiStatus("parse_command: started");
-	validateAndPreview();
+	runValidateAndPreview();
 
 	parseSeq += 1;
 	var mySeq = parseSeq;
@@ -806,7 +809,7 @@ function triggerParse(/** @type {string} */ raw) {
 			clearParsedState();
 			setParseHint(`Parse failed: ${String((r && r.error) || "")}`);
 			setUiError(String((r && r.error) || "parse failed"));
-			validateAndPreview();
+			runValidateAndPreview();
 			return;
 		}
 
@@ -828,7 +831,7 @@ function triggerParse(/** @type {string} */ raw) {
 			}
 		}
 
-		validateAndPreview();
+		runValidateAndPreview();
 	});
 }
 
@@ -964,7 +967,7 @@ function refreshFs() {
 						if (m && m[1] && !String(el("issueId").value || "").trim()) {
 							el("issueId").value = String(m[1]);
 						}
-						validateAndPreview();
+						runValidateAndPreview();
 					}
 
 					refreshFs();

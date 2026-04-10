@@ -26,9 +26,11 @@ from .job_record_lookup import (
 from .models import (
     JobMode,
     JobRecord,
+    build_job_origin_fields_from_runtime,
     compute_commit_summary,
     compute_patch_basename,
     job_to_list_item_json,
+    parse_origin_recovery_json,
 )
 from .patch_inventory import derive_patch_metadata
 from .pm_validation_runtime import build_patch_zip_pm_validation
@@ -379,6 +381,7 @@ def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
             source_ref := str(authority.get("rollback_authority_source_ref") or "").strip()
         ):
             payload["rollback_authority_source_ref"] = source_ref
+    payload["origin_recovery"] = parse_origin_recovery_json(payload.get("origin_recovery_json"))
     return payload
 
 
@@ -537,6 +540,7 @@ def _api_jobs_enqueue_rollback(self, body: dict[str, Any]) -> tuple[int, bytes]:
         )
     except Exception:
         return _err("Cannot persist rollback request", status=500)
+    origin_fields = build_job_origin_fields_from_runtime(self)
     job = JobRecord(
         job_id=job_id,
         created_utc=_utc_now(),
@@ -549,6 +553,10 @@ def _api_jobs_enqueue_rollback(self, body: dict[str, Any]) -> tuple[int, bytes]:
         canonical_command=["patchhub", "rollback", source_job.job_id],
         effective_runner_target_repo=str(source_job.effective_runner_target_repo or ""),
         rollback_source_job_id=source_job.job_id,
+        origin_backend_mode=origin_fields["origin_backend_mode"],
+        origin_authoritative_backend=origin_fields["origin_authoritative_backend"],
+        origin_backend_session_id=origin_fields["origin_backend_session_id"],
+        origin_recovery_json=origin_fields["origin_recovery_json"],
     )
     _run_queue_enqueue_sync(self.queue.enqueue, job)
     return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})
@@ -768,6 +776,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
             if not commit_summary:
                 commit_summary = f"({mode})"
             patch_basename = compute_patch_basename(str(effective_patch_path or patch_path))
+            origin_fields = build_job_origin_fields_from_runtime(self)
             job = JobRecord(
                 job_id=job_id,
                 created_utc=_utc_now(),
@@ -787,6 +796,10 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 selected_target_repo=selected_target_repo,
                 effective_runner_target_repo=effective_runner_target_repo,
                 target_mismatch=target_mismatch,
+                origin_backend_mode=origin_fields["origin_backend_mode"],
+                origin_authoritative_backend=origin_fields["origin_authoritative_backend"],
+                origin_backend_session_id=origin_fields["origin_backend_session_id"],
+                origin_recovery_json=origin_fields["origin_recovery_json"],
             )
             _run_queue_enqueue_sync(self.queue.enqueue, job)
             return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})
@@ -799,6 +812,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
     if not commit_summary:
         commit_summary = f"({mode})"
     patch_basename = compute_patch_basename(str(effective_patch_path or patch_path))
+    origin_fields = build_job_origin_fields_from_runtime(self)
 
     job_id = new_job_id()
     job = JobRecord(
@@ -820,6 +834,10 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
         selected_target_repo=selected_target_repo,
         effective_runner_target_repo=effective_runner_target_repo,
         target_mismatch=target_mismatch,
+        origin_backend_mode=origin_fields["origin_backend_mode"],
+        origin_authoritative_backend=origin_fields["origin_authoritative_backend"],
+        origin_backend_session_id=origin_fields["origin_backend_session_id"],
+        origin_recovery_json=origin_fields["origin_recovery_json"],
     )
     _run_queue_enqueue_sync(self.queue.enqueue, job)
     return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})

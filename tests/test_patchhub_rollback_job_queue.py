@@ -9,19 +9,24 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any, cast
 
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
 import patchhub.asgi.async_queue as async_queue_mod
 import patchhub.asgi.rollback_runtime as rollback_runtime_mod
+from patchhub.asgi.async_runner_exec import AsyncRunnerExecutor, ExecResult
 from patchhub.models import JobRecord
 from patchhub.rollback_preflight import run_rollback_preflight, validate_source_job_authority
 from patchhub.rollback_scope_manifest import build_manifest_for_job
 from patchhub.web_jobs_db import WebJobsDatabase, load_web_jobs_db_config
 
 
-class _NoopExecutor:
+class _NoopExecutor(AsyncRunnerExecutor):
+    def __init__(self) -> None:
+        super().__init__()
+
     async def is_running(self) -> bool:
         return False
 
@@ -33,12 +38,12 @@ class _NoopExecutor:
         self,
         argv: list[str],
         cwd: Path,
-        log_path: Path | None,
+        log_path: Path | None = None,
         *,
-        post_exit_grace_s: int = 5,
         job_db: WebJobsDatabase | None = None,
-        job_id: str | None = None,
-    ):
+        job_id: str = "",
+        post_exit_grace_s: int = 5,
+    ) -> ExecResult:
         del argv, cwd, log_path, post_exit_grace_s, job_db, job_id
         raise AssertionError("rollback must not call executor.run")
 
@@ -118,7 +123,7 @@ def _persist_rollback_request(
     db: WebJobsDatabase,
     *,
     job_id: str,
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> None:
     db.upsert_request_authority(
         job_id=job_id,
@@ -207,7 +212,7 @@ class TestPatchhubRollbackJobQueue(unittest.IsolatedAsyncioTestCase):
                 repo_root=repo_root,
                 lock_path=root / "am_patch.lock",
                 jobs_root=jobs_root,
-                executor=_NoopExecutor(),
+                executor=cast(AsyncRunnerExecutor, _NoopExecutor()),
                 job_db=db,
                 patches_root=patches_root,
                 target_repo_roots={"patchhub": repo_root},
@@ -334,7 +339,7 @@ class TestPatchhubRollbackJobQueue(unittest.IsolatedAsyncioTestCase):
                 repo_root=repo_root,
                 lock_path=root / "am_patch.lock",
                 jobs_root=jobs_root,
-                executor=_NoopExecutor(),
+                executor=cast(AsyncRunnerExecutor, _NoopExecutor()),
                 job_db=db,
                 patches_root=patches_root,
                 target_repo_roots={"patchhub": repo_root},
@@ -385,7 +390,7 @@ class TestPatchhubRollbackJobQueue(unittest.IsolatedAsyncioTestCase):
                 repo_root=repo_root,
                 lock_path=root / "am_patch.lock",
                 jobs_root=jobs_root,
-                executor=_NoopExecutor(),
+                executor=cast(AsyncRunnerExecutor, _NoopExecutor()),
                 job_db=db,
                 patches_root=patches_root,
                 target_repo_roots={"patchhub": repo_root},
@@ -409,6 +414,7 @@ class TestPatchhubRollbackJobQueue(unittest.IsolatedAsyncioTestCase):
 
             authority = db.load_rollback_manifest(job.job_id)
             self.assertIsNotNone(authority)
+            assert authority is not None
             self.assertEqual(str(authority.get("source_job_id") or ""), job.job_id)
             self.assertFalse((jobs_root / job.job_id / "rollback_scope_manifest.json").exists())
             self.assertIsNone(job.rollback_scope_manifest_rel_path)
@@ -475,3 +481,58 @@ class TestPatchhubRollbackJobQueue(unittest.IsolatedAsyncioTestCase):
 
             with self.assertRaises(rollback_runtime_mod.RollbackRuntimeError):
                 handler._load_request(job)
+
+    async def test_queue_file_emergency_enqueue_persists_origin_evidence(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            repo_root = root / "repo"
+            patches_root = repo_root / "patches"
+            jobs_root = patches_root / "artifacts" / "web_jobs"
+            _init_repo(repo_root)
+            queue = async_queue_mod.AsyncJobQueue(
+                repo_root=repo_root,
+                lock_path=root / "am_patch.lock",
+                jobs_root=jobs_root,
+                executor=cast(AsyncRunnerExecutor, _NoopExecutor()),
+                job_db=None,
+                patches_root=patches_root,
+                target_repo_roots={"patchhub": repo_root},
+            )
+            job = JobRecord(
+                job_id="job-file-emergency-origin",
+                created_utc="2026-03-24T10:00:00Z",
+                mode="rollback",
+                issue_id="389",
+                commit_summary="Rollback",
+                patch_basename=None,
+                raw_command="patchhub rollback source",
+                canonical_command=["patchhub", "rollback", "source"],
+                origin_backend_mode="file_emergency",
+                origin_authoritative_backend="files",
+                origin_backend_session_id="session-file-1",
+                origin_recovery_json=json.dumps(
+                    {
+                        "status": "fallback",
+                        "recovery_action": "fallback_export",
+                        "fallback_export_source": "legacy-tree",
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+
+            await queue.start()
+            try:
+                await queue.enqueue(job)
+                persisted = await queue.get_job(job.job_id)
+            finally:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await queue.stop()
+
+            assert persisted is not None
+            payload = json.loads((jobs_root / job.job_id / "job.json").read_text("utf-8"))
+            assert payload["origin_backend_mode"] == "file_emergency"
+            assert payload["origin_authoritative_backend"] == "files"
+            assert payload["origin_backend_session_id"] == "session-file-1"
+            assert payload["origin_recovery_json"]
+            assert (jobs_root / job.job_id / "am_patch_issue_389.jsonl").exists()

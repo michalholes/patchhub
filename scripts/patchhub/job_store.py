@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS web_jobs (
     rollback_scope_manifest_hash TEXT,
     rollback_authority_kind TEXT,
     rollback_authority_source_ref TEXT,
+    origin_backend_mode TEXT,
+    origin_authoritative_backend TEXT,
+    origin_backend_session_id TEXT,
+    origin_recovery_json TEXT,
     applied_files_json TEXT NOT NULL,
     applied_files_source TEXT NOT NULL,
     last_log_seq INTEGER NOT NULL DEFAULT 0,
@@ -232,6 +236,10 @@ _WEB_JOBS_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("rollback_scope_manifest_hash", "TEXT"),
     ("rollback_authority_kind", "TEXT"),
     ("rollback_authority_source_ref", "TEXT"),
+    ("origin_backend_mode", "TEXT"),
+    ("origin_authoritative_backend", "TEXT"),
+    ("origin_backend_session_id", "TEXT"),
+    ("origin_recovery_json", "TEXT"),
 )
 
 
@@ -350,7 +358,7 @@ class SqliteWebJobsStore:
                 else None
             )
         )
-        return {
+        payload = {
             "job_id": str(row["job_id"]),
             "created_utc": str(row["created_utc"]),
             "created_unix_ms": int(row["created_unix_ms"]),
@@ -392,6 +400,15 @@ class SqliteWebJobsStore:
             "last_event_seq": int(row["last_event_seq"]),
             "row_rev": int(row["row_rev"]),
         }
+        if row["origin_backend_mode"] is not None:
+            payload["origin_backend_mode"] = row["origin_backend_mode"]
+        if row["origin_authoritative_backend"] is not None:
+            payload["origin_authoritative_backend"] = row["origin_authoritative_backend"]
+        if row["origin_backend_session_id"] is not None:
+            payload["origin_backend_session_id"] = row["origin_backend_session_id"]
+        if row["origin_recovery_json"] is not None:
+            payload["origin_recovery_json"] = row["origin_recovery_json"]
+        return payload
 
     def _row_to_rollback_authority_record(self, row: sqlite3.Row) -> RollbackAuthorityRecord:
         return RollbackAuthorityRecord(
@@ -526,6 +543,10 @@ class SqliteWebJobsStore:
             job.rollback_scope_manifest_hash,
             job.rollback_authority_kind,
             job.rollback_authority_source_ref,
+            job.origin_backend_mode,
+            job.origin_authoritative_backend,
+            job.origin_backend_session_id,
+            job.origin_recovery_json,
             _json_dumps(list(job.applied_files)),
             str(job.applied_files_source),
             int(log_count if log_count is not None else job.last_log_seq),
@@ -557,11 +578,20 @@ class SqliteWebJobsStore:
                 run_start_sha, run_end_sha, revert_source_job_id,
                 rollback_source_job_id, rollback_scope_manifest_rel_path,
                 rollback_scope_manifest_hash, rollback_authority_kind,
-                rollback_authority_source_ref, applied_files_json,
-                applied_files_source, last_log_seq, last_event_seq, row_rev
+                rollback_authority_source_ref, origin_backend_mode,
+                origin_authoritative_backend, origin_backend_session_id,
+                origin_recovery_json, applied_files_json, applied_files_source,
+                last_log_seq, last_event_seq, row_rev
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?
             )
             ON CONFLICT(job_id) DO UPDATE SET
                 created_utc = excluded.created_utc,
@@ -599,6 +629,10 @@ class SqliteWebJobsStore:
                 rollback_scope_manifest_hash = excluded.rollback_scope_manifest_hash,
                 rollback_authority_kind = excluded.rollback_authority_kind,
                 rollback_authority_source_ref = excluded.rollback_authority_source_ref,
+                origin_backend_mode = excluded.origin_backend_mode,
+                origin_authoritative_backend = excluded.origin_authoritative_backend,
+                origin_backend_session_id = excluded.origin_backend_session_id,
+                origin_recovery_json = excluded.origin_recovery_json,
                 applied_files_json = excluded.applied_files_json,
                 applied_files_source = excluded.applied_files_source,
                 last_log_seq = excluded.last_log_seq,

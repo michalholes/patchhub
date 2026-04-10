@@ -29,21 +29,47 @@
 	 *   summary_text?: string,
 	 * }} CleanupRecentStatusItem
 	 * @typedef {{
+	 *   mode?: string,
+	 *   authoritative_backend?: string,
+	 *   backend_session_id?: string,
+	 *   recovery_status?: string,
+	 *   recovery_action?: string,
+	 *   recovery_detail?: string,
+	 *   degraded?: boolean,
+	 * }} BackendModeStatus
+	 * @typedef {{
 	 *   cleanup_recent_status?: CleanupRecentStatusItem[],
+	 *   backend_mode_status?: BackendModeStatus,
 	 * }} OperatorInfoSnapshot
 	 * @typedef {{
 	 *   call?: function(string, ...*): *,
 	 *   register?: function(string, Object): void,
 	 * }} PatchHubRuntime
+	 * @typedef {Window & typeof globalThis & {
+	 *   PH?: PatchHubRuntime | null,
+	 *   PH_BACKEND_DEGRADED_FROM_OPERATOR_INFO?: function(unknown): string,
+	 *   PH_GET_OPERATOR_INFO_SNAPSHOT?: function(): OperatorInfoSnapshot,
+	 *   PH_SET_OPERATOR_INFO_SNAPSHOT?: function(unknown): void,
+	 *   PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER?: function(): void,
+	 *   setBackendDegradedNote?: function(unknown): void,
+	 * }} InfoPoolWindow
 	 */
 
+	/** @type {InfoPoolWindow} */
+	var infoPoolWindow = /** @type {InfoPoolWindow} */ (window);
 	/** @type {PatchHubRuntime | null} */
-	var PH = window.PH || null;
+	var PH = infoPoolWindow.PH || null;
+
+	/** @type {OperatorInfoSnapshot} */
+	var operatorInfoSnapshot = {
+		cleanup_recent_status: [],
+		backend_mode_status: {},
+	};
 
 	var infoPoolOpen = false;
 	var infoPoolBound = false;
 
-	function infoPoolModalEl(id) {
+	function infoPoolModalEl(/** @type {string} */ id) {
 		return el(id);
 	}
 
@@ -68,7 +94,35 @@
 		return { cleanup_recent_status: [] };
 	}
 
-	function infoPoolCleanupSummaryText(item) {
+	function infoPoolBackendDegradedNoteFromOperatorInfo(
+		/** @type {unknown} */ operatorInfo,
+	) {
+		var info = /** @type {OperatorInfoSnapshot} */ (
+			operatorInfo && typeof operatorInfo === "object" ? operatorInfo : {}
+		);
+		var status = /** @type {BackendModeStatus} */ (
+			info.backend_mode_status || {}
+		);
+		var parts = [
+			status.recovery_action,
+			status.recovery_detail,
+			status.recovery_status,
+		]
+			.filter(Boolean)
+			.map(String);
+		if (!(status.degraded || String(status.mode || "") === "file_emergency")) {
+			return "";
+		}
+		return parts.length
+			? "Backend file_emergency: " + parts.slice(0, 2).join("; ")
+			: "Backend file_emergency";
+	}
+
+	infoPoolWindow.PH_BACKEND_DEGRADED_FROM_OPERATOR_INFO =
+		infoPoolBackendDegradedNoteFromOperatorInfo;
+	function infoPoolCleanupSummaryText(
+		/** @type {CleanupRecentStatusItem} */ item,
+	) {
 		var summary = String((item && item.summary_text) || "").trim();
 		if (summary) return summary;
 		var issue = String((item && item.issue_id) || "").trim();
@@ -82,14 +136,19 @@
 		);
 	}
 
-	function infoPoolMergedStatusLines(snapshot, operatorInfo) {
+	function infoPoolMergedStatusLines(
+		/** @type {InfoPoolSnapshot} */ snapshot,
+		/** @type {OperatorInfoSnapshot} */ operatorInfo,
+	) {
 		var lines = Array.isArray(snapshot.statusLines)
 			? snapshot.statusLines.slice()
 			: [];
-		var cleanupItems = Array.isArray(operatorInfo.cleanup_recent_status)
-			? operatorInfo.cleanup_recent_status
-			: [];
-		cleanupItems.forEach((item) => {
+		var cleanupItems = /** @type {CleanupRecentStatusItem[]} */ (
+			Array.isArray(operatorInfo.cleanup_recent_status)
+				? operatorInfo.cleanup_recent_status
+				: []
+		);
+		cleanupItems.forEach((/** @type {CleanupRecentStatusItem} */ item) => {
 			lines.push(infoPoolCleanupSummaryText(item));
 		});
 		return lines;
@@ -105,7 +164,7 @@
 		return PH.call("getPmValidationSnapshot") || null;
 	}
 
-	function infoPoolDegradedItems(snapshot) {
+	function infoPoolDegradedItems(/** @type {InfoPoolSnapshot} */ snapshot) {
 		var items = [];
 		var backend = String(snapshot.backendDegradedNote || "");
 		if (backend) items.push(backend);
@@ -118,7 +177,7 @@
 		return items.filter(Boolean);
 	}
 
-	function infoPoolSummary(snapshot) {
+	function infoPoolSummary(/** @type {InfoPoolSnapshot} */ snapshot) {
 		var degraded = Array.isArray(snapshot.degradedNotes)
 			? snapshot.degradedNotes
 			: [];
@@ -142,7 +201,10 @@
 		return "(idle)";
 	}
 
-	function infoPoolHintValue(label, value) {
+	function infoPoolHintValue(
+		/** @type {string} */ label,
+		/** @type {string} */ value,
+	) {
 		return (
 			'<div class="info-pool-hint-row">' +
 			'<div class="info-pool-hint-label">' +
@@ -155,7 +217,10 @@
 		);
 	}
 
-	function infoPoolSection(title, bodyHtml) {
+	function infoPoolSection(
+		/** @type {string} */ title,
+		/** @type {string} */ bodyHtml,
+	) {
 		return (
 			'<section class="info-pool-section">' +
 			'<h3 class="info-pool-section-title">' +
@@ -166,7 +231,10 @@
 		);
 	}
 
-	function infoPoolList(lines, emptyText) {
+	function infoPoolList(
+		/** @type {string[]} */ lines,
+		/** @type {string} */ emptyText,
+	) {
 		var items = Array.isArray(lines) ? lines : [];
 		if (!items.length) {
 			return '<div class="info-pool-empty">' + escapeHtml(emptyText) + "</div>";
@@ -174,7 +242,7 @@
 		return (
 			'<div class="info-pool-lines">' +
 			items
-				.map((line) => {
+				.map((/** @type {string} */ line) => {
 					return '<div class="info-pool-line">' + escapeHtml(line) + "</div>";
 				})
 				.join("") +
@@ -182,7 +250,10 @@
 		);
 	}
 
-	function infoPoolPre(text, emptyText) {
+	function infoPoolPre(
+		/** @type {string} */ text,
+		/** @type {string} */ emptyText,
+	) {
 		var value = String(text || "");
 		if (!value) {
 			return '<div class="info-pool-empty">' + escapeHtml(emptyText) + "</div>";
@@ -190,7 +261,9 @@
 		return '<pre class="info-pool-pre">' + escapeHtml(value) + "</pre>";
 	}
 
-	function infoPoolPmSection(snapshot) {
+	function infoPoolPmSection(
+		/** @type {Record<string, unknown> | null} */ snapshot,
+	) {
 		if (!snapshot || typeof snapshot !== "object") return "";
 		var metaHtml = [
 			infoPoolHintValue("Status", String(snapshot.status || "")),
@@ -257,7 +330,7 @@
 		modal.setAttribute("aria-hidden", infoPoolOpen ? "false" : "true");
 	}
 
-	function infoPoolVisiblePmSummary(summary) {
+	function infoPoolVisiblePmSummary(/** @type {string} */ summary) {
 		var pmSummary = infoPoolPmSummary();
 		if (!pmSummary || summary !== pmSummary) return "";
 		return pmSummary;
@@ -282,12 +355,12 @@
 		if (infoPoolOpen) renderInfoPoolModal();
 	}
 
-	function setInfoPoolOpen(nextOpen) {
+	function setInfoPoolOpen(/** @type {boolean} */ nextOpen) {
 		infoPoolOpen = !!nextOpen;
 		renderInfoPoolModal();
 	}
 
-	function onInfoPoolStripKeydown(event) {
+	function onInfoPoolStripKeydown(/** @type {KeyboardEvent} */ event) {
 		var key = event && event.key ? String(event.key) : "";
 		if (key !== "Enter" && key !== " ") return;
 		if (event && typeof event.preventDefault === "function") {
@@ -296,7 +369,7 @@
 		setInfoPoolOpen(true);
 	}
 
-	function onInfoPoolDocumentKeydown(event) {
+	function onInfoPoolDocumentKeydown(/** @type {KeyboardEvent} */ event) {
 		var key = event && event.key ? String(event.key) : "";
 		if (key === "Escape") setInfoPoolOpen(false);
 	}

@@ -89,9 +89,9 @@ def build_artifacts(
             if getattr(policy, "success_archive_dir", "patch_dir") == "successful_dir":
                 target_dir = paths.successful_dir
 
-            success_zip_path = target_dir / name
-            success_zip = success_zip_path
-            git_ops.git_archive(logger, repo_root, success_zip_path, treeish="HEAD")
+            archived_success_zip = target_dir / name
+            git_ops.git_archive(logger, repo_root, archived_success_zip, treeish="HEAD")
+            success_zip = archived_success_zip
 
             keep_count = int(getattr(policy, "success_archive_keep_count", 0))
             glob_template = str(
@@ -100,7 +100,9 @@ def build_artifacts(
             if glob_template:
                 candidates = [p for p in target_dir.glob(glob_template) if p.is_file()]
                 candidates = sorted(candidates, key=lambda p: p.name)
-                candidates = [p for p in candidates if p.resolve() != success_zip_path.resolve()]
+                candidates = [
+                    p for p in candidates if p.resolve() != archived_success_zip.resolve()
+                ]
                 while len(candidates) > keep_count:
                     doomed = candidates.pop(0)
                     with contextlib.suppress(FileNotFoundError):
@@ -171,8 +173,7 @@ def build_artifacts(
             log_path=log_path,
             attempt=ws_attempt,
         )
-        failure_zip_path = paths.patch_dir / name
-        failure_zip = failure_zip_path
+        failure_zip = paths.patch_dir / name
 
         include_patch_paths: list[Path] = []
         include_patch_blobs: list[tuple[str, bytes]] = []
@@ -195,9 +196,12 @@ def build_artifacts(
                 "CONFIG",
                 "missing effective_target_repo_name for failure target.txt",
             )
+        current_failure_zip = failure_zip
+        if current_failure_zip is None:
+            raise RunnerError("POSTHOOK", "CONFIG", "failure_zip path missing")
         make_failure_zip(
             logger,
-            failure_zip_path,
+            current_failure_zip,
             workspace_repo=ws_repo_for_fail_zip,
             log_path=log_path,
             include_repo_files=files_for_fail_zip,

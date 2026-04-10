@@ -48,6 +48,10 @@ from .async_jobs_runs_indexer import AsyncJobsRunsIndexer
 from .async_offload import to_thread
 from .async_queue import AsyncJobQueue
 from .async_runner_exec import AsyncRunnerExecutor
+from .operator_info_runtime import (
+    build_backend_mode_status_payload,
+    store_runtime_operator_info,
+)
 
 
 class AsyncAppCore:
@@ -85,6 +89,7 @@ class AsyncAppCore:
         ) = None
         self.queue = self._build_queue(job_db=None)
         self.indexer = AsyncJobsRunsIndexer(core=self)
+        self._publish_backend_mode_status()
 
     def _bind_queue_callbacks(self, queue: AsyncJobQueue) -> AsyncJobQueue:
         queue.set_terminal_job_callback(self._terminal_job_callback)
@@ -134,6 +139,18 @@ class AsyncAppCore:
     def backend_debug_state(self) -> dict[str, Any]:
         return self.backend_mode_state.debug_payload()
 
+    def _publish_backend_mode_status(self) -> None:
+        payload = build_backend_mode_status_payload(
+            mode=self.backend_mode_state.mode,
+            authoritative_backend=self.backend_mode_state.authoritative_backend,
+            backend_session_id=self._backend_session_id,
+            recovery=self.backend_mode_state.last_recovery,
+        )
+        store_runtime_operator_info(
+            self.patches_root,
+            {"backend_mode_status": payload},
+        )
+
     def _enable_db_primary(self, job_db: WebJobsDatabase, recovery: dict[str, Any]) -> None:
         self.web_jobs_db = job_db
         self.run_stats_store = RunStatsStore(self.web_jobs_db_cfg, self.patches_root)
@@ -143,6 +160,7 @@ class AsyncAppCore:
         )
         self.queue = self._build_queue(job_db=job_db)
         self.backend_mode_state.activate_db_primary(recovery)
+        self._publish_backend_mode_status()
 
     def _enable_file_emergency(self, recovery: dict[str, Any]) -> None:
         self.web_jobs_db = None
@@ -150,6 +168,7 @@ class AsyncAppCore:
         self.virtual_jobs_fs = None
         self.queue = self._build_queue(job_db=None)
         self.backend_mode_state.activate_file_emergency(recovery)
+        self._publish_backend_mode_status()
 
     def _maybe_create_startup_backup(self) -> None:
         if self.web_jobs_db is None:
@@ -184,6 +203,7 @@ class AsyncAppCore:
 
     async def startup(self) -> None:
         self.backend_mode_state.begin_resolution()
+        self._publish_backend_mode_status()
         resolution = await to_thread(
             resolve_web_jobs_backend,
             repo_root=self.repo_root,

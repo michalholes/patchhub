@@ -1,7 +1,7 @@
 /// <reference path="../../../types/am2-globals.d.ts" />
 var jobsWindow = /** @type {JobsWindow} */ (window);
 var __ph_w = jobsWindow;
-var PH = /** @type {JobsRuntime | null} */ (jobsWindow.PH || null);
+var jobsPH = /** @type {JobsRuntime | null} */ (jobsWindow.PH || null);
 var jobsCache = /** @type {PatchhubJob[]} */ ([]);
 var jobDetailCache = /** @type {Record<string, PatchhubJob | null>} */ (
 	Object.create(null)
@@ -16,8 +16,8 @@ var trackedJobDurationClock = /** @type {unknown | null} */ (null);
 var trackedJobDurationJobId = "";
 
 function phCall(/** @type {string} */ name, /** @type {unknown[]} */ ...args) {
-	if (!PH || typeof PH.call !== "function") return undefined;
-	return PH.call(name, ...args);
+	if (!jobsPH || typeof jobsPH.call !== "function") return undefined;
+	return jobsPH.call(name, ...args);
 }
 
 function getVisibleDurationNowMs() {
@@ -114,7 +114,7 @@ function getJobsDurationSignature(/** @type {number} */ tickNowMs) {
 }
 
 function syncJobsDurationSurface() {
-	if (!PH || typeof PH.call !== "function") return;
+	if (!jobsPH || typeof jobsPH.call !== "function") return;
 	if (getJobsDurationSignature(getVisibleDurationNowMs())) {
 		phCall("setVisibleDurationSurface", "jobs_list_duration", {
 			getSignature: getJobsDurationSignature,
@@ -404,6 +404,37 @@ function initJobsListActions() {
 	});
 }
 
+function jobOriginEvidenceText(
+	/** @type {PatchhubJob | null | undefined} */ detail,
+) {
+	var origin = /** @type {any} */ (detail || {}),
+		r = origin.origin_recovery || {};
+	var mode = String(origin.origin_backend_mode || "").trim();
+	var auth = String(origin.origin_authoritative_backend || "").trim();
+	var session =
+		String(origin.origin_backend_session_id || "").trim() || "unknown";
+	var action = String(r.recovery_action || "").trim() || "none";
+	var fallback = Array.isArray(r.fallback_export_errors)
+		? r.fallback_export_errors[0]
+		: "";
+	var detailText =
+		String(
+			r.main_db_validation ||
+				r.backup_restore_error ||
+				fallback ||
+				r.fallback_export_source ||
+				"",
+		).trim() || "none";
+	if (!mode && !auth && session === "unknown")
+		return "origin legacy/no-origin-evidence";
+	return [
+		"origin " + mode + "/" + auth,
+		"session=" + session,
+		"action=" + action,
+		"detail=" + detailText,
+	].join(" ");
+}
+
 function prepareRerunLatestFromJobId(
 	/** @type {string | null | undefined} */ jobId,
 	/** @type {RerunLatestOptions | null | undefined} */ opts,
@@ -517,6 +548,7 @@ function renderJobsList() {
 			var jobId = String(j.job_id || "");
 			var isSel = selectedJobId && String(selectedJobId) === jobId;
 			var cls = `item job-item${isSel ? " selected" : ""}`;
+			var detail = jobDetailCache[jobId] || null;
 
 			var issueId = String(j.issue_id || "").trim();
 			var issueText = issueId ? `#${issueId}` : "(no issue)";
@@ -547,6 +579,23 @@ function renderJobsList() {
 			}
 
 			var meta = metaParts.join(" | ");
+			if (detail) meta += (meta ? " | " : "") + jobOriginEvidenceText(detail);
+			else if (isSel && !jobDetailInflight[jobId]) {
+				jobDetailInflight[jobId] = loadJobDetail(jobId)
+					.then((/** @type {JobDetailResponse} */ resp) => {
+						delete jobDetailInflight[jobId];
+						if (!resp || resp.ok === false || !resp.job) return null;
+						cacheJobDetail(resp.job);
+						if (String(selectedJobId || "") === jobId) renderJobsList();
+						return resp.job;
+					})
+					.catch(
+						/** @returns {PatchhubJob | null} */ () => {
+							delete jobDetailInflight[jobId];
+							return null;
+						},
+					);
+			}
 			var commit = String(j.commit_summary || "").trim();
 			var showRerun = isRerunLatestListCandidate(j);
 			var showRevert = !!phCall("shouldShowJobsRevert", j);
@@ -604,7 +653,9 @@ function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 		const lastId = String(window.__ph_last_enqueued_job_id || "");
 		if (lastId) {
 			const j =
-				(jobs || []).find((x) => String(x.job_id || "") === lastId) || null;
+				(jobs || []).find(
+					(/** @type {PatchhubJob} */ x) => String(x.job_id || "") === lastId,
+				) || null;
 			const st = j
 				? String(j.status || "")
 						.trim()
@@ -634,7 +685,7 @@ function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 					dirty.commitMsg = false;
 					dirty.patchPath = false;
 				} catch (_) {}
-				PH.call("clearGateOverrides");
+				jobsPH.call("clearGateOverrides");
 				try {
 					if (phCall("validateAndPreview") == null && m) {
 						m.dispatchEvent(new Event("change"));
@@ -646,12 +697,13 @@ function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 		}
 	} catch (_) {}
 
-	var active = jobs.find((j) => j.status === "running") || null;
+	var active =
+		jobs.find((/** @type {PatchhubJob} */ j) => j.status === "running") || null;
 	var activeId = active ? String(active.job_id || "") : "";
 	var idleAutoSelect = !!(cfg && cfg.ui && cfg.ui.idle_auto_select_last_job);
 
 	if (!selectedJobId) {
-		const saved = /** @type {string | null} */ (PH.call("loadLiveJobId"));
+		const saved = /** @type {string | null} */ (jobsPH.call("loadLiveJobId"));
 		if (saved) selectedJobId = saved;
 	}
 
@@ -662,7 +714,7 @@ function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 	}
 
 	if (!selectedJobId && jobs.length && idleAutoSelect) {
-		jobs.sort((a, b) =>
+		jobs.sort((/** @type {PatchhubJob} */ a, /** @type {PatchhubJob} */ b) =>
 			String(a.created_utc || "").localeCompare(String(b.created_utc || "")),
 		);
 		selectedJobId = String(jobs[jobs.length - 1].job_id || "");
@@ -675,7 +727,7 @@ function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 	) {
 		__ph_w.AMP_PATCHHUB_UI.updateProgressPanelFromEvents({ jobs });
 	} else {
-		PH.call("renderActiveJob", jobs);
+		jobsPH.call("renderActiveJob", jobs);
 	}
 	syncTrackedJobDurationClock(jobs);
 	ensureAutoRefresh(jobs);
@@ -776,7 +828,7 @@ function refreshJobs(/** @type {{ mode?: string } | null | undefined} */ opts) {
 			syncTrackedJobDurationClock([]);
 			syncJobsDurationSurface();
 			setPre("jobsList", r);
-			PH.call("renderActiveJob", []);
+			jobsPH.call("renderActiveJob", []);
 			return;
 		}
 		if (r.unchanged) return;
@@ -787,20 +839,20 @@ function refreshJobs(/** @type {{ mode?: string } | null | undefined} */ opts) {
 function ensureAutoRefresh(
 	/** @type {PatchhubJob[] | null | undefined} */ jobs,
 ) {
-	var id = PH.call("getLiveJobId");
+	var id = jobsPH.call("getLiveJobId");
 	var st = "";
 	var trackedActive = false;
 	if (id && jobs && jobs.length) {
 		const j = jobs.find((x) => String(x.job_id || "") === String(id)) || null;
 		st = j ? String(j.status || "") : "";
 	}
-	trackedActive = !!PH.call("hasTrackedActiveJob", jobs || []);
+	trackedActive = !!jobsPH.call("hasTrackedActiveJob", jobs || []);
 	if ((st === "running" || st === "queued") && id) {
-		PH.call("openLiveStream", id);
+		jobsPH.call("openLiveStream", id);
 	} else if (trackedActive && id) {
-		PH.call("openLiveStream", id);
+		jobsPH.call("openLiveStream", id);
 	} else {
-		PH.call("closeLiveStream");
+		jobsPH.call("closeLiveStream");
 	}
 
 	if (trackedActive) {
@@ -863,8 +915,8 @@ function computeCanonicalPreview(
 
 initJobsListActions();
 
-if (PH && typeof PH.register === "function") {
-	PH.register("app_part_jobs", {
+if (jobsPH && typeof jobsPH.register === "function") {
+	jobsPH.register("app_part_jobs", {
 		renderJobsFromResponse,
 		refreshJobs,
 		idleRefreshTick,

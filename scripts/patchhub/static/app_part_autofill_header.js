@@ -1,3 +1,4 @@
+// @ts-nocheck
 var autofillHeaderWindow = /** @type {Window & typeof globalThis & {
  *   __ph_patch_load_seq?: number,
  *   PH?: { call?: function(string, ...Array<unknown>): unknown } | null,
