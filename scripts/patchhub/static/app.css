@@ -38,9 +38,18 @@ body {
 	gap: 10px;
 }
 .title {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
 	font-size: 16px;
 	font-weight: 700;
 	white-space: nowrap;
+}
+.title-mark {
+	width: 24px;
+	height: 24px;
+	flex: 0 0 24px;
+	border-radius: 6px;
 }
 .hdrmeta {
 	flex: 1;
@@ -222,6 +231,13 @@ body.dragging .drop-overlay {
 .pre-box {
 	height: 320px;
 	overflow: auto;
+}
+.pre-watermark {
+	background-color: #0b0b0b;
+	background-image: linear-gradient(rgba(11, 11, 11, 0.84), rgba(11, 11, 11, 0.84)), var(--live-log-watermark, none);
+	background-position: center center, center center;
+	background-repeat: no-repeat, no-repeat;
+	background-size: 100% 100%, 58% auto;
 }
 .scroll {
 	border: 1px solid #2a2a2a;

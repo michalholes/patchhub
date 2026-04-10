@@ -17,7 +17,7 @@
   </div>
   <header class="bar bar-stacked">
     <div class="bar-top">
-      <div class="title">PatchHub <span id="ampWebVersion"></span></div>
+      <div class="title"><img class="title-mark" src="/static/patchhub-favicon-square-230.png?v={{PATCHHUB_STATIC_VERSION}}" alt="" aria-hidden="true" /><span>PatchHub <span id="ampWebVersion"></span></span></div>
       <div id="hdrMeta" class="hdrmeta"></div>
       <div class="actions">
         <a class="link" href="/editor">Editor</a>
@@ -194,7 +194,7 @@
             </button>
           </span>
         </div>
-        <pre id="liveLog" class="pre pre-box"></pre>
+        <pre id="liveLog" class="pre pre-box pre-watermark" style="--live-log-watermark: url('/static/patchhub-live-log-watermark.png?v={{PATCHHUB_STATIC_VERSION}}');"></pre>
         <div class="row live-copy-row">
           <button type="button" id="liveCopySelection" class="btn btn-small">Copy selection</button>
           <button type="button" id="liveCopyAll" class="btn btn-small">Copy all</button>
