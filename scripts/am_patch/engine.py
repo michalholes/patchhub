@@ -689,7 +689,9 @@ def run_mode(ctx: RunContext) -> RunResult:
         final_pushed_files = promotion_summary.final_pushed_files
         delete_workspace_after_archive = promotion_summary.delete_workspace_after_archive
 
-        used_patch_for_zip = archive_patch(logger, patch_script, paths.successful_dir)
+        used_patch_for_zip = None
+        if getattr(policy, "patch_script_archive_enabled", True):
+            used_patch_for_zip = archive_patch(logger, patch_script, paths.successful_dir)
         drop_checkpoint(logger, ws.repo, ckpt)
         return _result(0)
 

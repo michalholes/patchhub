@@ -51,6 +51,8 @@ def _ctx(tmp_path: Path, *, mode: str, logger: _FakeLogger) -> Any:
         test_mode=False,
         rollback_workspace_on_fail="none-applied",
         post_success_audit=True,
+        patch_script_archive_enabled=True,
+        artifact_stage_enabled=True,
     )
     cli = SimpleNamespace(mode=mode, issue_id="999", patch_script=None)
     return SimpleNamespace(
@@ -94,6 +96,184 @@ def _success_result(build_run_result, *, tmp_path: Path) -> Any:
         primary_fail_reason=None,
         secondary_failures=[],
     )
+
+
+def test_workspace_success_skips_patch_script_archive_when_disabled(
+    tmp_path: Path,
+) -> None:
+    _, build_run_result, post_run_pipeline = _import_am_patch()
+    logger = _FakeLogger()
+    ctx = _ctx(tmp_path, mode="workspace", logger=logger)
+    ctx.policy.patch_script_archive_enabled = False
+    ctx.repo_root.mkdir(parents=True, exist_ok=True)
+    result = _success_result(build_run_result, tmp_path=tmp_path)
+    result.used_patch_for_zip = None
+    patch_script = tmp_path / "patches" / "issue_999.py"
+    patch_script.write_text("print('x')\n", encoding="utf-8")
+    result.patch_script = patch_script
+
+    post_run_mod = sys.modules[post_run_pipeline.__module__]
+    captured: dict[str, Any] = {}
+
+    def _unexpected_archive(*_args, **_kwargs):
+        raise AssertionError("archive_patch should not run")
+
+    def _build_artifacts(**kwargs):
+        captured.update(kwargs)
+
+    post_run_mod.archive_patch = _unexpected_archive
+    post_run_mod.delete_workspace = lambda logger, ws: None
+    post_run_mod.run_post_success_audit = lambda logger, repo_root, policy: None
+    post_run_mod.build_artifacts = _build_artifacts
+
+    exit_code = post_run_pipeline(ctx=ctx, result=result)
+
+    assert exit_code == 0
+    assert captured["archived_patch"] is None
+
+
+def test_workspace_failure_skips_patch_script_archive_when_disabled(
+    tmp_path: Path,
+) -> None:
+    _, build_run_result, post_run_pipeline = _import_am_patch()
+    logger = _FakeLogger()
+    ctx = _ctx(tmp_path, mode="workspace", logger=logger)
+    ctx.policy.patch_script_archive_enabled = False
+    ctx.repo_root.mkdir(parents=True, exist_ok=True)
+
+    ws_root = tmp_path / "patches" / "workspaces" / "issue_999"
+    ws_repo = ws_root / "repo"
+    ws_repo.mkdir(parents=True, exist_ok=True)
+    patch_script = tmp_path / "patches" / "issue_999.py"
+    patch_script.write_text("print('x')\n", encoding="utf-8")
+    result = build_run_result(
+        lock=None,
+        exit_code=1,
+        unified_mode=False,
+        patch_script=patch_script,
+        used_patch_for_zip=None,
+        files_for_fail_zip=["alpha.py"],
+        failed_patch_blobs_for_zip=[],
+        patch_applied_successfully=False,
+        applied_ok_count=0,
+        rollback_ckpt_for_posthook=None,
+        rollback_ws_for_posthook=None,
+        issue_diff_base_sha="abc123",
+        issue_diff_paths=["alpha.py"],
+        delete_workspace_after_archive=False,
+        ws_for_posthook=SimpleNamespace(root=ws_root, repo=ws_repo, attempt=1),
+        push_ok_for_posthook=False,
+        final_commit_sha=None,
+        final_pushed_files=None,
+        final_fail_stage="PATCH_APPLY",
+        final_fail_reason="patch apply failed",
+        primary_fail_stage="PATCH",
+        primary_fail_reason="patch apply failed",
+        secondary_failures=[],
+    )
+
+    post_run_mod = sys.modules[post_run_pipeline.__module__]
+    captured: dict[str, Any] = {}
+
+    def _unexpected_archive(*_args, **_kwargs):
+        raise AssertionError("archive_patch should not run")
+
+    def _build_artifacts(**kwargs):
+        captured.update(kwargs)
+
+    post_run_mod.archive_patch = _unexpected_archive
+    post_run_mod.run_post_success_audit = lambda logger, repo_root, policy: None
+    post_run_mod.build_artifacts = _build_artifacts
+
+    exit_code = post_run_pipeline(ctx=ctx, result=result)
+
+    assert exit_code == 1
+    assert captured["archived_patch"] is None
+
+
+def test_workspace_skip_artifact_stage_preserves_delete_and_audit(
+    tmp_path: Path,
+) -> None:
+    _, build_run_result, post_run_pipeline = _import_am_patch()
+    logger = _FakeLogger()
+    ctx = _ctx(tmp_path, mode="workspace", logger=logger)
+    ctx.policy.artifact_stage_enabled = False
+    ctx.repo_root.mkdir(parents=True, exist_ok=True)
+    result = _success_result(build_run_result, tmp_path=tmp_path)
+
+    post_run_mod = sys.modules[post_run_pipeline.__module__]
+    events: list[str] = []
+
+    post_run_mod.delete_workspace = lambda logger, ws: events.append("delete")
+    post_run_mod.run_post_success_audit = lambda logger, repo_root, policy: events.append("audit")
+
+    def _unexpected_build_artifacts(**_kwargs):
+        raise AssertionError("build_artifacts should not run")
+
+    post_run_mod.build_artifacts = _unexpected_build_artifacts
+
+    exit_code = post_run_pipeline(ctx=ctx, result=result)
+
+    assert exit_code == 0
+    assert events == ["delete", "audit"]
+
+
+def test_workspace_skip_artifact_stage_preserves_failure_rollback(
+    tmp_path: Path,
+) -> None:
+    _, build_run_result, post_run_pipeline = _import_am_patch()
+    logger = _FakeLogger()
+    ctx = _ctx(tmp_path, mode="workspace", logger=logger)
+    ctx.policy.artifact_stage_enabled = False
+    ctx.policy.rollback_workspace_on_fail = "always"
+    ctx.repo_root.mkdir(parents=True, exist_ok=True)
+
+    ws_root = tmp_path / "patches" / "workspaces" / "issue_999"
+    ws_repo = ws_root / "repo"
+    ws_repo.mkdir(parents=True, exist_ok=True)
+    ws = SimpleNamespace(root=ws_root, repo=ws_repo, attempt=1)
+    ckpt = object()
+    result = build_run_result(
+        lock=None,
+        exit_code=1,
+        unified_mode=False,
+        patch_script=None,
+        used_patch_for_zip=None,
+        files_for_fail_zip=["alpha.py"],
+        failed_patch_blobs_for_zip=[],
+        patch_applied_successfully=False,
+        applied_ok_count=0,
+        rollback_ckpt_for_posthook=ckpt,
+        rollback_ws_for_posthook=ws,
+        issue_diff_base_sha="abc123",
+        issue_diff_paths=["alpha.py"],
+        delete_workspace_after_archive=False,
+        ws_for_posthook=ws,
+        push_ok_for_posthook=False,
+        final_commit_sha=None,
+        final_pushed_files=None,
+        final_fail_stage="PATCH_APPLY",
+        final_fail_reason="patch apply failed",
+        primary_fail_stage="PATCH",
+        primary_fail_reason="patch apply failed",
+        secondary_failures=[],
+    )
+
+    post_run_mod = sys.modules[post_run_pipeline.__module__]
+    rollback_calls: list[tuple[Path, object]] = []
+
+    def _unexpected_build_artifacts(**_kwargs):
+        raise AssertionError("build_artifacts should not run")
+
+    post_run_mod.build_artifacts = _unexpected_build_artifacts
+    post_run_mod.rollback_to_checkpoint = lambda logger, repo, checkpoint: rollback_calls.append(
+        (repo, checkpoint)
+    )
+
+    exit_code = post_run_pipeline(ctx=ctx, result=result)
+
+    assert exit_code == 1
+    assert rollback_calls == [(ws_repo, ckpt)]
 
 
 def test_workspace_audit_runs_once_after_workspace_delete(tmp_path: Path) -> None:

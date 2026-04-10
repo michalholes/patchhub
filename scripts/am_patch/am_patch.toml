@@ -21,6 +21,7 @@ ipc_handshake_wait_s = 0
 
 # Success archive naming stays bootstrap-owned.
 success_archive_enabled = true
+artifact_stage_enabled = true
 success_archive_name = "{repo}-{branch}_{issue}.zip"
 issue_diff_bundle_enabled = false
 success_archive_dir = "patch_dir"
@@ -38,6 +39,7 @@ lockfile_name = "am_patch.lock"
 current_log_symlink_name = "am_patch.log"
 current_log_symlink_enabled = true
 failure_zip_enabled = true
+patch_script_archive_enabled = true
 log_ts_format = "%Y%m%d_%H%M%S"
 failure_zip_template = "patched_issue{issue}_v{attempt:02d}.zip"
 failure_zip_cleanup_glob_template = "patched_issue{issue}_*.zip"

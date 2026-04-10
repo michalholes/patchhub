@@ -35,7 +35,9 @@ def test_policy_schema_exposes_bucketed_pytest_routing_keys() -> None:
     assert policy["pytest_dependencies"]["type"] == "dict[str,list[str]]"
     assert policy["pytest_external_dependencies"]["type"] == "dict[str,list[str]]"
     assert policy["failure_zip_enabled"]["type"] == "bool"
+    assert policy["patch_script_archive_enabled"]["type"] == "bool"
     assert policy["success_archive_enabled"]["type"] == "bool"
+    assert policy["artifact_stage_enabled"]["type"] == "bool"
     assert policy["issue_diff_bundle_enabled"]["type"] == "bool"
 
 
@@ -77,7 +79,9 @@ def test_bootstrap_policy_schema_is_bootstrap_only() -> None:
     assert set(policy.keys()) == BOOTSTRAP_OWNED_KEYS
     assert "target_repo_config_relpath" in policy
     assert "failure_zip_enabled" in policy
+    assert "patch_script_archive_enabled" in policy
     assert "success_archive_enabled" in policy
+    assert "artifact_stage_enabled" in policy
     assert "issue_diff_bundle_enabled" in policy
     assert "python_gate_mode" not in policy
     assert "default_branch" not in policy

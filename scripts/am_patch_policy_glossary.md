@@ -581,6 +581,30 @@ Notes:
 - This key does not select the patched git repository.
 Related: patch_dir_name, patch_layout_logs_dir, patch_layout_json_dir, patch_layout_workspaces_dir, patch_layout_successful_dir, patch_layout_unsuccessful_dir, active_target_repo_root
 
+
+## Key: patch_script_archive_enabled
+Key: patch_script_archive_enabled
+Type: bool
+Default: true
+Meaning: If true, archive the patch script into successful/ or unsuccessful/ when those
+branches would otherwise archive it.
+Notes:
+- This key only controls patch-script archival.
+- It does not disable success archive, failure zip, or issue diff bundle outputs.
+Related: artifact_stage_enabled, failure_zip_enabled, success_archive_enabled
+
+## Key: artifact_stage_enabled
+Key: artifact_stage_enabled
+Type: bool
+Default: true
+Meaning: If true, run the post-run artifact stage dispatch that may create success archive,
+issue diff bundle, and failure zip outputs.
+Notes:
+- If false, the artifact stage is skipped entirely.
+- This does not disable patch-script archival; that remains controlled by
+  patch_script_archive_enabled.
+Related: patch_script_archive_enabled, success_archive_enabled, issue_diff_bundle_enabled
+
 ## Key: self_backup_mode
 Key: self_backup_mode
 Type: str

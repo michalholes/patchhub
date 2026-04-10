@@ -25,6 +25,22 @@ def add_artifact_override_args(
         nargs=0,
     )
     parser.add_argument(
+        "--patch-script-archive",
+        action=append_override,
+        key="patch_script_archive_enabled",
+        const_value="true",
+        dest="overrides",
+        nargs=0,
+    )
+    parser.add_argument(
+        "--no-patch-script-archive",
+        action=append_override,
+        key="patch_script_archive_enabled",
+        const_value="false",
+        dest="overrides",
+        nargs=0,
+    )
+    parser.add_argument(
         "--failure-zip-name",
         action=append_override,
         key="failure_zip_name",
@@ -55,6 +71,22 @@ def add_artifact_override_args(
         "--no-success-archive",
         action=append_override,
         key="success_archive_enabled",
+        const_value="false",
+        dest="overrides",
+        nargs=0,
+    )
+    parser.add_argument(
+        "--artifact-stage",
+        action=append_override,
+        key="artifact_stage_enabled",
+        const_value="true",
+        dest="overrides",
+        nargs=0,
+    )
+    parser.add_argument(
+        "--no-artifact-stage",
+        action=append_override,
+        key="artifact_stage_enabled",
         const_value="false",
         dest="overrides",
         nargs=0,

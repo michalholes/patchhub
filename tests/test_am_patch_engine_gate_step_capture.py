@@ -292,6 +292,43 @@ def test_run_mode_keeps_gate_step_capture_on_cancel_without_post_hoc_reconcile(
     assert result.final_fail_reason == "cancel requested"
 
 
+def test_run_mode_skips_success_archive_when_patch_script_archive_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy_cls, engine_mod = _import_am_patch()
+    policy = policy_cls()
+    policy.audit_rubric_guard = False
+    policy.live_repo_guard = False
+    policy.test_mode = False
+    policy.allow_outside_files = False
+    policy.patch_script_archive_enabled = False
+    patch_script = tmp_path / "placeholder.zip"
+    ctx = _mk_ctx(engine_mod, tmp_path, policy, patch_script)
+    _prepare_common(monkeypatch, engine_mod, ctx, tmp_path)
+
+    archive_calls: list[tuple[Path, Path]] = []
+
+    def _archive_patch(_logger: Any, source: Path, dest_dir: Path) -> Path:
+        archive_calls.append((source, dest_dir))
+        return dest_dir / source.name
+
+    monkeypatch.setattr(engine_mod, "archive_patch", _archive_patch)
+    monkeypatch.setattr(engine_mod, "run_patch", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        engine_mod,
+        "changed_paths",
+        lambda *args, **kwargs: ["declared.py"],
+    )
+    monkeypatch.setattr(engine_mod, "run_validation", lambda **kwargs: None)
+
+    result = engine_mod.run_mode(ctx)
+
+    assert result.exit_code == 0
+    assert result.used_patch_for_zip is None
+    assert archive_calls == []
+
+
 def test_gate_step_capture_sink_skips_redundant_state_write_for_already_legalized_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

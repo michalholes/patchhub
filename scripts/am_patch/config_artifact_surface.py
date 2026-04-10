@@ -20,6 +20,12 @@ def apply_artifact_cfg_surface(
 ) -> None:
     p.failure_zip_enabled = as_bool(cfg, "failure_zip_enabled", p.failure_zip_enabled)
     mark_cfg(p, cfg, "failure_zip_enabled")
+    p.patch_script_archive_enabled = as_bool(
+        cfg,
+        "patch_script_archive_enabled",
+        p.patch_script_archive_enabled,
+    )
+    mark_cfg(p, cfg, "patch_script_archive_enabled")
     p.failure_zip_name = str(cfg.get("failure_zip_name", p.failure_zip_name))
     mark_cfg(p, cfg, "failure_zip_name")
     p.failure_zip_template = str(cfg.get("failure_zip_template", p.failure_zip_template))
@@ -48,6 +54,12 @@ def apply_artifact_cfg_surface(
         p.success_archive_enabled,
     )
     mark_cfg(p, cfg, "success_archive_enabled")
+    p.artifact_stage_enabled = as_bool(
+        cfg,
+        "artifact_stage_enabled",
+        p.artifact_stage_enabled,
+    )
+    mark_cfg(p, cfg, "artifact_stage_enabled")
     p.success_archive_name = str(cfg.get("success_archive_name", p.success_archive_name))
     mark_cfg(p, cfg, "success_archive_name")
     p.success_archive_dir = str(cfg.get("success_archive_dir", p.success_archive_dir))

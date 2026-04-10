@@ -70,6 +70,7 @@ class Policy(PolicyMonolithMixin):
     log_template_finalize: str = "am_patch_finalize_{ts}.log"
 
     failure_zip_enabled: bool = True
+    patch_script_archive_enabled: bool = True
     failure_zip_name: str = "patched.zip"
     failure_zip_template: str = ""
     failure_zip_cleanup_glob_template: str = "patched_issue{issue}_*.zip"
@@ -117,6 +118,7 @@ class Policy(PolicyMonolithMixin):
     default_branch: str = "main"
 
     success_archive_enabled: bool = True
+    artifact_stage_enabled: bool = True
     success_archive_name: str = "{repo}-{branch}.zip"
     issue_diff_bundle_enabled: bool = True
 

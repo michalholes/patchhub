@@ -21,8 +21,12 @@ def _resolve_workspace_archive_path(
     paths: Any,
     issue_id: str,
     logger: Any,
+    policy: Any,
 ) -> Path | None:
     archived_path = result.used_patch_for_zip
+
+    if not getattr(policy, "patch_script_archive_enabled", True):
+        return archived_path
 
     if result.exit_code == 0:
         if (
@@ -169,6 +173,7 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
                     paths=paths,
                     issue_id=issue_id,
                     logger=logger,
+                    policy=policy,
                 )
 
             run_audit_after_workspace_delete = (
@@ -201,27 +206,34 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
                 workspace_deleted_before_audit=workspace_deleted_before_audit,
             )
 
-            build_artifacts(
-                logger=logger,
-                cli=cli,
-                policy=policy,
-                paths=paths,
-                repo_root=repo_root,
-                log_path=log_path,
-                exit_code=result.exit_code,
-                unified_mode=result.unified_mode,
-                patch_applied_successfully=result.patch_applied_successfully,
-                archived_patch=archived_path,
-                failed_patch_blobs_for_zip=result.failed_patch_blobs_for_zip,
-                files_for_fail_zip=files_for_fail_zip,
-                ws_repo_for_fail_zip=ws_repo_for_fail_zip,
-                ws_attempt=(
-                    result.ws_for_posthook.attempt if result.ws_for_posthook is not None else None
-                ),
-                issue_diff_base_sha=result.issue_diff_base_sha,
-                issue_diff_paths=result.issue_diff_paths,
-                effective_target_repo_name=getattr(ctx, "effective_target_repo_name", None),
-            )
+            if getattr(policy, "artifact_stage_enabled", True):
+                build_artifacts(
+                    logger=logger,
+                    cli=cli,
+                    policy=policy,
+                    paths=paths,
+                    repo_root=repo_root,
+                    log_path=log_path,
+                    exit_code=result.exit_code,
+                    unified_mode=result.unified_mode,
+                    patch_applied_successfully=result.patch_applied_successfully,
+                    archived_patch=archived_path,
+                    failed_patch_blobs_for_zip=result.failed_patch_blobs_for_zip,
+                    files_for_fail_zip=files_for_fail_zip,
+                    ws_repo_for_fail_zip=ws_repo_for_fail_zip,
+                    ws_attempt=(
+                        result.ws_for_posthook.attempt
+                        if result.ws_for_posthook is not None
+                        else None
+                    ),
+                    issue_diff_base_sha=result.issue_diff_base_sha,
+                    issue_diff_paths=result.issue_diff_paths,
+                    effective_target_repo_name=getattr(
+                        ctx,
+                        "effective_target_repo_name",
+                        None,
+                    ),
+                )
             if (
                 result.exit_code != 0
                 and result.rollback_ws_for_posthook is not None

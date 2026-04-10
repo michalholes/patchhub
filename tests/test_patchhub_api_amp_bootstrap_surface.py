@@ -50,6 +50,8 @@ def test_amp_bootstrap_surface_excludes_repo_owned_keys() -> None:
         assert "target_repo_config_relpath" in policy
         assert "artifacts_root" in policy
         assert "self_backup_mode" in policy
+        assert "patch_script_archive_enabled" in policy
+        assert "artifact_stage_enabled" in policy
         assert "self_backup_dir" in policy
         assert "self_backup_template" in policy
         assert "self_backup_include_relpaths" in policy
@@ -82,6 +84,8 @@ def test_amp_bootstrap_roundtrip_does_not_write_repo_owned_keys() -> None:
                     "target_repo_config_relpath": ".am_patch/custom.repo.toml",
                     "artifacts_root": "../artifacts-root",
                     "self_backup_mode": "never",
+                    "patch_script_archive_enabled": False,
+                    "artifact_stage_enabled": False,
                     "self_backup_dir": "safe/quarantine",
                     "self_backup_template": "custom_issue{issue}_{ts}.zip",
                     "self_backup_include_relpaths": [
@@ -98,5 +102,7 @@ def test_amp_bootstrap_roundtrip_does_not_write_repo_owned_keys() -> None:
         assert 'verbosity = "quiet"' in saved
         assert 'target_repo_config_relpath = ".am_patch/custom.repo.toml"' in saved
         assert 'self_backup_dir = "safe/quarantine"' in saved
+        assert "patch_script_archive_enabled = false" in saved
+        assert "artifact_stage_enabled = false" in saved
         assert "default_branch =" not in saved
         assert "python_gate_mode =" not in saved

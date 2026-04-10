@@ -150,6 +150,7 @@ _SECTION_BY_KEY: dict[str, str] = {
     "log_template_issue": "",
     "log_template_finalize": "",
     "failure_zip_enabled": "",
+    "patch_script_archive_enabled": "",
     "failure_zip_name": "",
     "failure_zip_template": "",
     "failure_zip_cleanup_glob_template": "",
@@ -176,6 +177,7 @@ _SECTION_BY_KEY: dict[str, str] = {
     "venv_bootstrap_python": "",
     "default_branch": "",
     "success_archive_enabled": "",
+    "artifact_stage_enabled": "",
     "success_archive_name": "",
     "issue_diff_bundle_enabled": "",
     "success_archive_dir": "",
@@ -247,6 +249,7 @@ _LABEL_BY_KEY: dict[str, str] = {
     "audit_rubric_guard": "Audit: rubric guard",
     "default_branch": "Git: default branch",
     "failure_zip_enabled": "Failure zip: enabled",
+    "patch_script_archive_enabled": "Patch script archive: enabled",
     "live_repo_guard": "Git safety: live repo guard",
     "live_repo_guard_scope": "Git safety: live repo guard scope",
     "repo_root": "Paths: repo root",
@@ -262,6 +265,7 @@ _LABEL_BY_KEY: dict[str, str] = {
     "self_backup_include_relpaths": "Self-backup: include relpaths",
     "ruff_autofix": "Ruff: autofix",
     "success_archive_enabled": "Success archive: enabled",
+    "artifact_stage_enabled": "Artifact stage: enabled",
     "issue_diff_bundle_enabled": "Issue diff bundle: enabled",
     "ruff_autofix_legalize_outside": "Ruff: autofix legalize outside",
     "ruff_format": "Ruff: format",
@@ -559,9 +563,17 @@ _HELP_BY_KEY: dict[str, str] = {
         "Enable failure zip creation and cleanup side effects. "
         "See: scripts/am_patch_policy_glossary.md## Key: failure_zip_enabled"
     ),
+    "patch_script_archive_enabled": (
+        "Enable patch-script archival into successful/ and unsuccessful/. "
+        "See: scripts/am_patch_policy_glossary.md## Key: patch_script_archive_enabled"
+    ),
     "success_archive_enabled": (
         "Enable success archive creation and retention cleanup. "
         "See: scripts/am_patch_policy_glossary.md## Key: success_archive_enabled"
+    ),
+    "artifact_stage_enabled": (
+        "Enable the post-run artifact stage dispatch. "
+        "See: scripts/am_patch_policy_glossary.md## Key: artifact_stage_enabled"
     ),
     "issue_diff_bundle_enabled": (
         "Enable issue diff bundle creation on success. "
