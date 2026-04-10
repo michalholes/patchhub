@@ -882,7 +882,7 @@ def _run_external_gates(
             root=root,
             relpaths=js_ts_paths,
             command_name="tsc",
-            command_builder=lambda paths: ["--noEmit", "--pretty", "false", *paths],
+            command_builder=lambda paths: ["--noEmit", "--allowJS", "--pretty", "false", *paths],
             cli_disabled=cli_disabled,
         ),
         _external_gate_result(
