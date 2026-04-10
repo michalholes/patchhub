@@ -858,7 +858,7 @@ def _run_external_gates(
             root=root,
             relpaths=test_paths,
             command_name="pytest",
-            command_builder=lambda paths: ["-q", *paths],
+            command_builder=lambda paths: ["-q", "-o addopts=''", *paths],
             cli_disabled=cli_disabled,
         ),
         _external_gate_result(
