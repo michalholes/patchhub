@@ -66,7 +66,10 @@ def test_status_bar_uses_bounded_history_buffer() -> None:
         r"(?:\[\s*\]|\(\s*\[\s*\]\s*\))\s*;",
         src,
     )
-    assert "payload.status.forEach((line) => {" in src
+    assert (
+        "payload.status.forEach((line) => {" in src
+        or "payload.status.forEach((/** @type {string} */ line) => {" in src
+    )
     assert "uiStatusLines.splice(0, uiStatusLines.length - UI_STATUS_LIMIT);" in src
 
 

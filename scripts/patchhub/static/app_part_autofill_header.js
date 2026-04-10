@@ -1,12 +1,16 @@
-// @ts-nocheck
-var autofillHeaderWindow = /** @type {Window & typeof globalThis & {
- *   __ph_patch_load_seq?: number,
- *   PH?: { call?: function(string, ...Array<unknown>): unknown } | null,
- * }} */ (window);
+/// <reference path="../../../types/am2-globals.d.ts" />
+var autofillHeaderWindow = /** @type {PatchhubAutofillHeaderWindow} */ (window);
 var autofillHeaderBridge = autofillHeaderWindow;
+/** @type {PatchhubHeaderRuntime | null} */
 var PH = autofillHeaderWindow.PH || null;
+/** @type {PatchhubHeaderSummary} */
 var headerSummaryCache = {};
 
+/**
+ * @param {string} name
+ * @param {...unknown} args
+ * @returns {unknown}
+ */
 function phCall(name, ...args) {
 	if (!PH || typeof PH.call !== "function") return undefined;
 	return PH.call(name, ...args);
@@ -15,6 +19,7 @@ function phCall(name, ...args) {
 function isProtectedRerunLatestLifecycleActive() {
 	return !!phCall("isProtectedRerunLatestLifecycleActive");
 }
+/** @type {PatchhubHeaderDiagnostics | null} */
 var headerDiagnosticsCache = null;
 function prepareFormForNewPatchLoad() {
 	if (isProtectedRerunLatestLifecycleActive()) return false;
@@ -40,7 +45,9 @@ function prepareFormForNewPatchLoad() {
 	return true;
 }
 
-function applyAutofillFromPayload(p) {
+function applyAutofillFromPayload(
+	/** @type {PatchhubLatestPatchResponse} */ p,
+) {
 	if (isProtectedRerunLatestLifecycleActive()) return false;
 	if (!cfg || !cfg.autofill || !p) return false;
 
@@ -101,15 +108,16 @@ function pollLatestPatchOnce() {
 		? "?since_token=" + encodeURIComponent(String(latestToken))
 		: "";
 	apiGetETag("patches_latest", "/api/patches/latest" + qs).then((r) => {
-		if (!r || r.ok === false) {
-			setUiError(String((r && r.error) || "autofill scan failed"));
+		var latest = /** @type {PatchhubLatestPatchResponse} */ (r || {});
+		if (!r || latest.ok === false) {
+			setUiError(String(latest.error || "autofill scan failed"));
 			return;
 		}
 
-		if (r && r.unchanged) return;
-		pushApiStatus(r);
-		if (!r.found) return;
-		var token = String(r.token || "");
+		if (latest.unchanged) return;
+		pushApiStatus(latest);
+		if (!latest.found) return;
+		var token = String(latest.token || "");
 		if (!token || token === latestToken) return;
 		latestToken = token;
 		if (isProtectedRerunLatestLifecycleActive()) {
@@ -123,7 +131,7 @@ function pollLatestPatchOnce() {
 		}
 		// New patch token: reset UI state deterministically.
 		prepareFormForNewPatchLoad();
-		applyAutofillFromPayload(r);
+		applyAutofillFromPayload(latest);
 
 		if (cfg && cfg.ui && cfg.ui.clear_output_on_autofill) {
 			if (token !== lastAutofillClearedToken) {
@@ -153,7 +161,7 @@ function startAutofillPolling() {
 	pollLatestPatchOnce();
 }
 
-function headerBaseMeta(base) {
+function headerBaseMeta(/** @type {string} */ base) {
 	var meta = String(base || "");
 	if (cfg && cfg.paths && cfg.paths.patches_root) {
 		meta += " | patches: " + cfg.paths.patches_root;
@@ -161,7 +169,7 @@ function headerBaseMeta(base) {
 	return meta;
 }
 
-function extractHeaderSummary(d) {
+function extractHeaderSummary(/** @type {PatchhubHeaderDiagnostics} */ d) {
 	var src = d || {};
 	return {
 		queue: src.queue || {},
@@ -171,11 +179,16 @@ function extractHeaderSummary(d) {
 	};
 }
 
-function buildHeaderSummaryMeta(summary, base) {
+function buildHeaderSummaryMeta(
+	/** @type {PatchhubHeaderSummary} */ summary,
+	/** @type {string} */ base,
+) {
 	var meta = headerBaseMeta(base);
+	/** @type {PatchhubHeaderLock} */
 	var lock = (summary && summary.lock) || {};
 	meta += lock.held ? " | LOCK:held" : " | LOCK:free";
 
+	/** @type {PatchhubHeaderQueue} */
 	var queue = (summary && summary.queue) || {};
 	var q = Number(queue.queued || 0);
 	var r = Number(queue.running || 0);
@@ -183,6 +196,7 @@ function buildHeaderSummaryMeta(summary, base) {
 		meta += " | queue:" + String(q) + "/" + String(r);
 	}
 
+	/** @type {PatchhubHeaderRuns} */
 	var runs = (summary && summary.runs) || {};
 	var count = Number(runs.count || 0);
 	if (!Number.isNaN(count)) {
@@ -191,7 +205,11 @@ function buildHeaderSummaryMeta(summary, base) {
 	return meta;
 }
 
-function appendTelemetryMeta(meta, d) {
+function appendTelemetryMeta(
+	/** @type {string} */ meta,
+	/** @type {PatchhubHeaderDiagnostics} */ d,
+) {
+	/** @type {PatchhubDiagnosticsDisk} */
 	var disk = (d && d.disk) || {};
 	var pct = "";
 	if (disk.total && disk.used) {
@@ -199,8 +217,11 @@ function appendTelemetryMeta(meta, d) {
 	}
 	if (pct) meta += " | " + pct;
 
+	/** @type {PatchhubDiagnosticsResources} */
 	var res = (d && d.resources) || {};
+	/** @type {PatchhubDiagnosticsProcess} */
 	var proc = res.process || {};
+	/** @type {PatchhubDiagnosticsHost} */
 	var host = res.host || {};
 	var rss = "";
 	var cpu = "";
@@ -233,7 +254,7 @@ function appendTelemetryMeta(meta, d) {
 	return meta;
 }
 
-function updateHeaderMeta(base) {
+function updateHeaderMeta(/** @type {string} */ base) {
 	var meta = buildHeaderSummaryMeta(headerSummaryCache || {}, base);
 	if (headerDiagnosticsCache) {
 		meta = appendTelemetryMeta(meta, headerDiagnosticsCache);
@@ -241,47 +262,27 @@ function updateHeaderMeta(base) {
 	if (el("hdrMeta")) el("hdrMeta").textContent = meta;
 }
 
-function setBackendDegradedNoteFromDiagnostics(d) {
-	var backend = (d && d.backend) || {};
-	var mode = String(backend.mode || "");
-	if (mode !== "file_emergency") {
-		if (typeof setBackendDegradedNote === "function")
-			setBackendDegradedNote("");
-		return;
-	}
-	var recovery = (backend && backend.last_recovery) || {};
-	var detail = [
-		String(recovery.recovery_action || "file_emergency"),
-		String(
-			recovery.main_db_validation ||
-				recovery.backup_restore_error ||
-				(recovery.fallback_export_errors || [])[0] ||
-				"",
-		),
-	]
-		.filter(Boolean)
-		.join("; ");
-	if (typeof setBackendDegradedNote === "function") {
-		setBackendDegradedNote(
-			detail ? "Backend file_emergency: " + detail : "Backend file_emergency",
-		);
-	}
-}
-
-function renderHeaderFromSummary(summary, base) {
+function renderHeaderFromSummary(
+	/** @type {PatchhubHeaderSummary} */ summary,
+	/** @type {string} */ base,
+) {
 	headerSummaryCache = extractHeaderSummary(summary);
 	updateHeaderMeta(base);
 }
 
-function renderHeaderFromDiagnostics(d, base) {
+function renderHeaderFromDiagnostics(
+	/** @type {PatchhubHeaderDiagnostics} */ d,
+	/** @type {string} */ base,
+) {
 	if (!d || d.ok === false) return;
 	headerSummaryCache = extractHeaderSummary(d);
 	headerDiagnosticsCache = d;
-	setBackendDegradedNoteFromDiagnostics(d);
 	updateHeaderMeta(base);
 }
 
-function refreshHeader(opts) {
+function refreshHeader(
+	/** @type {{ mode?: string } | null | undefined} */ opts,
+) {
 	opts = opts || {};
 	var mode = String(opts.mode || "user");
 	var sf = mode === "periodic";
@@ -295,13 +296,14 @@ function refreshHeader(opts) {
 		mode: mode,
 		single_flight: sf,
 	}).then((d) => {
-		if (!d || d.ok === false) return;
-		if (d.unchanged) return;
-		renderHeaderFromDiagnostics(d, base);
+		var diagnostics = /** @type {PatchhubDiagnosticsResponse} */ (d || {});
+		if (!d || diagnostics.ok === false) return;
+		if (diagnostics.unchanged) return;
+		renderHeaderFromDiagnostics(diagnostics, base);
 	});
 }
 
-function setTabActive(which) {
+function setTabActive(/** @type {string} */ which) {
 	var tabs = ["Overview", "Logs", "Patch", "Diff", "Files"];
 	tabs.forEach((t) => {
 		var btn = el("tab" + t);
@@ -338,9 +340,13 @@ function renderIssueDetail() {
 	if (content) content.style.display = "block";
 
 	function renderLinks() {
+		/** @type {string[]} */
 		var parts = [];
 
-		function add(label, rel) {
+		function add(
+			/** @type {string} */ label,
+			/** @type {string | undefined} */ rel,
+		) {
 			if (!rel) return;
 			parts.push(
 				'<a class="linklike" href="/api/fs/download?path=' +
@@ -376,12 +382,13 @@ function renderIssueDetail() {
 		var url =
 			"/api/fs/read_text?path=" + encodeURIComponent(p) + "&tail_lines=2000";
 		apiGet(url).then((r) => {
-			if (!r || r.ok === false) {
+			var readText = /** @type {PatchhubReadTextResponse} */ (r || {});
+			if (!r || readText.ok === false) {
 				setPre("issueTabBody", r);
 				return;
 			}
-			var t = String(r.text || "");
-			if (r.truncated) {
+			var t = String(readText.text || "");
+			if (readText.truncated) {
 				t += "\n\n[TRUNCATED]";
 			}
 			setPre("issueTabBody", t);

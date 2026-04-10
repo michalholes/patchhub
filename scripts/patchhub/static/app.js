@@ -1,3 +1,4 @@
+/// <reference path="../../../types/am2-globals.d.ts" />
 // PatchHub app core (refactored split: part files).
 /**
  * @typedef {{
@@ -116,9 +117,7 @@ function syncLegacyDegradedBanner() {
 		typeof appWindow.PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER === "function"
 	) {
 		appWindow.PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER();
-		return;
 	}
-	setLegacyPooledNode("uiDegradedBanner", "");
 }
 
 function rememberDegraded(/** @type {string} */ message) {
@@ -403,10 +402,7 @@ function getOperatorInfoSnapshot() {
 function setOperatorInfoSnapshot(/** @type {unknown} */ payload) {
 	if (typeof appWindow.PH_SET_OPERATOR_INFO_SNAPSHOT === "function") {
 		appWindow.PH_SET_OPERATOR_INFO_SNAPSHOT(payload);
-		return;
 	}
-	backendDegradedNote = "";
-	syncLegacyDegradedBanner();
 }
 
 function setInfoPoolHint(
@@ -656,7 +652,7 @@ var fsSelected = "";
 var fsChecked = /** @type {Record<string, boolean>} */ ({});
 var fsLastRels = /** @type {string[]} */ ([]);
 var runsCache = /** @type {unknown[]} */ ([]);
-var selectedRun = /** @type {unknown | null} */ (null);
+var selectedRun = /** @type {PatchhubHeaderRunDetail | null} */ (null);
 var tailLines = 200;
 
 var dirty = {

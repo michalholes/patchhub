@@ -88,10 +88,38 @@
 
 	/** @returns {OperatorInfoSnapshot} */
 	function infoPoolOperatorInfo() {
-		if (typeof getOperatorInfoSnapshot === "function") {
-			return /** @type {OperatorInfoSnapshot} */ (getOperatorInfoSnapshot());
-		}
-		return { cleanup_recent_status: [] };
+		return operatorInfoSnapshot;
+	}
+
+	function normalizeBackendModeStatus(/** @type {unknown} */ payload) {
+		var source =
+			payload && typeof payload === "object"
+				? /** @type {BackendModeStatus} */ (payload)
+				: {};
+		return {
+			mode: String(source.mode || ""),
+			authoritative_backend: String(source.authoritative_backend || ""),
+			backend_session_id: String(source.backend_session_id || ""),
+			recovery_status: String(source.recovery_status || "not_run") || "not_run",
+			recovery_action: String(source.recovery_action || ""),
+			recovery_detail: String(source.recovery_detail || ""),
+			degraded: !!source.degraded,
+		};
+	}
+
+	function normalizeOperatorInfoSnapshot(/** @type {unknown} */ payload) {
+		var source =
+			payload && typeof payload === "object"
+				? /** @type {OperatorInfoSnapshot} */ (payload)
+				: {};
+		return {
+			cleanup_recent_status: Array.isArray(source.cleanup_recent_status)
+				? source.cleanup_recent_status.slice()
+				: [],
+			backend_mode_status: normalizeBackendModeStatus(
+				source.backend_mode_status,
+			),
+		};
 	}
 
 	function infoPoolBackendDegradedNoteFromOperatorInfo(
@@ -164,9 +192,19 @@
 		return PH.call("getPmValidationSnapshot") || null;
 	}
 
-	function infoPoolDegradedItems(/** @type {InfoPoolSnapshot} */ snapshot) {
+	function infoPoolCurrentBackendNote(
+		/** @type {OperatorInfoSnapshot} */ operatorInfo,
+	) {
+		return infoPoolBackendDegradedNoteFromOperatorInfo(operatorInfo);
+	}
+
+	function infoPoolDegradedItems(
+		/** @type {InfoPoolSnapshot} */ snapshot,
+		/** @type {OperatorInfoSnapshot} */ operatorInfo,
+	) {
 		var items = [];
-		var backend = String(snapshot.backendDegradedNote || "");
+		var backend = infoPoolCurrentBackendNote(operatorInfo);
+		if (!backend) backend = String(snapshot.backendDegradedNote || "");
 		if (backend) items.push(backend);
 		var degraded = Array.isArray(snapshot.degradedNotes)
 			? snapshot.degradedNotes
@@ -177,15 +215,20 @@
 		return items.filter(Boolean);
 	}
 
-	function infoPoolSummary(/** @type {InfoPoolSnapshot} */ snapshot) {
+	function infoPoolSummary(
+		/** @type {InfoPoolSnapshot} */ snapshot,
+		/** @type {OperatorInfoSnapshot} */ operatorInfo,
+	) {
+		var backend = infoPoolCurrentBackendNote(operatorInfo);
+		if (!backend) backend = String(snapshot.backendDegradedNote || "");
+		if (backend) {
+			return "DEGRADED MODE: " + backend;
+		}
 		var degraded = Array.isArray(snapshot.degradedNotes)
 			? snapshot.degradedNotes
 			: [];
 		if (degraded.length) {
 			return "DEGRADED MODE: " + String(degraded[degraded.length - 1] || "");
-		}
-		if (snapshot.backendDegradedNote) {
-			return "DEGRADED MODE: " + String(snapshot.backendDegradedNote || "");
 		}
 		var pmSummary = infoPoolPmSummary();
 		if (pmSummary) return pmSummary;
@@ -303,7 +346,7 @@
 		var snapshot = infoPoolSnapshot();
 		var operatorInfo = infoPoolOperatorInfo();
 		var hints = snapshot.hints || {};
-		var degraded = infoPoolDegradedItems(snapshot);
+		var degraded = infoPoolDegradedItems(snapshot, operatorInfo);
 		var hintHtml = [
 			infoPoolHintValue("Upload", String(hints.upload || "")),
 			infoPoolHintValue("Start run", String(hints.enqueue || "")),
@@ -339,7 +382,7 @@
 	function renderInfoPoolUi() {
 		var strip = infoPoolModalEl("uiStatusBar");
 		if (!strip) return;
-		var summary = infoPoolSummary(infoPoolSnapshot());
+		var summary = infoPoolSummary(infoPoolSnapshot(), infoPoolOperatorInfo());
 		var visiblePmSummary = infoPoolVisiblePmSummary(summary);
 		strip.textContent = summary;
 		strip.classList.add("statusbar-clickable");
@@ -358,6 +401,22 @@
 	function setInfoPoolOpen(/** @type {boolean} */ nextOpen) {
 		infoPoolOpen = !!nextOpen;
 		renderInfoPoolModal();
+	}
+
+	function infoPoolSyncLegacyDegradedBanner() {
+		var node = infoPoolModalEl("uiDegradedBanner");
+		if (!node) return;
+		var snapshot = infoPoolSnapshot();
+		var degraded = infoPoolDegradedItems(snapshot, infoPoolOperatorInfo());
+		var text = degraded.length ? String(degraded[0] || "") : "";
+		node.textContent = text;
+		node.classList.toggle("hidden", !text);
+	}
+
+	function infoPoolSetOperatorInfoSnapshot(/** @type {unknown} */ payload) {
+		operatorInfoSnapshot = normalizeOperatorInfoSnapshot(payload);
+		renderInfoPoolUi();
+		infoPoolSyncLegacyDegradedBanner();
 	}
 
 	function onInfoPoolStripKeydown(/** @type {KeyboardEvent} */ event) {
@@ -399,7 +458,16 @@
 			document.addEventListener("keydown", onInfoPoolDocumentKeydown);
 		}
 		renderInfoPoolUi();
+		infoPoolSyncLegacyDegradedBanner();
 	}
+
+	infoPoolWindow.PH_GET_OPERATOR_INFO_SNAPSHOT = () => {
+		return normalizeOperatorInfoSnapshot(operatorInfoSnapshot);
+	};
+	infoPoolWindow.PH_SET_OPERATOR_INFO_SNAPSHOT =
+		infoPoolSetOperatorInfoSnapshot;
+	infoPoolWindow.PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER =
+		infoPoolSyncLegacyDegradedBanner;
 
 	if (PH && typeof PH.register === "function") {
 		PH.register("app_part_info_pool", {

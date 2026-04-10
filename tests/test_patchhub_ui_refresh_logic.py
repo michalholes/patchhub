@@ -133,10 +133,15 @@ def test_cleanup_refresh_reuses_snapshot_resync_path_without_new_timer() -> None
 
 def test_operator_info_cleanup_payload_typedefs_are_explicit_and_consistent() -> None:
     app_src = _read("scripts/patchhub/static/app.js")
+    globals_src = _read("types/am2-globals.d.ts")
     info_src = _read("scripts/patchhub/static/app_part_info_pool.js")
     snapshot_src = _read("scripts/patchhub/static/app_part_snapshot_events.js")
 
-    for src in (app_src, info_src, snapshot_src):
+    assert '/// <reference path="../../../types/am2-globals.d.ts" />' in app_src
+    assert "interface PatchhubOperatorInfoSnapshot" in globals_src
+    assert "cleanup_recent_status?: CleanupRecentStatusItem[]" in globals_src
+
+    for src in (info_src, snapshot_src):
         assert "@typedef {{" in src
         assert "}} CleanupRecentStatusRule" in src
         assert "}} CleanupRecentStatusItem" in src
@@ -151,5 +156,5 @@ def test_operator_info_cleanup_payload_typedefs_are_explicit_and_consistent() ->
         assert "created_utc?: string" in src
         assert "summary_text?: string" in src
 
-    assert "cleanup_recent_status?: Array<Object>" not in app_src
+    assert "cleanup_recent_status?: Array<Object>" not in globals_src
     assert "cleanup_recent_status?: Array<Object>" not in snapshot_src

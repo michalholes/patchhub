@@ -10,6 +10,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 JOBS_PATH = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_jobs.js"
 APP_PATH = REPO_ROOT / "scripts" / "patchhub" / "static" / "app.js"
+INFO_POOL_PATH = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_info_pool.js"
+AUTOFILL_HEADER_PATH = REPO_ROOT / "scripts" / "patchhub" / "static" / "app_part_autofill_header.js"
 
 
 def _run_node(script: str) -> dict[str, str]:
@@ -193,6 +195,24 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 """
 
 
+def _info_pool_prelude() -> str:
+    info_pool_path = json.dumps(str(INFO_POOL_PATH))
+    autofill_header_path = json.dumps(str(AUTOFILL_HEADER_PATH))
+    return (
+        _prelude()
+        + f"""
+const infoPoolSrc = fs.readFileSync({info_pool_path}, "utf8");
+const autofillHeaderSrc = fs.readFileSync({autofill_header_path}, "utf8");
+vm.runInThisContext(infoPoolSrc, {{ filename: {info_pool_path} }});
+vm.runInThisContext(autofillHeaderSrc, {{ filename: {autofill_header_path} }});
+runtime.register("info_pool_stub", {{
+  getPmValidationSummary() {{ return ""; }},
+  getPmValidationSnapshot() {{ return null; }},
+}});
+"""
+    )
+
+
 def test_jobs_list_selected_item_renders_origin_evidence() -> None:
     script = (
         _prelude()
@@ -274,3 +294,73 @@ flush().then(() => flush()).then(() => {
     )
     result = _run_node(script)
     assert "origin legacy/no-origin-evidence" in result["html"]
+
+
+def test_operator_info_bridge_assigns_window_hooks_and_renders_backend_status() -> None:
+    script = (
+        _info_pool_prelude()
+        + """
+degradedNotes = ["runtime dispatcher unavailable"];
+window.PH_SET_OPERATOR_INFO_SNAPSHOT({
+  cleanup_recent_status: [],
+  backend_mode_status: {
+    mode: "file_emergency",
+    authoritative_backend: "files",
+    backend_session_id: "session-450",
+    recovery_status: "fallback",
+    recovery_action: "fallback_export",
+    recovery_detail: "legacy-tree",
+    degraded: true,
+  },
+});
+const infoPool = registry.get("app_part_info_pool");
+infoPool.renderInfoPoolUi();
+console.log(JSON.stringify({
+  hasGet: typeof window.PH_GET_OPERATOR_INFO_SNAPSHOT,
+  hasSet: typeof window.PH_SET_OPERATOR_INFO_SNAPSHOT,
+  hasSync: typeof window.PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER,
+  operatorMode: String(
+    window.PH_GET_OPERATOR_INFO_SNAPSHOT().backend_mode_status.mode || ""
+  ),
+  strip: document.getElementById("uiStatusBar").textContent,
+  banner: document.getElementById("uiDegradedBanner").textContent,
+}));
+"""
+    )
+    result = _run_node(script)
+    assert result["hasGet"] == "function"
+    assert result["hasSet"] == "function"
+    assert result["hasSync"] == "function"
+    assert result["operatorMode"] == "file_emergency"
+    assert result["strip"] == "DEGRADED MODE: Backend file_emergency: fallback_export; legacy-tree"
+    assert result["banner"] == "Backend file_emergency: fallback_export; legacy-tree"
+
+
+def test_header_diagnostics_do_not_decide_backend_degraded_note() -> None:
+    script = (
+        _info_pool_prelude()
+        + """
+renderHeaderFromDiagnostics({
+  ok: true,
+  queue: {},
+  lock: {},
+  runs: {},
+  stats: {},
+  backend: {
+    mode: "file_emergency",
+    last_recovery: {
+      recovery_action: "fallback_export",
+      fallback_export_errors: ["legacy-tree"],
+    },
+  },
+}, "server: 127.0.0.1:8080");
+registry.get("app_part_info_pool").renderInfoPoolUi();
+console.log(JSON.stringify({
+  backendDegradedNote,
+  strip: document.getElementById("uiStatusBar").textContent,
+}));
+"""
+    )
+    result = _run_node(script)
+    assert result["backendDegradedNote"] == ""
+    assert result["strip"] == "(idle)"

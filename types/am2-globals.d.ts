@@ -304,7 +304,19 @@ declare global {
 
 	interface PatchhubConfig {
 		runner?: { command?: string[] };
-		ui?: { idle_auto_select_last_job?: boolean };
+		autofill?: {
+			enabled?: boolean;
+			fill_patch_path?: boolean;
+			fill_issue_id?: boolean;
+			fill_commit_message?: boolean;
+			poll_interval_seconds?: string | number;
+		};
+		targeting?: { zip_target_prefill_enabled?: boolean };
+		ui?: {
+			idle_auto_select_last_job?: boolean;
+			show_autofill_clear_status?: boolean;
+			clear_output_on_autofill?: boolean;
+		};
 		server?: { host?: string; port?: string | number };
 		paths?: { patches_root?: string };
 	}
@@ -325,8 +337,101 @@ declare global {
 		patches: string;
 	}
 
+	interface PatchhubOperatorInfoSnapshot {
+		cleanup_recent_status?: CleanupRecentStatusItem[];
+		backend_mode_status?: Record<string, unknown>;
+	}
+
+	interface PatchhubHeaderRuntime {
+		call?: (name: string, ...args: unknown[]) => unknown;
+		register?: (name: string, exportsObj: Record<string, unknown>) => void;
+	}
+
+	interface PatchhubAutofillHeaderWindow extends Window {
+		__ph_patch_load_seq?: number;
+		PH?: PatchhubHeaderRuntime | null;
+	}
+
+	interface PatchhubHeaderLock {
+		held?: boolean;
+	}
+
+	interface PatchhubHeaderQueue {
+		queued?: number;
+		running?: number;
+	}
+
+	interface PatchhubHeaderRuns {
+		count?: number;
+	}
+
+	interface PatchhubHeaderSummary {
+		queue?: PatchhubHeaderQueue;
+		lock?: PatchhubHeaderLock;
+		runs?: PatchhubHeaderRuns;
+		stats?: Record<string, unknown>;
+	}
+
+	interface PatchhubDiagnosticsDisk {
+		total?: number;
+		used?: number;
+	}
+
+	interface PatchhubDiagnosticsProcess {
+		rss_bytes?: number;
+	}
+
+	interface PatchhubDiagnosticsHost {
+		loadavg_1?: number;
+		net_rx_bytes_total?: number;
+		net_tx_bytes_total?: number;
+	}
+
+	interface PatchhubDiagnosticsResources {
+		process?: PatchhubDiagnosticsProcess;
+		host?: PatchhubDiagnosticsHost;
+	}
+
+	interface PatchhubHeaderDiagnostics extends PatchhubHeaderSummary {
+		ok?: boolean;
+		disk?: PatchhubDiagnosticsDisk;
+		resources?: PatchhubDiagnosticsResources;
+	}
+
+	interface PatchhubLatestPatchResponse {
+		ok?: boolean;
+		error?: string;
+		unchanged?: boolean;
+		found?: boolean;
+		token?: string;
+		stored_rel_path?: string;
+		derived_issue?: string | number;
+		derived_commit_message?: string;
+		derived_target_repo?: string;
+	}
+
+	interface PatchhubDiagnosticsResponse extends PatchhubHeaderDiagnostics {
+		unchanged?: boolean;
+	}
+
+	interface PatchhubReadTextResponse {
+		ok?: boolean;
+		text?: string;
+		truncated?: boolean;
+	}
+
+	interface PatchhubHeaderRunDetail {
+		issue_id?: string | number;
+		result?: string;
+		log_rel_path?: string;
+		archived_patch_rel_path?: string;
+		diff_bundle_rel_path?: string;
+		success_zip_rel_path?: string;
+	}
+
 	var cfg: PatchhubConfig;
 	var selectedJobId: string | null;
+	var selectedRun: PatchhubHeaderRunDetail | null;
 	var suppressIdleOutput: boolean;
 	var autoRefreshTimer: ReturnType<typeof setInterval> | null;
 	var idleSigs: PatchhubIdleSigs;
