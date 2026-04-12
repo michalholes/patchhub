@@ -1,5 +1,3 @@
-/// <reference path="./types/am2-import-ui-globals.d.ts" />
-/// <reference path="./types/am2-web-interface-globals.d.ts" />
 export {};
 
 /* legacy declarations disabled; authoritative declarations moved to types/
@@ -291,6 +289,50 @@ declare global {
 		items?: Array<{ name?: string; is_dir?: boolean; size?: number }>;
 	};
 
+	interface PatchhubInfoPoolLatestHint {
+		source?: string;
+		text?: string;
+	}
+
+	interface PatchhubInfoPoolHints {
+		upload?: string;
+		enqueue?: string;
+		fs?: string;
+		parse?: string;
+	}
+
+	interface PatchhubInfoPoolSnapshot {
+		degradedNotes?: string[];
+		statusLines?: string[];
+		hints?: PatchhubInfoPoolHints;
+		latestHint?: PatchhubInfoPoolLatestHint;
+		backendDegradedNote?: string;
+	}
+
+	interface PatchhubToolkitResolutionRecord {
+		remote_sig?: string;
+		cached_sig_before?: string;
+		selected_sig?: string;
+		cache_hit?: boolean;
+		download_performed?: boolean;
+		integrity_check_result?: string;
+		resolution_mode?: string;
+		checked_at?: string;
+		error?: string;
+	}
+
+	interface PatchhubPmValidationPayload {
+		status?: string;
+		effective_mode?: string;
+		issue_id?: string;
+		commit_message?: string;
+		patch_path?: string;
+		authority_sources?: string[];
+		supplemental_files?: string[];
+		raw_output?: string;
+		toolkit_resolution?: PatchhubToolkitResolutionRecord | null;
+	}
+
 	interface PatchhubUiBridge {
 		saveLiveJobId?(jobId: string): void;
 		savePatchesVisible?(): void;
@@ -300,6 +342,14 @@ declare global {
 		updateProgressPanelFromEvents?(payload: {
 			jobs: Array<Record<string, unknown>>;
 		}): void;
+		getPmValidationSnapshot?(): PatchhubPmValidationPayload | null;
+		getPmValidationSummary?(): string;
+		setPmValidationPayload?(
+			payload: unknown,
+		): PatchhubPmValidationPayload | null;
+		clearPmValidationPayload?(): void;
+		initInfoPoolUi?(): void;
+		renderInfoPoolUi?(): void;
 	}
 
 	interface PatchhubConfig {
@@ -337,6 +387,22 @@ declare global {
 		patches: string;
 	}
 
+	type CleanupRecentStatusRule = {
+		filename_pattern?: string;
+		keep_count?: number;
+		matched_count?: number;
+		deleted_count?: number;
+	};
+
+	type CleanupRecentStatusItem = {
+		job_id?: string;
+		issue_id?: string;
+		created_utc?: string;
+		deleted_count?: number;
+		rules?: CleanupRecentStatusRule[];
+		summary_text?: string;
+	};
+
 	interface PatchhubOperatorInfoSnapshot {
 		cleanup_recent_status?: CleanupRecentStatusItem[];
 		backend_mode_status?: Record<string, unknown>;
@@ -344,6 +410,7 @@ declare global {
 
 	interface PatchhubHeaderRuntime {
 		call?: (name: string, ...args: unknown[]) => unknown;
+		has?: (name: string) => boolean;
 		register?: (name: string, exportsObj: Record<string, unknown>) => void;
 	}
 
@@ -449,6 +516,7 @@ declare global {
 	function validateAndPreview(): unknown;
 	function normalizePatchPath(value: string): string;
 	function escapeHtml(value: string): string;
+	function getInfoPoolSnapshot(): PatchhubInfoPoolSnapshot;
 	function apiGet(path: string): Promise<unknown>;
 	function apiGetETag(
 		key: string,
@@ -465,5 +533,10 @@ declare global {
 		__ph_last_enqueued_job_id?: string;
 		__ph_last_enqueued_mode?: string;
 		AMP_PATCHHUB_UI?: PatchhubUiBridge;
+		PH?: PatchhubHeaderRuntime | null;
+		PH_BACKEND_DEGRADED_FROM_OPERATOR_INFO?: (operatorInfo: unknown) => string;
+		PH_GET_OPERATOR_INFO_SNAPSHOT?: () => PatchhubOperatorInfoSnapshot;
+		PH_SET_OPERATOR_INFO_SNAPSHOT?: (payload: unknown) => void;
+		PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER?: () => void;
 	}
 }

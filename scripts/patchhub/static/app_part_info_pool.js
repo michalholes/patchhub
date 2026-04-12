@@ -41,23 +41,11 @@
 	 *   cleanup_recent_status?: CleanupRecentStatusItem[],
 	 *   backend_mode_status?: BackendModeStatus,
 	 * }} OperatorInfoSnapshot
-	 * @typedef {{
-	 *   call?: function(string, ...*): *,
-	 *   register?: function(string, Object): void,
-	 * }} PatchHubRuntime
-	 * @typedef {Window & typeof globalThis & {
-	 *   PH?: PatchHubRuntime | null,
-	 *   PH_BACKEND_DEGRADED_FROM_OPERATOR_INFO?: function(unknown): string,
-	 *   PH_GET_OPERATOR_INFO_SNAPSHOT?: function(): OperatorInfoSnapshot,
-	 *   PH_SET_OPERATOR_INFO_SNAPSHOT?: function(unknown): void,
-	 *   PH_INFO_POOL_SYNC_LEGACY_DEGRADED_BANNER?: function(): void,
-	 *   setBackendDegradedNote?: function(unknown): void,
-	 * }} InfoPoolWindow
 	 */
 
-	/** @type {InfoPoolWindow} */
-	var infoPoolWindow = /** @type {InfoPoolWindow} */ (window);
-	/** @type {PatchHubRuntime | null} */
+	/** @type {Window & typeof globalThis} */
+	var infoPoolWindow = window;
+	/** @type {PatchhubHeaderRuntime | null} */
 	var PH = infoPoolWindow.PH || null;
 
 	/** @type {OperatorInfoSnapshot} */
@@ -142,7 +130,7 @@
 			return "";
 		}
 		return parts.length
-			? "Backend file_emergency: " + parts.slice(0, 2).join("; ")
+			? `Backend file_emergency: ${parts.slice(0, 2).join("; ")}`
 			: "Backend file_emergency";
 	}
 
@@ -151,13 +139,13 @@
 	function infoPoolCleanupSummaryText(
 		/** @type {CleanupRecentStatusItem} */ item,
 	) {
-		var summary = String((item && item.summary_text) || "").trim();
+		var summary = String(item?.summary_text || "").trim();
 		if (summary) return summary;
-		var issue = String((item && item.issue_id) || "").trim();
-		var deleted = Number((item && item.deleted_count) || 0);
+		var issue = String(item?.issue_id || "").trim();
+		var deleted = Number(item?.deleted_count || 0);
 		return (
 			"Repo snapshot cleanup" +
-			(issue ? " issue " + issue : "") +
+			(issue ? ` issue ${issue}` : "") +
 			": deleted " +
 			String(deleted) +
 			" file(s)"
@@ -187,9 +175,12 @@
 		return String(PH.call("getPmValidationSummary") || "");
 	}
 
+	/** @returns {PatchhubPmValidationPayload | null} */
 	function infoPoolPmSnapshot() {
 		if (!PH || typeof PH.call !== "function") return null;
-		return PH.call("getPmValidationSnapshot") || null;
+		var snapshot = PH.call("getPmValidationSnapshot");
+		if (!snapshot || typeof snapshot !== "object") return null;
+		return /** @type {PatchhubPmValidationPayload} */ (snapshot);
 	}
 
 	function infoPoolCurrentBackendNote(
@@ -222,17 +213,17 @@
 		var backend = infoPoolCurrentBackendNote(operatorInfo);
 		if (!backend) backend = String(snapshot.backendDegradedNote || "");
 		if (backend) {
-			return "DEGRADED MODE: " + backend;
+			return `DEGRADED MODE: ${backend}`;
 		}
 		var degraded = Array.isArray(snapshot.degradedNotes)
 			? snapshot.degradedNotes
 			: [];
 		if (degraded.length) {
-			return "DEGRADED MODE: " + String(degraded[degraded.length - 1] || "");
+			return `DEGRADED MODE: ${String(degraded[degraded.length - 1] || "")}`;
 		}
 		var pmSummary = infoPoolPmSummary();
 		if (pmSummary) return pmSummary;
-		if (snapshot.latestHint && snapshot.latestHint.text) {
+		if (snapshot.latestHint?.text) {
 			return String(snapshot.latestHint.text || "");
 		}
 		var statusLines = Array.isArray(snapshot.statusLines)
@@ -280,13 +271,13 @@
 	) {
 		var items = Array.isArray(lines) ? lines : [];
 		if (!items.length) {
-			return '<div class="info-pool-empty">' + escapeHtml(emptyText) + "</div>";
+			return `<div class="info-pool-empty">${escapeHtml(emptyText)}</div>`;
 		}
 		return (
 			'<div class="info-pool-lines">' +
 			items
 				.map((/** @type {string} */ line) => {
-					return '<div class="info-pool-line">' + escapeHtml(line) + "</div>";
+					return `<div class="info-pool-line">${escapeHtml(line)}</div>`;
 				})
 				.join("") +
 			"</div>"
@@ -299,13 +290,51 @@
 	) {
 		var value = String(text || "");
 		if (!value) {
-			return '<div class="info-pool-empty">' + escapeHtml(emptyText) + "</div>";
+			return `<div class="info-pool-empty">${escapeHtml(emptyText)}</div>`;
 		}
-		return '<pre class="info-pool-pre">' + escapeHtml(value) + "</pre>";
+		return `<pre class="info-pool-pre">${escapeHtml(value)}</pre>`;
+	}
+
+	function infoPoolToolkitResolutionSection(
+		/** @type {PatchhubToolkitResolutionRecord | null} */ resolution,
+	) {
+		if (!resolution || typeof resolution !== "object") {
+			return infoPoolSection(
+				"Toolkit resolution",
+				'<div class="info-pool-empty">(empty)</div>',
+			);
+		}
+		var html = [
+			infoPoolHintValue("Remote sig", String(resolution.remote_sig || "")),
+			infoPoolHintValue(
+				"Cached before",
+				String(resolution.cached_sig_before || ""),
+			),
+			infoPoolHintValue("Selected sig", String(resolution.selected_sig || "")),
+			infoPoolHintValue("Cache hit", String(!!resolution.cache_hit)),
+			infoPoolHintValue(
+				"Download performed",
+				String(!!resolution.download_performed),
+			),
+			infoPoolHintValue(
+				"Integrity",
+				String(resolution.integrity_check_result || ""),
+			),
+			infoPoolHintValue(
+				"Resolution mode",
+				String(resolution.resolution_mode || ""),
+			),
+			infoPoolHintValue("Checked at", String(resolution.checked_at || "")),
+			infoPoolHintValue("Error", String(resolution.error || "")),
+		].join("");
+		return infoPoolSection(
+			"Toolkit resolution",
+			`<div class="info-pool-hints">${html}</div>`,
+		);
 	}
 
 	function infoPoolPmSection(
-		/** @type {Record<string, unknown> | null} */ snapshot,
+		/** @type {PatchhubPmValidationPayload | null} */ snapshot,
 	) {
 		if (!snapshot || typeof snapshot !== "object") return "";
 		var metaHtml = [
@@ -332,6 +361,7 @@
 			'<div class="info-pool-hints">' +
 				metaHtml +
 				"</div>" +
+				infoPoolToolkitResolutionSection(snapshot.toolkit_resolution || null) +
 				infoPoolSection(
 					"Raw validator output",
 					infoPoolPre(String(snapshot.raw_output || ""), "(empty)"),
@@ -359,7 +389,7 @@
 			infoPoolSection("Degraded mode", infoPoolList(degraded, "(empty)")),
 			infoPoolSection(
 				"Current hints",
-				'<div class="info-pool-hints">' + hintHtml + "</div>",
+				`<div class="info-pool-hints">${hintHtml}</div>`,
 			),
 			pmHtml,
 			infoPoolSection(
@@ -420,7 +450,7 @@
 	}
 
 	function onInfoPoolStripKeydown(/** @type {KeyboardEvent} */ event) {
-		var key = event && event.key ? String(event.key) : "";
+		var key = event?.key ? String(event.key) : "";
 		if (key !== "Enter" && key !== " ") return;
 		if (event && typeof event.preventDefault === "function") {
 			event.preventDefault();
@@ -429,8 +459,14 @@
 	}
 
 	function onInfoPoolDocumentKeydown(/** @type {KeyboardEvent} */ event) {
-		var key = event && event.key ? String(event.key) : "";
+		var key = event?.key ? String(event.key) : "";
 		if (key === "Escape") setInfoPoolOpen(false);
+	}
+
+	function onInfoPoolModalClick(/** @type {MouseEvent} */ event) {
+		if (event && event.target === infoPoolModalEl("uiStatusModal")) {
+			setInfoPoolOpen(false);
+		}
 	}
 
 	function initInfoPoolUi() {
@@ -451,9 +487,7 @@
 				setInfoPoolOpen(false);
 			});
 		}
-		modal.addEventListener("click", (event) => {
-			if (event && event.target === modal) setInfoPoolOpen(false);
-		});
+		modal.addEventListener("click", onInfoPoolModalClick);
 		if (document && typeof document.addEventListener === "function") {
 			document.addEventListener("keydown", onInfoPoolDocumentKeydown);
 		}

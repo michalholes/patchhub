@@ -115,6 +115,14 @@ class TargetingConfig:
 
 
 @dataclass(frozen=True)
+class GovernanceToolkitConfig:
+    github_manifest_url: str = ""
+    cache_root: str = "patches/governance_toolkit_cache"
+    allow_stale: bool = False
+    request_timeout_s: int = 3
+
+
+@dataclass(frozen=True)
 class AppConfig:
     server: ServerConfig
     meta: MetaConfig
@@ -126,6 +134,7 @@ class AppConfig:
     ui: UiConfig
     autofill: AutofillConfig
     targeting: TargetingConfig = field(default_factory=TargetingConfig)
+    governance_toolkit: GovernanceToolkitConfig = field(default_factory=GovernanceToolkitConfig)
     repo_snapshot_cleanup: RepoSnapshotCleanupConfig = field(
         default_factory=RepoSnapshotCleanupConfig
     )
@@ -258,6 +267,7 @@ def load_config(path: Path) -> AppConfig:
     ui = raw.get("ui", {})
     autofill = raw.get("autofill", {})
     targeting = raw.get("targeting", {})
+    governance_toolkit = raw.get("governance_toolkit", {})
     repo_snapshot_cleanup = _parse_repo_snapshot_cleanup(raw.get("repo_snapshot_cleanup"))
 
     return AppConfig(
@@ -360,6 +370,21 @@ def load_config(path: Path) -> AppConfig:
         targeting=TargetingConfig(
             default_target_repo=str(targeting.get("default_target_repo", "patchhub")),
             zip_target_prefill_enabled=bool(targeting.get("zip_target_prefill_enabled", True)),
+        ),
+        governance_toolkit=GovernanceToolkitConfig(
+            github_manifest_url=str(governance_toolkit.get("github_manifest_url", "")),
+            cache_root=str(
+                governance_toolkit.get(
+                    "cache_root",
+                    "patches/governance_toolkit_cache",
+                )
+            ),
+            allow_stale=bool(governance_toolkit.get("allow_stale", False)),
+            request_timeout_s=_must_int_at_least(
+                governance_toolkit.get("request_timeout_s", 3),
+                key="governance_toolkit.request_timeout_s",
+                minimum=1,
+            ),
         ),
         repo_snapshot_cleanup=repo_snapshot_cleanup,
     )

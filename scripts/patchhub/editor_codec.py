@@ -334,8 +334,8 @@ def last_error_detail(error_text: str) -> str:
     return lines[-1] if lines else str(error_text)
 
 
-def _run_repo_validator(target_root: Path, objects: list[dict[str, Any]]) -> tuple[bool, str]:
-    validator = (target_root / "governance" / "validate_master_spec_v2.py").resolve()
+def _run_repo_validator(validator: Path, objects: list[dict[str, Any]]) -> tuple[bool, str]:
+    validator = Path(validator).resolve()
     if not validator.is_file():
         return False, f"Validator not found: {validator}"
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -345,7 +345,7 @@ def _run_repo_validator(target_root: Path, objects: list[dict[str, Any]]) -> tup
             [sys.executable, str(validator), str(temp)],
             capture_output=True,
             text=True,
-            cwd=str(target_root),
+            cwd=str(validator.parent),
             check=False,
         )
     detail = (proc.stdout or "").strip() or (proc.stderr or "").strip()
@@ -354,7 +354,7 @@ def _run_repo_validator(target_root: Path, objects: list[dict[str, Any]]) -> tup
 
 def validate_human_text(
     *,
-    target_root: Path,
+    validator_path: Path,
     human_text: str,
     loaded_objects: list[dict[str, Any]],
     failure_builder,
@@ -373,7 +373,7 @@ def validate_human_text(
                 primary_id=exc.primary_id,
             ),
         )
-    ok, detail = _run_repo_validator(target_root, objects)
+    ok, detail = _run_repo_validator(validator_path, objects)
     if not ok:
         return (
             False,

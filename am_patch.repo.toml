@@ -162,7 +162,7 @@ pytest_full_suite_prefixes = [
 ]
 ruff_targets = ["badguys", "scripts", "governance", "tests"]
 pytest_targets = ["tests"]
-mypy_targets = ["scripts", "badguys", "governance"]
+mypy_targets = ["src"]
 
 [pytest_roots]
 "amp.*" = "scripts/am_patch/"

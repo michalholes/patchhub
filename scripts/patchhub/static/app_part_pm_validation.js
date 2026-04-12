@@ -1,25 +1,40 @@
 (() => {
-	var w = /** @type {any} */ (window);
-	var ui = w.AMP_PATCHHUB_UI;
-	if (!ui) {
-		ui = {};
-		w.AMP_PATCHHUB_UI = ui;
-	}
+	/**
+	 * @typedef {PatchhubToolkitResolutionRecord} ToolkitResolutionRecord
+	 * @typedef {PatchhubPmValidationPayload} PmValidationPayload
+	 */
 
-	var PH = w.PH;
+	/** @type {Window & typeof globalThis} */
+	var validationWindow = window;
+	/** @type {PatchhubUiBridge} */
+	var ui = validationWindow.AMP_PATCHHUB_UI || {};
+	validationWindow.AMP_PATCHHUB_UI = ui;
+
+	/** @type {PatchhubHeaderRuntime | null} */
+	var PH = validationWindow.PH || null;
+	/** @type {PmValidationPayload | null} */
 	var state = null;
 
-	function safeExport(name, fn) {
-		ui[name] = (...args) => {
-			try {
-				return fn(...args);
-			} catch (e) {
-				console.error(`PatchHub UI module error in ${name}:`, e);
-				return undefined;
-			}
-		};
+	/**
+	 * @template T
+	 * @param {string} name
+	 * @param {() => T} fn
+	 * @param {T} fallback
+	 * @returns {T}
+	 */
+	function safeCall(name, fn, fallback) {
+		try {
+			return fn();
+		} catch (e) {
+			console.error(`PatchHub UI module error in ${name}:`, e);
+			return fallback;
+		}
 	}
 
+	/**
+	 * @param {unknown[] | null | undefined} items
+	 * @returns {string[]}
+	 */
 	function normalizeList(items) {
 		if (!Array.isArray(items)) return [];
 		return items
@@ -27,40 +42,83 @@
 			.filter((item) => !!item);
 	}
 
+	/**
+	 * @param {unknown} payload
+	 * @returns {ToolkitResolutionRecord}
+	 */
+	function normalizeToolkitResolution(payload) {
+		var source =
+			payload && typeof payload === "object"
+				? /** @type {ToolkitResolutionRecord} */ (payload)
+				: {};
+		return {
+			remote_sig: String(source.remote_sig || "").trim(),
+			cached_sig_before: String(source.cached_sig_before || "").trim(),
+			selected_sig: String(source.selected_sig || "").trim(),
+			cache_hit: !!source.cache_hit,
+			download_performed: !!source.download_performed,
+			integrity_check_result: String(
+				source.integrity_check_result || "",
+			).trim(),
+			resolution_mode: String(source.resolution_mode || "").trim(),
+			checked_at: String(source.checked_at || "").trim(),
+			error: String(source.error || ""),
+		};
+	}
+
+	/**
+	 * @param {unknown} payload
+	 * @returns {PmValidationPayload | null}
+	 */
 	function normalizePayload(payload) {
 		if (!payload || typeof payload !== "object") return null;
-		var status = String(payload.status || "")
+		var source = /** @type {PmValidationPayload} */ (payload);
+		var status = String(source.status || "")
 			.trim()
 			.toLowerCase();
 		if (!status) return null;
 		return {
 			status: status,
-			effective_mode: String(payload.effective_mode || "").trim(),
-			issue_id: String(payload.issue_id || "").trim(),
-			commit_message: String(payload.commit_message || "").trim(),
-			patch_path: String(payload.patch_path || "").trim(),
-			authority_sources: normalizeList(payload.authority_sources),
-			supplemental_files: normalizeList(payload.supplemental_files),
-			raw_output: String(payload.raw_output || ""),
+			effective_mode: String(source.effective_mode || "").trim(),
+			issue_id: String(source.issue_id || "").trim(),
+			commit_message: String(source.commit_message || "").trim(),
+			patch_path: String(source.patch_path || "").trim(),
+			authority_sources: normalizeList(source.authority_sources),
+			supplemental_files: normalizeList(source.supplemental_files),
+			raw_output: String(source.raw_output || ""),
+			toolkit_resolution: normalizeToolkitResolution(source.toolkit_resolution),
 		};
 	}
 
+	/**
+	 * @param {PmValidationPayload | null} payload
+	 * @returns {string}
+	 */
 	function summaryText(payload) {
-		if (!payload || !payload.status) return "";
+		if (!payload?.status) return "";
 		var label = String(payload.status || "")
 			.replace(/_/g, " ")
 			.toUpperCase();
-		return "PM validation: " + label;
+		return `PM validation: ${label}`;
 	}
 
+	/** @returns {PmValidationPayload | null} */
 	function getPmValidationSnapshot() {
-		return state ? Object.assign({}, state) : null;
+		if (!state) return null;
+		return Object.assign({}, state, {
+			toolkit_resolution: Object.assign({}, state.toolkit_resolution || {}),
+		});
 	}
 
+	/** @returns {string} */
 	function getPmValidationSummary() {
 		return summaryText(state);
 	}
 
+	/**
+	 * @param {unknown} payload
+	 * @returns {PmValidationPayload | null}
+	 */
 	function setPmValidationPayload(payload) {
 		state = normalizePayload(payload);
 		if (PH && typeof PH.has === "function" && PH.has("renderInfoPoolUi")) {
@@ -85,8 +143,26 @@
 		});
 	}
 
-	safeExport("getPmValidationSnapshot", getPmValidationSnapshot);
-	safeExport("getPmValidationSummary", getPmValidationSummary);
-	safeExport("setPmValidationPayload", setPmValidationPayload);
-	safeExport("clearPmValidationPayload", clearPmValidationPayload);
+	ui.getPmValidationSnapshot = function () {
+		return safeCall("getPmValidationSnapshot", getPmValidationSnapshot, null);
+	};
+	ui.getPmValidationSummary = function () {
+		return safeCall("getPmValidationSummary", getPmValidationSummary, "");
+	};
+	ui.setPmValidationPayload = function (payload) {
+		return safeCall(
+			"setPmValidationPayload",
+			() => setPmValidationPayload(payload),
+			null,
+		);
+	};
+	ui.clearPmValidationPayload = function () {
+		return safeCall(
+			"clearPmValidationPayload",
+			() => {
+				clearPmValidationPayload();
+			},
+			undefined,
+		);
+	};
 })();

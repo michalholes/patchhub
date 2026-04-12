@@ -31,6 +31,11 @@ from .editor_fixup_apply import apply_fix_action
 from .editor_fixup_shared import CLIENT_ONLY_ACTIONS, EditorFixupError
 from .editor_fixups import build_failure, empty_failure
 from .editor_workspace import build_workspace
+from .governance_toolkit_runtime import (
+    GovernanceToolkitRuntimeError,
+    GovernanceToolkitSelection,
+    resolve_governance_toolkit,
+)
 from .targeting import resolve_targeting_runtime, validate_selected_target_repo
 
 DOC_OPTIONS = OrderedDict(
@@ -57,6 +62,9 @@ OPS_CODES = {
     "UNSAFE_SAVE_FAIL",
     "FIX_APPLY",
     "FIX_FAIL",
+    "TOOLKIT_START",
+    "TOOLKIT_OK",
+    "TOOLKIT_FAIL",
 }
 UNSAFE_WARNING = (
     "Unsafe save bypasses semantic validation and may persist an invalid authority file. Continue?"
@@ -70,6 +78,8 @@ class RevisionState:
     loaded_text: str
     loaded_objects: list[dict[str, Any]]
     current_text: str
+    toolkit_selection: GovernanceToolkitSelection | None
+    toolkit_resolution: dict[str, Any]
 
 
 _REVISION_CACHE: OrderedDict[str, RevisionState] = OrderedDict()
@@ -94,11 +104,20 @@ def _store_state(
     loaded_text: str,
     loaded_objects: list[dict[str, Any]],
     current_text: str,
+    toolkit_selection: GovernanceToolkitSelection | None = None,
 ) -> tuple[str, RevisionState]:
     raw = f"{target_repo}\0{document}\0{loaded_text}\0{current_text}".encode()
     token = hashlib.sha256(raw).hexdigest()
     state = RevisionState(
-        target_repo, document, loaded_text, deepcopy(loaded_objects), current_text
+        target_repo=target_repo,
+        document=document,
+        loaded_text=loaded_text,
+        loaded_objects=deepcopy(loaded_objects),
+        current_text=current_text,
+        toolkit_selection=toolkit_selection,
+        toolkit_resolution=(
+            dict(toolkit_selection.resolution) if toolkit_selection is not None else {}
+        ),
     )
     with _REVISION_LOCK:
         _REVISION_CACHE[token] = state
@@ -163,6 +182,7 @@ def _persist(
     objects: list[dict[str, Any]],
     *,
     loaded_text: str | None = None,
+    toolkit_selection: GovernanceToolkitSelection | None = None,
 ):
     return _store_state(
         target_repo=target_repo,
@@ -172,6 +192,13 @@ def _persist(
         ),
         loaded_objects=state.loaded_objects if state else objects,
         current_text=human_text,
+        toolkit_selection=(
+            toolkit_selection
+            if toolkit_selection is not None
+            else state.toolkit_selection
+            if state
+            else None
+        ),
     )
 
 
@@ -195,18 +222,45 @@ def _workspace_payload(
 
 
 def _validate_current(
-    self: Any,
     *,
-    target_repo: str,
+    validator_path: Path,
     human_text: str,
     loaded_objects: list[dict[str, Any]],
 ) -> tuple[bool, list[dict[str, Any]], dict[str, Any] | None]:
     return validate_human_text(
-        target_root=_target_root(self, target_repo),
+        validator_path=validator_path,
         human_text=human_text,
         loaded_objects=loaded_objects,
         failure_builder=build_failure,
     )
+
+
+def _toolkit_status_message(selection: GovernanceToolkitSelection) -> str:
+    record = selection.resolution
+    selected = str(record.get("selected_sig", "")).strip()
+    mode = str(record.get("resolution_mode", "")).strip()
+    cache_hit = bool(record.get("cache_hit", False))
+    download_performed = bool(record.get("download_performed", False))
+    return (
+        f"Toolkit selected {selected or '(unknown)'}"
+        f" mode={mode or '(unknown)'}"
+        f" cache_hit={str(cache_hit).lower()}"
+        f" download={str(download_performed).lower()}"
+    )
+
+
+def _toolkit_failure_message(resolution: dict[str, Any]) -> str:
+    selected = str(resolution.get("selected_sig", "")).strip()
+    mode = str(resolution.get("resolution_mode", "")).strip()
+    error = str(resolution.get("error", "")).strip()
+    return (
+        f"Toolkit resolution failed selected={selected or '(none)'}"
+        f" mode={mode or '(unknown)'} error={error or '(unknown)'}"
+    )
+
+
+def _missing_revision_failure(kind: str, message: str) -> dict[str, Any]:
+    return empty_failure(kind, message)
 
 
 def _scaffold_text_map() -> dict[str, str]:
@@ -243,7 +297,12 @@ def api_editor_document(self: Any, qs: dict[str, str] | None = None) -> tuple[in
     target_repo = str(qs.get("target_repo", "")).strip()
     document = str(qs.get("document", "")).strip()
     ops = [_op("Info", "LOAD_START", f"Loading {document}")]
+    toolkit_resolution: dict[str, Any] = {}
     try:
+        ops.append(_op("Info", "TOOLKIT_START", f"Resolving toolkit for {document}"))
+        toolkit = resolve_governance_toolkit(self.cfg)
+        toolkit_resolution = dict(toolkit.resolution)
+        ops.append(_op("Info", "TOOLKIT_OK", _toolkit_status_message(toolkit)))
         path = _doc_path(self, target_repo, document)
         raw = path.read_text(encoding="utf-8")
         human = human_text_from_jsonl_text(raw)
@@ -254,10 +313,10 @@ def api_editor_document(self: Any, qs: dict[str, str] | None = None) -> tuple[in
             loaded_text=human,
             loaded_objects=objects,
             current_text=human,
+            toolkit_selection=toolkit,
         )
         ok, validated_objects, failure = _validate_current(
-            self,
-            target_repo=target_repo,
+            validator_path=toolkit.validate_master_spec_v2_path,
             human_text=human,
             loaded_objects=state.loaded_objects,
         )
@@ -285,12 +344,35 @@ def api_editor_document(self: Any, qs: dict[str, str] | None = None) -> tuple[in
                 "workspace": workspace,
                 "validated": ok,
                 "failure": failure,
+                "toolkit_resolution": toolkit_resolution,
                 "ops": ops,
             }
         )
+    except GovernanceToolkitRuntimeError as exc:
+        toolkit_resolution = dict(exc.resolution)
+        ops.append(_op("Error", "TOOLKIT_FAIL", _toolkit_failure_message(toolkit_resolution)))
+        return _err(
+            json.dumps(
+                {
+                    "ops": ops,
+                    "error": str(exc),
+                    "toolkit_resolution": toolkit_resolution,
+                }
+            ),
+            status=400,
+        )
     except Exception as exc:
         ops.append(_op("Error", "LOAD_FAIL", str(exc)))
-        return _err(json.dumps({"ops": ops, "error": str(exc)}), status=400)
+        return _err(
+            json.dumps(
+                {
+                    "ops": ops,
+                    "error": str(exc),
+                    "toolkit_resolution": toolkit_resolution,
+                }
+            ),
+            status=400,
+        )
 
 
 def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
@@ -299,12 +381,35 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
     human_text = str(body.get("human_text", ""))
     state = _state(str(body.get("revision_token", "")).strip(), target_repo, document)
     ops = [_op("Info", "VALIDATE_START", f"Validating {document}")]
+    if state is None or state.toolkit_selection is None:
+        failed = _missing_revision_failure(
+            "missing_revision_state",
+            "Missing or stale revision_token",
+        )
+        ops.append(_op("Error", "VALIDATE_FAIL", failed["failure_code"]))
+        return _ok(
+            {
+                "validated": False,
+                "failure": failed,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=[],
+                    validated=False,
+                    failure=failed,
+                ),
+                "toolkit_resolution": {},
+                "last_action_state": "Validation failed",
+                "dirty_state": "dirty",
+                "ops": ops,
+            }
+        )
+    ops.append(_op("Info", "TOOLKIT_OK", _toolkit_status_message(state.toolkit_selection)))
     try:
         ok, objects, failure = _validate_current(
-            self,
-            target_repo=target_repo,
+            validator_path=state.toolkit_selection.validate_master_spec_v2_path,
             human_text=human_text,
-            loaded_objects=state.loaded_objects if state else [],
+            loaded_objects=state.loaded_objects,
         )
         if not ok:
             failed = failure or empty_failure("validate_failure", "Validation failed")
@@ -316,16 +421,24 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                     "workspace": _workspace_payload(
                         target_repo=target_repo,
                         document=document,
-                        objects=state.loaded_objects if state else [],
+                        objects=state.loaded_objects,
                         validated=False,
                         failure=failed,
                     ),
+                    "toolkit_resolution": state.toolkit_resolution,
                     "last_action_state": "Validation failed",
                     "dirty_state": "dirty",
                     "ops": ops,
                 }
             )
-        token, _ = _persist(target_repo, document, state, human_text, objects)
+        token, _ = _persist(
+            target_repo,
+            document,
+            state,
+            human_text,
+            objects,
+            toolkit_selection=state.toolkit_selection,
+        )
         ops.append(_op("Info", "VALIDATE_OK", "Validation passed"))
         return _ok(
             {
@@ -338,6 +451,7 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                     validated=True,
                     failure=None,
                 ),
+                "toolkit_resolution": state.toolkit_resolution,
                 "last_action_state": "Validation passed",
                 "dirty_state": "dirty",
                 "ops": ops,
@@ -353,10 +467,11 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                 "workspace": _workspace_payload(
                     target_repo=target_repo,
                     document=document,
-                    objects=state.loaded_objects if state else [],
+                    objects=state.loaded_objects,
                     validated=False,
                     failure=failed,
                 ),
+                "toolkit_resolution": state.toolkit_resolution,
                 "last_action_state": "Validation failed",
                 "dirty_state": "dirty",
                 "ops": ops,
@@ -370,12 +485,35 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
     human_text = str(body.get("human_text", ""))
     state = _state(str(body.get("revision_token", "")).strip(), target_repo, document)
     ops = [_op("Info", "SAVE_START", f"Saving {document}")]
+    if state is None or state.toolkit_selection is None:
+        failed = _missing_revision_failure(
+            "missing_revision_state",
+            "Missing or stale revision_token",
+        )
+        ops.append(_op("Error", "SAVE_FAIL", failed["failure_code"]))
+        return _ok(
+            {
+                "saved": False,
+                "failure": failed,
+                "workspace": _workspace_payload(
+                    target_repo=target_repo,
+                    document=document,
+                    objects=[],
+                    validated=False,
+                    failure=failed,
+                ),
+                "toolkit_resolution": {},
+                "last_action_state": "Save failed",
+                "dirty_state": "dirty",
+                "ops": ops,
+            }
+        )
+    ops.append(_op("Info", "TOOLKIT_OK", _toolkit_status_message(state.toolkit_selection)))
     try:
         ok, objects, failure = _validate_current(
-            self,
-            target_repo=target_repo,
+            validator_path=state.toolkit_selection.validate_master_spec_v2_path,
             human_text=human_text,
-            loaded_objects=state.loaded_objects if state else [],
+            loaded_objects=state.loaded_objects,
         )
         if not ok:
             failed = failure or empty_failure("save_failure", "Save failed")
@@ -387,10 +525,11 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                     "workspace": _workspace_payload(
                         target_repo=target_repo,
                         document=document,
-                        objects=state.loaded_objects if state else [],
+                        objects=state.loaded_objects,
                         validated=False,
                         failure=failed,
                     ),
+                    "toolkit_resolution": state.toolkit_resolution,
                     "ops": ops,
                 }
             )
@@ -404,6 +543,7 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
             loaded_text=normalized,
             loaded_objects=objects,
             current_text=normalized,
+            toolkit_selection=state.toolkit_selection,
         )
         ops.append(_op("Info", "SAVE_OK", f"Saved {path.name}"))
         return _ok(
@@ -418,6 +558,7 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                     validated=True,
                     failure=None,
                 ),
+                "toolkit_resolution": state.toolkit_resolution,
                 "last_action_state": "Saved",
                 "dirty_state": "clean",
                 "ops": ops,
@@ -433,10 +574,11 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                 "workspace": _workspace_payload(
                     target_repo=target_repo,
                     document=document,
-                    objects=state.loaded_objects if state else [],
+                    objects=state.loaded_objects,
                     validated=False,
                     failure=failed,
                 ),
+                "toolkit_resolution": state.toolkit_resolution,
                 "last_action_state": "Save failed",
                 "dirty_state": "dirty",
                 "ops": ops,
@@ -448,8 +590,10 @@ def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]
     target_repo = str(body.get("target_repo", "")).strip()
     document = str(body.get("document", "")).strip()
     human_text = str(body.get("human_text", ""))
+    state = _state(str(body.get("revision_token", "")).strip(), target_repo, document)
     confirmed = bool(body.get("confirm_unsafe_write") is True)
     ops = [_op("Warning", "UNSAFE_SAVE_START", f"Unsafe save for {document}")]
+    toolkit_resolution = state.toolkit_resolution if state else {}
     try:
         if not confirmed:
             raise ValueError("Unsafe save requires explicit confirmation")
@@ -464,6 +608,7 @@ def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]
             loaded_text=normalized,
             loaded_objects=parsed.objects,
             current_text=normalized,
+            toolkit_selection=(state.toolkit_selection if state else None),
         )
         ops.append(_op("Warning", "UNSAFE_SAVE_OK", f"Saved {path.name} without validation"))
         return _ok(
@@ -478,6 +623,7 @@ def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]
                     validated=False,
                     failure=None,
                 ),
+                "toolkit_resolution": toolkit_resolution,
                 "last_action_state": "Unsafe save complete",
                 "dirty_state": "clean",
                 "ops": ops,
@@ -501,6 +647,7 @@ def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]
                     validated=False,
                     failure=failed,
                 ),
+                "toolkit_resolution": toolkit_resolution,
                 "last_action_state": "Unsafe save failed",
                 "dirty_state": "dirty",
                 "ops": ops,
@@ -526,13 +673,19 @@ def api_editor_preview_action(self: Any, body: dict[str, Any]) -> tuple[int, byt
             primary_id=primary_id,
             secondary_id=secondary_id,
         )
-        ok, _objects, failure = _validate_current(
-            self,
-            target_repo=target_repo,
+        if state is None or state.toolkit_selection is None:
+            failure = _missing_revision_failure(
+                "missing_revision_state",
+                "Missing or stale revision_token",
+            )
+            preview["post_validation"] = {"validated": False, "failure": failure}
+            return _ok({"ok": True, "preview": preview, "ops": ops})
+        ok, _objects, validation_failure = _validate_current(
+            validator_path=state.toolkit_selection.validate_master_spec_v2_path,
             human_text=human_text_from_objects(fixed),
             loaded_objects=loaded_objects,
         )
-        preview["post_validation"] = {"validated": ok, "failure": failure}
+        preview["post_validation"] = {"validated": ok, "failure": validation_failure}
         return _ok({"ok": True, "preview": preview, "ops": ops})
     except Exception as exc:
         ops.append(_op("Error", "FIX_FAIL", str(exc)))
@@ -561,7 +714,7 @@ def api_editor_apply_fix(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
     state = _state(str(body.get("revision_token", "")).strip(), target_repo, document)
     ops = [_op("Info", "FIX_APPLY", action_id)]
     try:
-        if state is None:
+        if state is None or state.toolkit_selection is None:
             raise EditorFixupError("Unknown revision_token")
         fixed = apply_fix_action(
             action_id=action_id,
@@ -572,7 +725,7 @@ def api_editor_apply_fix(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
         )
         human = human_text_from_objects(fixed)
         ok, _objects, failure = validate_human_text(
-            target_root=_target_root(self, target_repo),
+            validator_path=state.toolkit_selection.validate_master_spec_v2_path,
             human_text=human,
             loaded_objects=state.loaded_objects,
             failure_builder=build_failure,
@@ -583,6 +736,7 @@ def api_editor_apply_fix(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
             loaded_text=state.loaded_text,
             loaded_objects=state.loaded_objects,
             current_text=human,
+            toolkit_selection=state.toolkit_selection,
         )
         return _ok(
             {
@@ -598,6 +752,7 @@ def api_editor_apply_fix(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                     selected_id=primary_id or secondary_id,
                 ),
                 "ops": ops,
+                "toolkit_resolution": state.toolkit_resolution,
                 "validation": {"validated": ok, "failure": failure},
             }
         )
@@ -621,6 +776,7 @@ def api_editor_apply_fix(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
                     selected_id=primary_id or secondary_id,
                 ),
                 "ops": ops,
+                "toolkit_resolution": (state.toolkit_resolution if state is not None else {}),
                 "validation": {
                     "validated": False,
                     "failure": failed,

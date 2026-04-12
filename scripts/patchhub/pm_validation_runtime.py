@@ -8,6 +8,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .governance_toolkit_runtime import (
+    GovernanceToolkitRuntimeError,
+    resolve_governance_toolkit,
+)
 from .zip_commit_message import (
     ZipCommitConfig,
     ZipIssueConfig,
@@ -23,10 +27,6 @@ _STATUS_FAIL = "fail"
 _STATUS_ERROR = "error"
 _STATUS_MISSING_CONTEXT = "missing_context"
 _INSTRUCTIONS_BASENAME_RE = re.compile(r"^instructions_(?P<issue>\d+)_v(?P<version>[1-9]\d*)\.zip$")
-
-
-def _validator_script_path(repo_root: Path) -> Path:
-    return (repo_root / "governance" / "pm_validator.py").resolve()
 
 
 def _instructions_paths(patches_root: Path, issue_id: str) -> tuple[Path | None, Path | None]:
@@ -178,6 +178,7 @@ def _parse_status(returncode: int, raw_output: str) -> str:
 
 def _run_validator(
     *,
+    validator_script: Path,
     repo_root: Path,
     issue_id: str,
     commit_message: str,
@@ -189,12 +190,11 @@ def _run_validator(
 ) -> subprocess.CompletedProcess[str]:
     cmd = [
         sys.executable,
-        str(_validator_script_path(repo_root)),
+        str(validator_script),
         str(issue_id),
         str(commit_message),
         str(patch_zip),
         str(instructions_zip),
-        "--skip-external-gates",
     ]
     if workspace_snapshot is not None:
         cmd.extend(["--workspace-snapshot", str(workspace_snapshot)])
@@ -202,6 +202,7 @@ def _run_validator(
         cmd.extend(["--repair-overlay", str(repair_overlay)])
     for item in supplemental_files:
         cmd.extend(["--supplemental-file", str(item)])
+    cmd.append("--skip-external-gates")
     return subprocess.run(
         cmd,
         cwd=str(repo_root),
@@ -241,6 +242,7 @@ def _missing_context_payload(
     authority_sources: list[str],
     supplemental_files: list[str],
     raw_output: str,
+    toolkit_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "status": _STATUS_MISSING_CONTEXT,
@@ -251,6 +253,7 @@ def _missing_context_payload(
         "authority_sources": authority_sources,
         "supplemental_files": supplemental_files,
         "raw_output": raw_output,
+        "toolkit_resolution": dict(toolkit_resolution or {}),
     }
 
 
@@ -261,6 +264,35 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
         patch_path=str(patch_path or ""),
     )
     issue_id, commit_message = _derive_validation_inputs(self, patch_zip)
+    toolkit_resolution: dict[str, Any] = {}
+    try:
+        toolkit = resolve_governance_toolkit(self.cfg)
+        toolkit_resolution = dict(toolkit.resolution)
+    except GovernanceToolkitRuntimeError as exc:
+        toolkit_resolution = dict(exc.resolution)
+        return {
+            "status": _STATUS_ERROR,
+            "effective_mode": "initial",
+            "issue_id": issue_id,
+            "commit_message": commit_message,
+            "patch_path": patch_rel,
+            "authority_sources": [],
+            "supplemental_files": [],
+            "raw_output": f"toolkit_resolution_failed:{exc}",
+            "toolkit_resolution": toolkit_resolution,
+        }
+    except ValueError as exc:
+        return {
+            "status": _STATUS_ERROR,
+            "effective_mode": "initial",
+            "issue_id": issue_id,
+            "commit_message": commit_message,
+            "patch_path": patch_rel,
+            "authority_sources": [],
+            "supplemental_files": [],
+            "raw_output": f"toolkit_resolution_failed:{exc}",
+            "toolkit_resolution": {},
+        }
     zip_issue_id, zip_issue_err = read_issue_number_from_zip_path(
         patch_zip,
         _zip_issue_cfg(self.cfg),
@@ -274,6 +306,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
             authority_sources=[],
             supplemental_files=[],
             raw_output=f"zip_issue_missing_or_invalid:{zip_issue_err or 'unknown'}",
+            toolkit_resolution=toolkit_resolution,
         )
     instructions_authority, instructions_placeholder = _instructions_paths(
         self.patches_root,
@@ -288,6 +321,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
             authority_sources=[],
             supplemental_files=[],
             raw_output=f"instructions_placeholder_invalid:{zip_issue_id}",
+            toolkit_resolution=toolkit_resolution,
         )
     instructions_zip = (
         instructions_authority if instructions_authority is not None else instructions_placeholder
@@ -312,6 +346,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                 authority_sources=authority_sources,
                 supplemental_files=supplemental_files,
                 raw_output=(f"zip_target_missing_or_invalid:{initial_target_err or 'unknown'}"),
+                toolkit_resolution=toolkit_resolution,
             )
         workspace_snapshot = _latest_local_baseline_snapshot(
             self.patches_root,
@@ -321,6 +356,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
             authority_sources.append(str(workspace_snapshot))
 
     proc = _run_validator(
+        validator_script=toolkit.pm_validator_path,
         repo_root=self.repo_root,
         issue_id=issue_id,
         commit_message=commit_message,
@@ -331,8 +367,8 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
         supplemental_files=[],
     )
     passed_sources = list(authority_sources)
-    if instructions_authority is not None:
-        passed_sources = _append_authority_source(passed_sources, instructions_authority)
+    if instructions_authority is not None and str(instructions_authority) not in passed_sources:
+        passed_sources.append(str(instructions_authority))
     raw = _raw_output(proc.stdout, proc.stderr)
 
     if overlay_path is not None:
@@ -348,6 +384,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                     authority_sources=passed_sources,
                     supplemental_files=supplemental_files,
                     raw_output=f"repair_target_missing_or_invalid:{repair_target_err or 'unknown'}",
+                    toolkit_resolution=toolkit_resolution,
                 )
             workspace_snapshot = _latest_local_baseline_snapshot(
                 self.patches_root,
@@ -362,9 +399,12 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                     authority_sources=passed_sources,
                     supplemental_files=supplemental_files,
                     raw_output=f"repair_workspace_snapshot_missing:{repair_target}",
+                    toolkit_resolution=toolkit_resolution,
                 )
-            authority_sources.append(str(workspace_snapshot))
+            if str(workspace_snapshot) not in authority_sources:
+                authority_sources.append(str(workspace_snapshot))
             proc = _run_validator(
+                validator_script=toolkit.pm_validator_path,
                 repo_root=self.repo_root,
                 issue_id=issue_id,
                 commit_message=commit_message,
@@ -376,8 +416,11 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
             )
             effective_mode = "repair-supplemental"
             passed_sources = list(authority_sources)
-            if instructions_authority is not None:
-                passed_sources = _append_authority_source(passed_sources, instructions_authority)
+            if (
+                instructions_authority is not None
+                and str(instructions_authority) not in passed_sources
+            ):
+                passed_sources.append(str(instructions_authority))
             raw = _raw_output(proc.stdout, proc.stderr)
 
     return {
@@ -389,6 +432,7 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
         "authority_sources": passed_sources,
         "supplemental_files": supplemental_files,
         "raw_output": raw,
+        "toolkit_resolution": toolkit_resolution,
     }
 
 

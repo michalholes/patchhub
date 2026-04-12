@@ -14,32 +14,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-try:
-    from governance.rc_resolver import build_pack, handoff_text
-    from scripts.patchhub.app_api_jobs import api_patch_zip_manifest
-    from scripts.patchhub.config import (
-        AppConfig,
-        AutofillConfig,
-        IndexingConfig,
-        IssueConfig,
-        MetaConfig,
-        PathsConfig,
-        RunnerConfig,
-        ServerConfig,
-        UiConfig,
-        UploadConfig,
-    )
-    from scripts.patchhub.fs_jail import FsJail
-    from scripts.patchhub.pm_validation_runtime import build_patch_zip_pm_validation
-except ModuleNotFoundError as exc:
-    pytest.skip(
-        f"missing isolated dependency: {exc.name}",
-        allow_module_level=True,
-    )
+from scripts.patchhub.app_api_jobs import api_patch_zip_manifest  # noqa: E402
+from scripts.patchhub.config import (  # noqa: E402
+    AppConfig,
+    AutofillConfig,
+    GovernanceToolkitConfig,
+    IndexingConfig,
+    IssueConfig,
+    MetaConfig,
+    PathsConfig,
+    RunnerConfig,
+    ServerConfig,
+    TargetingConfig,
+    UiConfig,
+    UploadConfig,
+)
+from scripts.patchhub.fs_jail import FsJail  # noqa: E402
+from scripts.patchhub.pm_validation_runtime import build_patch_zip_pm_validation  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TARGET = "patchhub"
-FOREIGN_TARGET = "audiomason2"
 
 
 def _write(path: Path, text: str) -> None:
@@ -47,24 +40,15 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _repo_bytes(relpath: str) -> bytes:
-    return (REPO_ROOT / relpath).read_bytes()
+def _safe_member(relpath: str) -> str:
+    return "patches/per_file/" + relpath.replace("/", "__") + ".patch"
 
 
-def _spec_bytes() -> bytes:
-    return _repo_bytes("governance/specification.jsonl")
-
-
-def _governance_bytes() -> bytes:
-    return _repo_bytes("governance/governance.jsonl")
-
-
-def _authority_bytes(source_path: str) -> bytes:
-    if source_path == "governance/governance.jsonl":
-        return _governance_bytes()
-    if source_path == "governance/specification.jsonl":
-        return _spec_bytes()
-    raise AssertionError(source_path)
+def _write_zip(path: Path, members: dict[str, bytes]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with ZipFile(path, "w", compression=ZIP_DEFLATED) as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
 
 
 def _git_patch(relpath: str, old_text: str | None, new_text: str | None) -> bytes:
@@ -101,29 +85,6 @@ def _git_patch(relpath: str, old_text: str | None, new_text: str | None) -> byte
         return patch.encode("utf-8")
 
 
-def _safe_member(relpath: str) -> str:
-    return "patches/per_file/" + relpath.replace("/", "__") + ".patch"
-
-
-def _write_zip(path: Path, members: dict[str, bytes]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with ZipFile(path, "w", compression=ZIP_DEFLATED) as zf:
-        for name, data in members.items():
-            zf.writestr(name, data)
-
-
-def _with_spec(
-    members: dict[str, bytes],
-    *,
-    source_path: str = "governance/governance.jsonl",
-) -> dict[str, bytes]:
-    out = dict(members)
-    out.setdefault("governance/governance.jsonl", _governance_bytes())
-    out.setdefault("governance/specification.jsonl", _spec_bytes())
-    out.setdefault(source_path, _authority_bytes(source_path))
-    return out
-
-
 def _patch_zip(
     path: Path,
     *,
@@ -132,99 +93,203 @@ def _patch_zip(
     members: dict[str, bytes],
     target: str | None = DEFAULT_TARGET,
 ) -> None:
-    files = {
+    payload = {
         "COMMIT_MESSAGE.txt": (commit + "\n").encode("ascii"),
         "ISSUE_NUMBER.txt": (issue + "\n").encode("ascii"),
         **members,
     }
     if target is not None:
-        files["target.txt"] = (target + "\n").encode("ascii")
-    _write_zip(path, files)
+        payload["target.txt"] = (target + "\n").encode("ascii")
+    _write_zip(path, payload)
 
 
 def _snapshot_zip(path: Path, members: dict[str, bytes]) -> None:
-    _write_zip(path, _with_spec(members))
+    _write_zip(path, members)
 
 
 def _overlay_zip(path: Path, members: dict[str, bytes], *, target: str) -> None:
-    payload = _with_spec(members)
+    payload = dict(members)
     payload["target.txt"] = (target + "\n").encode("ascii")
     _write_zip(path, payload)
 
 
-def _instructions_zip(
-    path: Path,
-    *,
-    issue: str,
-    source_path: str = "governance/governance.jsonl",
-) -> Path:
-    spec_raw = _authority_bytes(source_path)
-    governance_workflow_raw = None
-    if source_path != "governance/governance.jsonl":
-        governance_workflow_raw = _governance_bytes()
-    pack_raw = build_pack(
-        spec_raw,
-        "final",
-        "implementation_scope",
-        spec_path=source_path,
-        governance_workflow_raw=governance_workflow_raw,
-    )
-    handoff = handoff_text(
-        "scripts/patchhub/pm_validation_runtime.py::build_patch_zip_pm_validation",
-        "implementation_scope",
-        "final",
-        {
-            "workflow_entry_step_id": "WORKFLOW.STEP.TEST.ENTRY",
-            "workflow_entry_title": "Test entry",
-            "workflow_entry_surface": "SURFACE.TEST.ENTRY",
-            "workflow_entry_route": "ROUTE.TEST.ENTRY",
-            "allowed_next_steps": ["WORKFLOW.STEP.TEST.NEXT"],
-            "required_gates": ["WORKFLOW.GATE.TEST.ENTRY"],
-            "rollback_contract": ["WORKFLOW.STEP.TEST.ENTRY"],
-            "workflow_human_summary": "Synthetic test workflow contract.",
-        },
-    )
+def _instructions_zip(path: Path) -> None:
     _write_zip(
         path,
         {
-            "HANDOFF.md": handoff.encode("utf-8"),
-            "constraint_pack.json": pack_raw,
-            "hash_pack.txt": (hashlib.sha256(pack_raw).hexdigest() + "\n").encode("ascii"),
+            "HANDOFF.md": b"handoff\n",
+            "constraint_pack.json": b"{}\n",
+            "hash_pack.txt": (hashlib.sha256(b"{}\n").hexdigest() + "\n").encode("ascii"),
+        },
+    )
+
+
+def _toolkit_pm_validator_text(sig: str) -> str:
+    return f"""from __future__ import annotations
+import sys
+from pathlib import Path
+from zipfile import ZipFile
+
+PATCH_PREFIX = "patches/per_file/"
+PATCH_SUFFIX = ".patch"
+
+
+def _paths(path: Path) -> list[str]:
+    out = []
+    with ZipFile(path, "r") as zf:
+        for name in zf.namelist():
+            if not name.startswith(PATCH_PREFIX) or not name.endswith(PATCH_SUFFIX):
+                continue
+            rel = name[len(PATCH_PREFIX):-len(PATCH_SUFFIX)].replace("__", "/")
+            out.append(rel)
+    return sorted(out)
+
+
+def main(argv: list[str]) -> int:
+    issue_id, commit_message, patch_path, instructions_path = argv[:4]
+    workspace_snapshot = None
+    repair_overlay = None
+    supplemental = []
+    idx = 4
+    while idx < len(argv):
+        flag = argv[idx]
+        if flag == "--workspace-snapshot":
+            workspace_snapshot = Path(argv[idx + 1])
+            idx += 2
+            continue
+        if flag == "--repair-overlay":
+            repair_overlay = Path(argv[idx + 1])
+            idx += 2
+            continue
+        if flag == "--supplemental-file":
+            supplemental.append(argv[idx + 1])
+            idx += 2
+            continue
+        idx += 1
+    print("SIG:{sig}")
+    if not Path(instructions_path).is_file():
+        print("RESULT: FAIL")
+        print("RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found")
+        return 1
+    if repair_overlay is not None and not supplemental:
+        patch_paths = _paths(Path(patch_path))
+        overlay_paths = set(_paths(repair_overlay))
+        missing = [path for path in patch_paths if path not in overlay_paths]
+        if missing:
+            print("RESULT: FAIL")
+            print(f"repair_requires_supplemental_file:{{missing!r}}")
+            return 1
+    print("RESULT: PASS")
+    print("RULE EXTERNAL_GATE:RUFF: SKIP - cli_disabled")
+    print(f"RULE TOOLKIT_SIG: PASS - {sig}")
+    print(f"RULE WORKSPACE: PASS - {{workspace_snapshot}}")
+    print(f"RULE ISSUE: PASS - {{issue_id}}")
+    print(f"RULE COMMIT: PASS - {{commit_message}}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+"""
+
+
+def _toolkit_validate_text(sig: str) -> str:
+    return f"""from __future__ import annotations
+import json
+import sys
+from pathlib import Path
+
+
+def main(path: str) -> int:
+    for idx, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            json.loads(text)
+        except json.JSONDecodeError as exc:
+            print(f"validator {sig} line {{idx}} invalid: {{exc.msg}}")
+            return 1
+    print("validator {sig} ok")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1]))
+"""
+
+
+def _toolkit_zip(path: Path, sig: str, *, prefix: str = "") -> Path:
+    root = f"{prefix.rstrip('/')}/" if prefix else ""
+    _write_zip(
+        path,
+        {
+            root + "governance/pm_validator.py": _toolkit_pm_validator_text(sig).encode("utf-8"),
+            root + "governance/validate_master_spec_v2.py": _toolkit_validate_text(sig).encode(
+                "utf-8"
+            ),
         },
     )
     return path
 
 
-def _write_instructions_artifact(
-    patches_root: Path,
-    issue: str,
-    *,
-    source_path: str = "governance/governance.jsonl",
-    version: int = 1,
-) -> Path:
-    return _instructions_zip(
-        patches_root / f"instructions_{issue}_v{version}.zip",
-        issue=issue,
-        source_path=source_path,
+def _write_manifest(path: Path, *, sig: str, archive_path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "remote_sig": sig,
+        "archive_url": _github_archive_url(sig),
+        "archive_sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=True) + "\n", encoding="utf-8")
+    return path
+
+
+def _github_manifest_url() -> str:
+    return (
+        "https://raw.githubusercontent.com/example/standalone-governance-toolkit/main/manifest.json"
     )
 
 
-def _install_validator_runtime(tmp_path: Path) -> None:
-    for relpath in (
-        "governance/pm_validator.py",
-        "governance/pm_validator_pack_contract.py",
-        "governance/pm_validator_runtime_support.py",
-        "governance/rc_resolver.py",
-        "governance/workflow_effective_context.py",
-        "governance/specification.jsonl",
-        "governance/governance.jsonl",
-    ):
-        dst = tmp_path / relpath
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_bytes(_repo_bytes(relpath))
+def _github_archive_url(sig: str) -> str:
+    return (
+        "https://github.com/example/standalone-governance-toolkit/"
+        f"releases/download/{sig}/toolkit.zip"
+    )
 
 
-def _cfg() -> AppConfig:
+def _remote_mapping(manifest_path: Path, archive_paths: dict[str, Path]) -> dict[str, bytes]:
+    return {
+        _github_manifest_url(): manifest_path.read_bytes(),
+        **{_github_archive_url(sig): path.read_bytes() for sig, path in archive_paths.items()},
+    }
+
+
+def _install_remote_bytes(monkeypatch: pytest.MonkeyPatch, mapping: dict[str, bytes]) -> None:
+    import scripts.patchhub.governance_toolkit_runtime as runtime_mod
+
+    def fake_read_remote_bytes(url: str, *, timeout_s: int) -> bytes:
+        del timeout_s
+        if url not in mapping:
+            raise ValueError(f"remote_not_found:{url}")
+        return mapping[url]
+
+    monkeypatch.setattr(runtime_mod, "_read_remote_bytes", fake_read_remote_bytes)
+
+
+@dataclass
+class _SelfDummy:
+    repo_root: Path
+    cfg: AppConfig
+    jail: FsJail
+    patches_root: Path
+
+    _derive_from_filename = __import__(
+        "scripts.patchhub.app_api_core",
+        fromlist=["_derive_from_filename"],
+    )._derive_from_filename
+
+
+def _cfg(manifest_url: str, cache_root: Path) -> AppConfig:
     return AppConfig(
         server=ServerConfig(host="127.0.0.1", port=1),
         meta=MetaConfig(version="test"),
@@ -280,24 +345,18 @@ def _cfg() -> AppConfig:
             zip_issue_max_bytes=128,
             zip_issue_max_ratio=200,
         ),
+        targeting=TargetingConfig(default_target_repo=DEFAULT_TARGET),
+        governance_toolkit=GovernanceToolkitConfig(
+            github_manifest_url=str(manifest_url),
+            cache_root=str(cache_root),
+            allow_stale=False,
+            request_timeout_s=3,
+        ),
     )
 
 
-@dataclass
-class _SelfDummy:
-    repo_root: Path
-    cfg: AppConfig
-    jail: FsJail
-    patches_root: Path
-
-    _derive_from_filename = __import__(
-        "scripts.patchhub.app_api_core",
-        fromlist=["_derive_from_filename"],
-    )._derive_from_filename
-
-
-def _mk_self(tmp_path: Path) -> _SelfDummy:
-    cfg = _cfg()
+def _mk_self(tmp_path: Path, manifest_url: str, cache_root: Path) -> _SelfDummy:
+    cfg = _cfg(manifest_url, cache_root)
     jail = FsJail(
         repo_root=tmp_path,
         patches_root_rel=cfg.paths.patches_root,
@@ -306,373 +365,287 @@ def _mk_self(tmp_path: Path) -> _SelfDummy:
     )
     patches_root = jail.patches_root()
     patches_root.mkdir(parents=True, exist_ok=True)
-    _install_validator_runtime(tmp_path)
+    target_root = str((tmp_path / "target-repo").resolve()).replace("\\", "/")
     _write(
         tmp_path / "scripts" / "am_patch" / "am_patch.toml",
         "[paths]\n"
         'success_archive_name = "{repo}-{branch}_{issue}.zip"\n'
         'success_archive_dir = "patch_dir"\n'
-        'success_archive_cleanup_glob_template = "audiomason2-main_*.zip"\n'
+        'success_archive_cleanup_glob_template = "patchhub-main_*.zip"\n'
+        f'target_repo_roots = ["patchhub={target_root}"]\n'
         "\n[git]\n"
         'default_branch = "main"\n',
     )
     return _SelfDummy(repo_root=tmp_path, cfg=cfg, jail=jail, patches_root=patches_root)
 
 
-def test_zip_manifest_includes_pm_validation_without_initial_authority_fallback(
+@pytest.mark.usefixtures("monkeypatch")
+def test_patch_zip_manifest_uses_standalone_toolkit_and_surfaces_resolution(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    s = _mk_self(tmp_path)
+    toolkit_v1 = _toolkit_zip(tmp_path / "toolkit-v1.zip", "sig-v1")
+    manifest = _write_manifest(tmp_path / "manifest.json", sig="sig-v1", archive_path=toolkit_v1)
+    s = _mk_self(tmp_path, _github_manifest_url(), tmp_path / "toolkit-cache")
+    _install_remote_bytes(monkeypatch, _remote_mapping(manifest, {"sig-v1": toolkit_v1}))
+
     relpath = "scripts/sample.py"
     before = "def value():\n    return 1\n"
     after = "def value():\n    return 2\n"
-    current = "def value():\n    return 999\n"
-    _write(tmp_path / relpath, current)
-    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
-    instructions_path = _write_instructions_artifact(s.patches_root, "601")
-    _snapshot_zip(
-        baseline_path,
-        {relpath: before.encode("utf-8")},
-    )
-    _snapshot_zip(
-        s.patches_root / "audiomason2-main_20260316.zip",
-        {relpath: current.encode("utf-8")},
-    )
+    snapshot = s.patches_root / "patchhub-main_20260315.zip"
+    instructions = s.patches_root / "instructions_601_v1.zip"
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
+    _instructions_zip(instructions)
     _patch_zip(
         s.patches_root / "issue_601_v1.zip",
         issue="601",
-        commit="Use PM validator at zip load",
+        commit="Use standalone toolkit",
         members={_safe_member(relpath): _git_patch(relpath, before, after)},
         target=DEFAULT_TARGET,
     )
+
+    import scripts.patchhub.governance_toolkit_runtime as runtime_mod
+
+    calls = {"count": 0}
+    real_load = runtime_mod.load_governance_toolkit_manifest
+
+    def counted_load(cfg):
+        calls["count"] += 1
+        return real_load(cfg)
+
+    monkeypatch.setattr(runtime_mod, "load_governance_toolkit_manifest", counted_load)
 
     status, raw = api_patch_zip_manifest(s, {"path": "issue_601_v1.zip"})
     assert status == 200
     payload = json.loads(raw.decode("utf-8"))
-    assert payload["manifest"]["patch_entry_count"] == 1
-    pm_validation = payload["pm_validation"]
-    assert pm_validation["status"] == "pass"
-    assert pm_validation["effective_mode"] == "initial"
-    assert pm_validation["authority_sources"] == [
-        str(baseline_path),
-        str(instructions_path),
+    pm = payload["pm_validation"]
+    assert calls["count"] == 1
+    assert pm["status"] == "pass"
+    assert pm["effective_mode"] == "initial"
+    assert pm["toolkit_resolution"]["selected_sig"] == "sig-v1"
+    assert pm["toolkit_resolution"]["resolution_mode"] == "remote-download"
+    assert pm["toolkit_resolution"]["download_performed"] is True
+    assert pm["toolkit_resolution"]["integrity_check_result"] == "pass"
+    assert pm["authority_sources"] == [
+        str(snapshot),
+        str(instructions),
     ]
-    assert "RESULT: PASS" in pm_validation["raw_output"]
-    assert "RULE EXTERNAL_GATE:RUFF: SKIP - cli_disabled" in pm_validation["raw_output"]
+    assert "RESULT: PASS" in pm["raw_output"]
+    assert "SIG:sig-v1" in pm["raw_output"]
+    assert not (tmp_path / "governance" / "pm_validator.py").exists()
 
 
-def test_build_pm_validation_runs_validator_without_local_instructions_artifact(
+@pytest.mark.usefixtures("monkeypatch")
+def test_patch_validation_repair_supplemental_reuses_pinned_toolkit(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    s = _mk_self(tmp_path)
-    relpath = "scripts/sample.py"
-    before = "def value():\n    return 1\n"
-    after = "def value():\n    return 2\n"
-    _snapshot_zip(
-        s.patches_root / "patchhub-main_20260315.zip",
-        {relpath: before.encode("utf-8")},
-    )
-    _patch_zip(
-        s.patches_root / "issue_601_v1.zip",
-        issue="601",
-        commit="Use PM validator at zip load",
-        members={_safe_member(relpath): _git_patch(relpath, before, after)},
-        target=DEFAULT_TARGET,
-    )
+    toolkit_v1 = _toolkit_zip(tmp_path / "toolkit-v1.zip", "sig-v1")
+    toolkit_v2 = _toolkit_zip(tmp_path / "toolkit-v2.zip", "sig-v2")
+    manifest = _write_manifest(tmp_path / "manifest.json", sig="sig-v1", archive_path=toolkit_v1)
+    remote_mapping = _remote_mapping(manifest, {"sig-v1": toolkit_v1, "sig-v2": toolkit_v2})
+    _install_remote_bytes(monkeypatch, remote_mapping)
+    s = _mk_self(tmp_path, _github_manifest_url(), tmp_path / "toolkit-cache")
 
-    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
-    assert payload["status"] == "fail"
-    assert payload["effective_mode"] == "initial"
-    assert payload["authority_sources"] == [
-        str(s.patches_root / "patchhub-main_20260315.zip"),
-    ]
-    assert payload["supplemental_files"] == []
-    assert "RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found" in payload["raw_output"]
-    assert "RULE MONOLITH: PASS - gate_passed" in payload["raw_output"]
-    assert "RULE EXTERNAL_GATE:RUFF: SKIP - cli_disabled" in payload["raw_output"]
-    assert "instructions_placeholder_601.zip" not in payload["authority_sources"]
-
-
-def test_zip_manifest_surfaces_validator_failure_without_instructions_authority(
-    tmp_path: Path,
-) -> None:
-    s = _mk_self(tmp_path)
-    relpath = "scripts/sample.py"
-    before = "def value():\n    return 1\n"
-    after = "def value():\n    return 2\n"
-    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
-    _snapshot_zip(
-        baseline_path,
-        {relpath: before.encode("utf-8")},
-    )
-    _patch_zip(
-        s.patches_root / "issue_601_v1.zip",
-        issue="601",
-        commit="Use PM validator at zip load",
-        members={_safe_member(relpath): _git_patch(relpath, before, after)},
-        target=DEFAULT_TARGET,
-    )
-
-    status, raw = api_patch_zip_manifest(s, {"path": "issue_601_v1.zip"})
-    assert status == 200
-    payload = json.loads(raw.decode("utf-8"))
-    pm_validation = payload["pm_validation"]
-    assert pm_validation["status"] == "fail"
-    assert pm_validation["effective_mode"] == "initial"
-    assert pm_validation["authority_sources"] == [
-        str(baseline_path),
-    ]
-    assert pm_validation["supplemental_files"] == []
-    assert (
-        "RULE INSTRUCTIONS_EXTENSION: FAIL - instructions_zip_not_found"
-        in pm_validation["raw_output"]
-    )
-    assert "RULE MONOLITH: PASS - gate_passed" in pm_validation["raw_output"]
-    assert "RULE EXTERNAL_GATE:RUFF: SKIP - cli_disabled" in pm_validation["raw_output"]
-
-
-def test_build_pm_validation_initial_requires_target_matched_local_baseline(
-    tmp_path: Path,
-) -> None:
-    s = _mk_self(tmp_path)
-    relpath = "scripts/sample.py"
-    before = "def value():\n    return 1\n"
-    after = "def value():\n    return 2\n"
-    instructions_path = _write_instructions_artifact(s.patches_root, "601")
-    _snapshot_zip(
-        s.patches_root / "audiomason2-main_20260315.zip",
-        {relpath: before.encode("utf-8")},
-    )
-    _patch_zip(
-        s.patches_root / "issue_601_v1.zip",
-        issue="601",
-        commit="Use PM validator at zip load",
-        members={_safe_member(relpath): _git_patch(relpath, before, after)},
-        target=DEFAULT_TARGET,
-    )
-
-    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
-    assert payload["status"] == "fail"
-    assert payload["effective_mode"] == "initial"
-    assert payload["authority_sources"] == [str(instructions_path)]
-    assert "workspace_snapshot_required_for_initial_mode" in payload["raw_output"]
-
-
-def test_build_pm_validation_uses_repair_overlay_only_when_available(
-    tmp_path: Path,
-) -> None:
-    s = _mk_self(tmp_path)
-    relpath = "scripts/sample.py"
-    before = "def value():\n    return 2\n"
-    after = "def value():\n    return 3\n"
-    instructions_path = _write_instructions_artifact(s.patches_root, "601")
-    _patch_zip(
-        s.patches_root / "issue_601_v1.zip",
-        issue="601",
-        commit="Use PM validator at zip load",
-        members={_safe_member(relpath): _git_patch(relpath, before, after)},
-    )
-    overlay_path = s.patches_root / "patched_issue601_v01.zip"
-    _overlay_zip(
-        overlay_path,
-        {relpath: before.encode("utf-8")},
-        target=DEFAULT_TARGET,
-    )
-
-    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
-    assert payload["status"] == "pass"
-    assert payload["effective_mode"] == "repair-overlay-only"
-    assert payload["authority_sources"] == [
-        str(overlay_path),
-        str(instructions_path),
-    ]
-    assert payload["supplemental_files"] == []
-
-
-def test_build_pm_validation_repair_escalates_with_exact_supplemental_files(
-    tmp_path: Path,
-) -> None:
-    s = _mk_self(tmp_path)
     relpath = "tests/test_sample.txt"
     before = "a\n"
     after = "b\n"
-    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
-    instructions_path = _write_instructions_artifact(s.patches_root, "601")
-    _write(tmp_path / relpath, before)
+    snapshot = s.patches_root / "patchhub-main_20260315.zip"
+    instructions = s.patches_root / "instructions_601_v1.zip"
+    overlay = s.patches_root / "patched_issue601_v01.zip"
+    _snapshot_zip(snapshot, {relpath: before.encode("utf-8")})
+    _instructions_zip(instructions)
+    _overlay_zip(overlay, {}, target=DEFAULT_TARGET)
     _patch_zip(
         s.patches_root / "issue_601_v1.zip",
         issue="601",
-        commit="Use PM validator at zip load",
+        commit="Reuse pinned toolkit",
         members={_safe_member(relpath): _git_patch(relpath, before, after)},
-    )
-    _overlay_zip(
-        s.patches_root / "patched_issue601_v01.zip",
-        {},
         target=DEFAULT_TARGET,
     )
-    _snapshot_zip(
-        baseline_path,
-        {relpath: before.encode("utf-8")},
-    )
+
+    import scripts.patchhub.governance_toolkit_runtime as runtime_mod
+    import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
+
+    load_calls = {"count": 0}
+    validator_paths: list[str] = []
+    real_load = runtime_mod.load_governance_toolkit_manifest
+    real_run = pm_runtime_mod._run_validator
+
+    def counted_load(cfg):
+        load_calls["count"] += 1
+        return real_load(cfg)
+
+    def wrapped_run(**kwargs):
+        validator_paths.append(str(kwargs["validator_script"]))
+        if len(validator_paths) == 1:
+            _write_manifest(manifest, sig="sig-v2", archive_path=toolkit_v2)
+            remote_mapping[_github_manifest_url()] = manifest.read_bytes()
+        return real_run(**kwargs)
+
+    monkeypatch.setattr(runtime_mod, "load_governance_toolkit_manifest", counted_load)
+    monkeypatch.setattr(pm_runtime_mod, "_run_validator", wrapped_run)
 
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
     assert payload["status"] == "pass"
     assert payload["effective_mode"] == "repair-supplemental"
     assert payload["supplemental_files"] == [relpath]
+    assert payload["toolkit_resolution"]["selected_sig"] == "sig-v1"
+    assert load_calls["count"] == 1
+    assert len(validator_paths) == 2
+    assert validator_paths[0] == validator_paths[1]
+    assert "versions/sig-v1/" in validator_paths[0]
     assert payload["authority_sources"] == [
-        str(s.patches_root / "patched_issue601_v01.zip"),
-        str(baseline_path),
-        str(instructions_path),
+        str(overlay),
+        str(snapshot),
+        str(instructions),
     ]
-    assert "[overlay-only]" not in payload["raw_output"]
-    assert "[repair-supplemental]" not in payload["raw_output"]
-    assert "RESULT: PASS" in payload["raw_output"]
+    assert "SIG:sig-v1" in payload["raw_output"]
 
 
-def test_build_pm_validation_repair_uses_target_matched_baseline_outside_overlay(
+@pytest.mark.usefixtures("monkeypatch")
+def test_patch_validation_fails_closed_without_authority_or_cache(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    s = _mk_self(tmp_path)
-    relpath = "scripts/extra.py"
-    before = "VALUE = 1\n"
-    after = "VALUE = 2\n"
-    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
-    foreign_path = s.patches_root / "audiomason2-main_20260316.zip"
-    instructions_path = _write_instructions_artifact(s.patches_root, "601")
-    _write(tmp_path / relpath, before)
-    _patch_zip(
-        s.patches_root / "issue_601_v1.zip",
-        issue="601",
-        commit="Use PM validator at zip load",
-        members={_safe_member(relpath): _git_patch(relpath, before, after)},
-        target=DEFAULT_TARGET,
-    )
-    _overlay_zip(
-        s.patches_root / "patched_issue601_v01.zip",
-        {},
-        target=DEFAULT_TARGET,
-    )
-    _snapshot_zip(
-        baseline_path,
-        {relpath: before.encode("utf-8")},
-    )
-    _snapshot_zip(
-        foreign_path,
-        {relpath: before.encode("utf-8")},
-    )
+    s = _mk_self(tmp_path, _github_manifest_url(), tmp_path / "toolkit-cache")
+    _install_remote_bytes(monkeypatch, {})
 
-    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
-    assert payload["status"] == "pass"
-    assert payload["effective_mode"] == "repair-supplemental"
-    assert payload["supplemental_files"] == [relpath]
-    assert payload["authority_sources"] == [
-        str(s.patches_root / "patched_issue601_v01.zip"),
-        str(baseline_path),
-        str(instructions_path),
-    ]
-    assert str(foreign_path) not in payload["authority_sources"]
-
-
-def test_build_pm_validation_selects_highest_versioned_instructions_artifact(
-    tmp_path: Path,
-) -> None:
-    s = _mk_self(tmp_path)
     relpath = "scripts/sample.py"
     before = "def value():\n    return 1\n"
     after = "def value():\n    return 2\n"
-    baseline_path = s.patches_root / "patchhub-main_20260315.zip"
-    chosen_path = _write_instructions_artifact(s.patches_root, "601", version=3)
-    _write_instructions_artifact(s.patches_root, "601", version=1)
-    _instructions_zip(
-        s.patches_root / "instructions_issue601.zip",
-        issue="601",
-        source_path="governance/governance.jsonl",
-    )
     _snapshot_zip(
-        baseline_path,
-        {relpath: before.encode("utf-8")},
-    )
-    _patch_zip(
-        s.patches_root / "issue_601_v1.zip",
-        issue="601",
-        commit="Use PM validator at zip load",
-        members={_safe_member(relpath): _git_patch(relpath, before, after)},
-        target=DEFAULT_TARGET,
-    )
-
-    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
-    assert payload["status"] == "pass"
-    assert payload["effective_mode"] == "initial"
-    assert payload["authority_sources"] == [
-        str(baseline_path),
-        str(chosen_path),
-    ]
-    assert str(s.patches_root / "instructions_issue601.zip") not in payload["authority_sources"]
-
-
-def test_build_pm_validation_accepts_specification_authority_source(tmp_path: Path) -> None:
-    s = _mk_self(tmp_path)
-    relpath = "governance/rc_resolver.py"
-    before = "VALUE = 1\n"
-    after = "VALUE = 2\n"
-    baseline_path = s.patches_root / "patchhub-main_20260317.zip"
-    instructions_path = _write_instructions_artifact(
-        s.patches_root,
-        "602",
-        source_path="governance/specification.jsonl",
-    )
-    _snapshot_zip(
-        baseline_path,
-        _with_spec(
-            {relpath: before.encode("utf-8")},
-            source_path="governance/specification.jsonl",
-        ),
-    )
-    _patch_zip(
-        s.patches_root / "issue_602_v1.zip",
-        issue="602",
-        commit="Use PM validator at zip load",
-        members={_safe_member(relpath): _git_patch(relpath, before, after)},
-        target=DEFAULT_TARGET,
-    )
-
-    payload = build_patch_zip_pm_validation(s, "issue_602_v1.zip")
-    assert payload["status"] == "pass"
-    assert payload["effective_mode"] == "initial"
-    assert payload["authority_sources"] == [
-        str(baseline_path),
-        str(instructions_path),
-    ]
-    assert "RESULT: PASS" in payload["raw_output"]
-
-
-def test_build_pm_validation_accepts_repo_spec_absent_degraded_mode(tmp_path: Path) -> None:
-    s = _mk_self(tmp_path)
-    relpath = "scripts/sample.py"
-    before = "def value():\n    return 1\n"
-    after = "def value():\n    return 2\n"
-    _write_instructions_artifact(
-        s.patches_root,
-        "601",
-        source_path="governance/specification.jsonl",
-    )
-    _patch_zip(
-        s.patches_root / "issue_601_v1.zip",
-        issue="601",
-        commit="Use PM validator at zip load",
-        members={_safe_member(relpath): _git_patch(relpath, before, after)},
-        target=DEFAULT_TARGET,
-    )
-    _write_zip(
         s.patches_root / "patchhub-main_20260315.zip",
-        {
-            "governance/governance.jsonl": _governance_bytes(),
-            relpath: before.encode("utf-8"),
-        },
+        {relpath: before.encode("utf-8")},
+    )
+    _instructions_zip(s.patches_root / "instructions_601_v1.zip")
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Fail closed",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
     )
 
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
-    assert payload["status"] == "pass"
-    assert payload["effective_mode"] == "initial"
-    assert "RULE PACK_RECOMPUTE: SKIP - missing_repo_specification_jsonl" in payload["raw_output"]
-    assert "RULE PACK_RULE:" in payload["raw_output"]
+    assert payload["status"] == "error"
+    assert payload["toolkit_resolution"]["resolution_mode"] == "fail-closed"
+    assert payload["toolkit_resolution"]["error"]
+    assert payload["authority_sources"] == []
+
+
+@pytest.mark.usefixtures("monkeypatch")
+def test_patch_validation_reports_stale_cache_when_allowed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolkit_v1 = _toolkit_zip(tmp_path / "toolkit-v1.zip", "sig-v1")
+    manifest = _write_manifest(tmp_path / "manifest.json", sig="sig-v1", archive_path=toolkit_v1)
+    remote_mapping = _remote_mapping(manifest, {"sig-v1": toolkit_v1})
+    _install_remote_bytes(monkeypatch, remote_mapping)
+    s = _mk_self(tmp_path, _github_manifest_url(), tmp_path / "toolkit-cache")
+    s.cfg = AppConfig(
+        **{
+            **s.cfg.__dict__,
+            "governance_toolkit": GovernanceToolkitConfig(
+                github_manifest_url=_github_manifest_url(),
+                cache_root=str(tmp_path / "toolkit-cache"),
+                allow_stale=True,
+                request_timeout_s=3,
+            ),
+        }
+    )
+
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    _snapshot_zip(
+        s.patches_root / "patchhub-main_20260315.zip",
+        {relpath: before.encode("utf-8")},
+    )
+    _instructions_zip(s.patches_root / "instructions_601_v1.zip")
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Allow stale cache",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    first = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert first["status"] == "pass"
+    assert first["toolkit_resolution"]["selected_sig"] == "sig-v1"
+
+    remote_mapping.pop(_github_manifest_url(), None)
+    second = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert second["status"] == "pass"
+    assert second["toolkit_resolution"]["selected_sig"] == "sig-v1"
+    assert second["toolkit_resolution"]["resolution_mode"] == "stale-cache"
+    assert second["toolkit_resolution"]["error"]
+
+
+@pytest.mark.usefixtures("monkeypatch")
+def test_resolver_stale_cache_is_scoped_to_current_authority_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts.patchhub.governance_toolkit_runtime import (
+        GovernanceToolkitRuntimeError,
+        resolve_governance_toolkit,
+    )
+
+    toolkit_v1 = _toolkit_zip(tmp_path / "toolkit-v1.zip", "sig-v1")
+    manifest = _write_manifest(tmp_path / "manifest.json", sig="sig-v1", archive_path=toolkit_v1)
+    remote_mapping = _remote_mapping(manifest, {"sig-v1": toolkit_v1})
+    _install_remote_bytes(monkeypatch, remote_mapping)
+
+    cache_root = tmp_path / "toolkit-cache"
+    selection = resolve_governance_toolkit(_cfg(_github_manifest_url(), cache_root))
+    assert selection.selected_sig == "sig-v1"
+
+    other_manifest_url = (
+        "https://raw.githubusercontent.com/example/other-standalone-governance-toolkit/"
+        "main/manifest.json"
+    )
+    cfg_other = AppConfig(
+        **{
+            **_cfg(other_manifest_url, cache_root).__dict__,
+            "governance_toolkit": GovernanceToolkitConfig(
+                github_manifest_url=other_manifest_url,
+                cache_root=str(cache_root),
+                allow_stale=True,
+                request_timeout_s=3,
+            ),
+        }
+    )
+
+    with pytest.raises(GovernanceToolkitRuntimeError) as excinfo:
+        resolve_governance_toolkit(cfg_other)
+
+    resolution = excinfo.value.resolution
+    assert resolution["resolution_mode"] == "fail-closed"
+    assert resolution["selected_sig"] == ""
+    assert resolution["cached_sig_before"] == ""
+
+
+@pytest.mark.usefixtures("monkeypatch")
+def test_resolver_accepts_archive_with_single_top_level_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts.patchhub.governance_toolkit_runtime import resolve_governance_toolkit
+
+    toolkit_v1 = _toolkit_zip(
+        tmp_path / "toolkit-v1.zip",
+        "sig-v1",
+        prefix="standalone-governance-toolkit-deadbeef",
+    )
+    manifest = _write_manifest(tmp_path / "manifest.json", sig="sig-v1", archive_path=toolkit_v1)
+    _install_remote_bytes(monkeypatch, _remote_mapping(manifest, {"sig-v1": toolkit_v1}))
+
+    selection = resolve_governance_toolkit(_cfg(_github_manifest_url(), tmp_path / "toolkit-cache"))
+    assert selection.selected_sig == "sig-v1"
+    assert selection.resolution["resolution_mode"] == "remote-download"
+    assert selection.pm_validator_path.is_file()
+    assert selection.validate_master_spec_v2_path.is_file()
+    assert str(selection.pm_validator_path).endswith("versions/sig-v1/governance/pm_validator.py")

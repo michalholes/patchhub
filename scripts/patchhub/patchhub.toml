@@ -158,3 +158,12 @@ reclaim_min_pruned_rows = 1
 [web_jobs_derived]
 # Derived default kept for config parity; fallback remains the runtime authority.
 virtual_artifacts_web_jobs_enabled = true
+
+[governance_toolkit]
+# Operator-configured GitHub manifest URL for the standalone governance toolkit.
+# PatchHub treats this GitHub source as the freshness authority and uses local cache
+# only as an execution substrate for the GitHub-selected version.
+github_manifest_url = ""
+cache_root = "patches/governance_toolkit_cache"
+allow_stale = false
+request_timeout_s = 3

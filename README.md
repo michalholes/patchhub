@@ -146,14 +146,18 @@ npm run typecheck
 
 ## Governance tooling
 
-The `governance/` directory is not decorative. It contains active authority tooling used to inspect and validate the governance corpus.
+The `governance/` directory is not decorative. It is the repo-local governance corpus and
+authority data surface. The executable governance toolkit is a separate standalone runtime
+selected server-side by PatchHub from the configured GitHub authority source; the repo-local
+`governance/*.py` files are not the active runtime authority path for PatchHub operations.
 
-Useful commands:
+Useful commands when you already have a standalone governance toolkit checkout or extracted
+GitHub-selected toolkit bundle:
 
 ```bash
-python governance/validate_master_spec_v2.py governance/specification.jsonl
-python governance/render_master_spec_txt.py governance/specification.jsonl
-python governance/gov_navigator.py governance/specification.jsonl
+python /path/to/standalone-governance-toolkit/governance/validate_master_spec_v2.py governance/specification.jsonl
+python /path/to/standalone-governance-toolkit/governance/render_master_spec_txt.py governance/specification.jsonl
+python /path/to/standalone-governance-toolkit/governance/gov_navigator.py governance/specification.jsonl
 ```
 
 ## What PatchHub is responsible for
