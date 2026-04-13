@@ -281,18 +281,6 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
             "raw_output": f"toolkit_resolution_failed:{exc}",
             "toolkit_resolution": toolkit_resolution,
         }
-    except ValueError as exc:
-        return {
-            "status": _STATUS_ERROR,
-            "effective_mode": "initial",
-            "issue_id": issue_id,
-            "commit_message": commit_message,
-            "patch_path": patch_rel,
-            "authority_sources": [],
-            "supplemental_files": [],
-            "raw_output": f"toolkit_resolution_failed:{exc}",
-            "toolkit_resolution": {},
-        }
     zip_issue_id, zip_issue_err = read_issue_number_from_zip_path(
         patch_zip,
         _zip_issue_cfg(self.cfg),

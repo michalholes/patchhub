@@ -4,6 +4,7 @@ import hashlib
 import json
 import tempfile
 import threading
+import uuid
 from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import dataclass
@@ -73,6 +74,7 @@ UNSAFE_WARNING = (
 
 @dataclass
 class RevisionState:
+    session_id: str
     target_repo: str
     document: str
     loaded_text: str
@@ -105,10 +107,13 @@ def _store_state(
     loaded_objects: list[dict[str, Any]],
     current_text: str,
     toolkit_selection: GovernanceToolkitSelection | None = None,
+    session_id: str | None = None,
 ) -> tuple[str, RevisionState]:
-    raw = f"{target_repo}\0{document}\0{loaded_text}\0{current_text}".encode()
+    active_session_id = str(session_id or uuid.uuid4().hex)
+    raw = f"{active_session_id}\0{target_repo}\0{document}\0{loaded_text}\0{current_text}".encode()
     token = hashlib.sha256(raw).hexdigest()
     state = RevisionState(
+        session_id=active_session_id,
         target_repo=target_repo,
         document=document,
         loaded_text=loaded_text,
@@ -199,6 +204,7 @@ def _persist(
             if state
             else None
         ),
+        session_id=(state.session_id if state else None),
     )
 
 

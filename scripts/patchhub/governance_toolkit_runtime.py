@@ -294,14 +294,16 @@ def _selection_from_root(
 
 
 def resolve_governance_toolkit(cfg: Any) -> GovernanceToolkitSelection:
-    cache_root = _cache_root(cfg)
-    cache_root.mkdir(parents=True, exist_ok=True)
     resolution = _resolution_record()
-    timeout_s = _request_timeout_s(cfg)
-    manifest_url = _github_manifest_url(cfg)
-    authority_root = _authority_root(cache_root, manifest_url)
-    resolution["cached_sig_before"] = _read_last_selected(authority_root)
+    cache_root: Path | None = None
+    manifest_url = ""
     try:
+        cache_root = _cache_root(cfg)
+        cache_root.mkdir(parents=True, exist_ok=True)
+        timeout_s = _request_timeout_s(cfg)
+        manifest_url = _github_manifest_url(cfg)
+        authority_root = _authority_root(cache_root, manifest_url)
+        resolution["cached_sig_before"] = _read_last_selected(authority_root)
         manifest = load_governance_toolkit_manifest(cfg)
         resolution["remote_sig"] = manifest.remote_sig
         resolution["selected_sig"] = manifest.remote_sig
@@ -335,7 +337,7 @@ def resolve_governance_toolkit(cfg: Any) -> GovernanceToolkitSelection:
     except Exception as exc:
         resolution["error"] = str(exc)
         stale_sig = resolution["cached_sig_before"]
-        if not _allow_stale(cfg) or not stale_sig:
+        if cache_root is None or not manifest_url or not _allow_stale(cfg) or not stale_sig:
             resolution["resolution_mode"] = "fail-closed"
             raise GovernanceToolkitRuntimeError(str(exc), resolution=resolution) from exc
         stale_root = _version_root(cache_root, manifest_url, stale_sig)
