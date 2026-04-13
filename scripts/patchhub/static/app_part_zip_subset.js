@@ -1,12 +1,58 @@
 (() => {
 	/**
 	 * @typedef {{
+	 *   zip_member?: string,
+	 *   repo_path?: string,
+	 *   selectable?: boolean,
+	 * }} ZipSubsetManifestEntry
+	 * @typedef {{
+	 *   entries?: ZipSubsetManifestEntry[],
+	 *   patch_entry_count?: number,
+	 *   selectable?: boolean,
+	 *   reason?: string,
+	 * }} ZipSubsetManifest
+	 * @typedef {{
+	 *   ok?: boolean,
+	 *   error?: string,
+	 *   manifest?: ZipSubsetManifest,
+	 *   pm_validation?: unknown,
+	 *   derived_issue?: unknown,
+	 *   derived_commit_message?: unknown,
+	 *   derived_target_repo?: unknown,
+	 * }} ZipSubsetManifestResponse
+	 * @typedef {{
+	 *   key: string,
+	 *   loading: boolean,
+	 *   manifest: ZipSubsetManifest | null,
+	 *   committedSelected: Record<string, boolean>,
+	 *   draftSelected: Record<string, boolean>,
+	 *   modalOpen: boolean,
+	 *   error: string,
+	 *   requestSeq: number,
+	 * }} ZipSubsetState
+	 * @typedef {{
+	 *   mode?: string,
+	 *   raw_command?: string,
+	 *   zip_subset?: {
+	 *     selectable?: boolean,
+	 *     selection_status?: string,
+	 *     selected_patch_entries?: string[],
+	 *     selected_repo_paths?: string[],
+	 *     effective_patch_kind?: string,
+	 *   },
+	 * }} ZipSubsetPreview
+	 * @typedef {{
+	 *   error?: string,
+	 *   selected_patch_entries?: string[],
+	 * }} ZipSubsetEnqueuePayload
+	 * @typedef {{ ok: boolean, hint: string }} ZipSubsetValidationState
+	 * @typedef {{
 	 *   call?: (name: string, ...args: unknown[]) => unknown,
 	 *   has?: (name: string) => boolean,
 	 *   register?: (name: string, exportsObj: Record<string, unknown>) => void,
 	 * }} ZipSubsetRuntime
 	 * @typedef {Window & typeof globalThis & {
-	 *   AMP_PATCHHUB_UI?: Record<string, unknown>,
+	 *   AMP_PATCHHUB_UI?: PatchhubUiBridge & Record<string, unknown>,
 	 *   PH?: ZipSubsetRuntime | null,
 	 *   __ph_patch_load_seq?: number,
 	 * }} ZipSubsetWindow
@@ -22,19 +68,27 @@
 	 * }} ZipSubsetElement
 	 */
 	var w = /** @type {ZipSubsetWindow} */ (window);
-	var ui = w.AMP_PATCHHUB_UI;
+	var ui =
+		/** @type {(PatchhubUiBridge & Record<string, unknown>) | undefined} */ (
+			w.AMP_PATCHHUB_UI
+		);
 	if (!ui) {
-		ui = {};
+		ui = /** @type {PatchhubUiBridge & Record<string, unknown>} */ ({});
 		w.AMP_PATCHHUB_UI = ui;
 	}
+	var uiBridge = /** @type {PatchhubUiBridge & Record<string, unknown>} */ (ui);
 
 	var PH = w.PH;
 
-	function phCall(name, ...args) {
+	function phCall(
+		/** @type {string} */ name,
+		/** @type {unknown[]} */ ...args
+	) {
 		if (!PH || typeof PH.call !== "function") return undefined;
 		return PH.call(name, ...args);
 	}
 
+	/** @type {ZipSubsetState} */
 	var state = {
 		key: "",
 		loading: false,
@@ -46,11 +100,11 @@
 		requestSeq: 0,
 	};
 
-	function el(id) {
+	function el(/** @type {string} */ id) {
 		return /** @type {ZipSubsetElement | null} */ (document.getElementById(id));
 	}
 
-	function escapeHtml(s) {
+	function escapeHtml(/** @type {unknown} */ s) {
 		return String(s || "")
 			.replace(/&/g, "&amp;")
 			.replace(/</g, "&lt;")
@@ -59,8 +113,11 @@
 			.replace(/'/g, "&#39;");
 	}
 
-	function safeExport(name, fn) {
-		ui[name] = (...args) => {
+	function safeExport(
+		/** @type {string} */ name,
+		/** @type {(...args: unknown[]) => unknown} */ fn,
+	) {
+		uiBridge[name] = (/** @type {unknown[]} */ ...args) => {
 			try {
 				return fn(...args);
 			} catch (e) {
@@ -115,11 +172,11 @@
 		return Array.isArray(manifest.entries) ? manifest.entries : [];
 	}
 
-	function selectionMap(kind) {
+	function selectionMap(/** @type {string} */ kind) {
 		return kind === "draft" ? state.draftSelected : state.committedSelected;
 	}
 
-	function ensureSelectionDefaults(kind) {
+	function ensureSelectionDefaults(/** @type {string} */ kind) {
 		var selected = selectionMap(kind);
 		manifestEntries().forEach((item) => {
 			var name = String(item && item.zip_member ? item.zip_member : "");
@@ -130,7 +187,8 @@
 		});
 	}
 
-	function resetSelectionToAll(kind) {
+	function resetSelectionToAll(/** @type {string} */ kind) {
+		/** @type {Record<string, boolean>} */
 		var next = {};
 		manifestEntries().forEach((item) => {
 			var name = String(item && item.zip_member ? item.zip_member : "");
@@ -145,11 +203,14 @@
 	}
 
 	function cloneCommittedToDraft() {
-		state.draftSelected = Object.assign({}, state.committedSelected);
+		state.draftSelected = /** @type {Record<string, boolean>} */ (
+			Object.assign({}, state.committedSelected)
+		);
 		ensureSelectionDefaults("draft");
 	}
 
 	function clearDraftSelection() {
+		/** @type {Record<string, boolean>} */
 		var next = {};
 		manifestEntries().forEach((item) => {
 			var name = String(item && item.zip_member ? item.zip_member : "");
@@ -159,8 +220,9 @@
 		state.draftSelected = next;
 	}
 
-	function selectedEntries(kind) {
+	function selectedEntries(/** @type {string} */ kind) {
 		var selected = selectionMap(kind || "committed");
+		/** @type {string[]} */
 		var out = [];
 		manifestEntries().forEach((item) => {
 			var name = String(item && item.zip_member ? item.zip_member : "");
@@ -170,8 +232,9 @@
 		return out;
 	}
 
-	function selectedRepoPaths(kind) {
+	function selectedRepoPaths(/** @type {string} */ kind) {
 		var selected = selectionMap(kind || "committed");
+		/** @type {string[]} */
 		var out = [];
 		manifestEntries().forEach((item) => {
 			var name = String(item && item.zip_member ? item.zip_member : "");
@@ -220,7 +283,10 @@
 		return `Selected ${selected} / ${total}`;
 	}
 
-	function setStripAction(action, title) {
+	function setStripAction(
+		/** @type {unknown} */ action,
+		/** @type {unknown} */ title,
+	) {
 		var box = el("zipSubsetStrip");
 		if (!box) return;
 		box.dataset.action = String(action || "");
@@ -344,7 +410,7 @@
 		phCall("validateAndPreview");
 	}
 
-	function fetchManifestForCurrentPath(requestKey) {
+	function fetchManifestForCurrentPath(/** @type {string} */ requestKey) {
 		var patchPath = currentPatchPath();
 		var loadSeq = currentPatchLoadSeq();
 		var requestSeq = ++state.requestSeq;
@@ -358,36 +424,41 @@
 		apiGet(
 			"/api/patches/zip_manifest?path=" + encodeURIComponent(patchPath),
 		).then((r) => {
+			var resp = /** @type {ZipSubsetManifestResponse} */ (r);
 			var targetNode = el("targetRepo");
-			var payload = {
+			var payload = /** @type {PatchhubLatestPatchResponse} */ ({
 				stored_rel_path: patchPath,
 				derived_issue:
-					r && Object.hasOwn(r, "derived_issue") ? r.derived_issue : null,
+					resp && Object.hasOwn(resp, "derived_issue")
+						? resp.derived_issue
+						: null,
 				derived_commit_message:
-					r && Object.hasOwn(r, "derived_commit_message")
-						? r.derived_commit_message
+					resp && Object.hasOwn(resp, "derived_commit_message")
+						? resp.derived_commit_message
 						: null,
 				derived_target_repo:
-					r && Object.hasOwn(r, "derived_target_repo")
-						? r.derived_target_repo
+					resp && Object.hasOwn(resp, "derived_target_repo")
+						? resp.derived_target_repo
 						: null,
-			};
+			});
 			if (requestSeq !== state.requestSeq) return;
 			if (!isPatchZipMode()) return;
 			if (state.key !== requestKey) return;
 			if (currentPatchPath() !== patchPath) return;
 			if (currentPatchLoadSeq() !== loadSeq) return;
 			state.loading = false;
-			if (!r || r.ok === false || !r.manifest) {
-				state.error = String((r && r.error) || "cannot inspect zip patch");
+			if (!resp || resp.ok === false || !resp.manifest) {
+				state.error = String(
+					(resp && resp.error) || "cannot inspect zip patch",
+				);
 				state.manifest = null;
 				phCall("clearPmValidationPayload");
 				renderStrip();
 				phCall("validateAndPreview");
 				return;
 			}
-			state.manifest = r.manifest;
-			phCall("setPmValidationPayload", r.pm_validation || null);
+			state.manifest = resp.manifest;
+			phCall("setPmValidationPayload", resp.pm_validation || null);
 			resetSelectionToAll("committed");
 			state.draftSelected = {};
 			renderStrip();
@@ -456,7 +527,9 @@
 		return { ok: true, hint: "" };
 	}
 
-	function applyPreview(preview) {
+	function applyPreview(
+		/** @type {ZipSubsetPreview | null | undefined} */ preview,
+	) {
 		if (!preview || typeof preview !== "object") return preview;
 		if (!state.manifest || !isPatchZipMode()) return preview;
 		var selected = selectedEntries("committed");
@@ -475,11 +548,12 @@
 		return preview;
 	}
 
-	function handleStripAction(target) {
-		var box =
+	function handleStripAction(/** @type {Element | null} */ target) {
+		var box = /** @type {ZipSubsetElement | null} */ (
 			target && typeof target.closest === "function"
 				? target.closest("#zipSubsetStrip")
-				: null;
+				: null
+		);
 		if (!box) return false;
 		var action = String(box.dataset.action || "");
 		if (action === "open") {
@@ -510,8 +584,8 @@
 		});
 	}
 
-	ui.zipSubsetModalController = {
-		onToggle(name, checked) {
+	uiBridge.zipSubsetModalController = {
+		onToggle(/** @type {unknown} */ name, /** @type {unknown} */ checked) {
 			state.draftSelected[String(name || "")] = !!checked;
 			renderModal();
 		},
@@ -552,12 +626,14 @@
 			openZipSubsetModal: openModal,
 		});
 	}
-	ui.syncZipSubsetUiFromInputs = syncFromInputs;
-	ui.getZipSubsetEnqueuePayload = enqueuePayload;
-	ui.getZipSubsetValidationState = validationState;
-	ui.applyZipSubsetPreview = applyPreview;
+	uiBridge.syncZipSubsetUiFromInputs = syncFromInputs;
+	uiBridge.getZipSubsetEnqueuePayload = enqueuePayload;
+	uiBridge.getZipSubsetValidationState = validationState;
+	uiBridge.applyZipSubsetPreview = applyPreview;
 	safeExport("syncZipSubsetUiFromInputs", syncFromInputs);
 	safeExport("getZipSubsetEnqueuePayload", enqueuePayload);
 	safeExport("getZipSubsetValidationState", validationState);
-	safeExport("applyZipSubsetPreview", applyPreview);
+	safeExport("applyZipSubsetPreview", (preview) =>
+		applyPreview(/** @type {ZipSubsetPreview | null | undefined} */ (preview)),
+	);
 })();

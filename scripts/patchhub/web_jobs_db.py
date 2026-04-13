@@ -472,6 +472,53 @@ class WebJobsDatabase:
             conn.commit()
         return seq
 
+    def append_event_lines(self, job_id: str, raw_lines: list[str]) -> int:
+        items = []
+        for raw_line in raw_lines:
+            text = str(raw_line or "").rstrip("\n")
+            parsed = _read_event_frame(text)
+            items.append(
+                (
+                    text,
+                    _int_or_none(parsed.get("seq")) if parsed is not None else None,
+                    _none_if_blank(parsed.get("type")) if parsed is not None else None,
+                    _none_if_blank(parsed.get("event")) if parsed is not None else None,
+                )
+            )
+        if not items:
+            return 0
+        with self._store._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT last_event_seq, row_rev FROM web_jobs WHERE job_id = ?",
+                (str(job_id),),
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                return 0
+            base_seq = int(row["last_event_seq"])
+            row_rev = int(row["row_rev"]) + len(items)
+            seq_items = [
+                (str(job_id), base_seq + idx, text, ipc_seq, frame_type, frame_event)
+                for idx, (text, ipc_seq, frame_type, frame_event) in enumerate(items, start=1)
+            ]
+            conn.executemany(
+                """
+                INSERT INTO web_job_event_lines(
+                    job_id, seq, raw_line, ipc_seq, frame_type, frame_event
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                seq_items,
+            )
+            final_seq = base_seq + len(seq_items)
+            conn.execute(
+                "UPDATE web_jobs SET last_event_seq = ?, row_rev = ? WHERE job_id = ?",
+                (final_seq, row_rev, str(job_id)),
+            )
+            self._store._touch_meta(conn, events_delta=len(seq_items))
+            conn.commit()
+        return final_seq
+
     def _read_raw_log_tail(self, job_id: str, *, lines: int = 200) -> str:
         limit = max(1, min(int(lines), 5000))
         with self._store._connect() as conn:

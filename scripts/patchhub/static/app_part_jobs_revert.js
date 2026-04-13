@@ -110,7 +110,10 @@ function jobsRevertLoadDetail(job) {
 		jobsRevertDetailSig[jobId] = sig;
 		return Promise.resolve(jobsRevertDetailCache[jobId]);
 	}
-	if (jobsRevertInflight[jobId] && jobsRevertInflightSig[jobId] === sig) {
+	if (
+		Object.hasOwn(jobsRevertInflight, jobId) &&
+		jobsRevertInflightSig[jobId] === sig
+	) {
 		return jobsRevertInflight[jobId];
 	}
 	seq = Number(jobsRevertSeq[jobId] || 0) + 1;

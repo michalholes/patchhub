@@ -2,9 +2,42 @@
 // Provides PH namespace: module registry, safe call access, and ordered script load.
 
 (() => {
+	/**
+	 * @typedef {{
+	 *   state: string,
+	 *   last_error: string,
+	 *   capabilities: string[],
+	 *   exports?: Record<string, unknown>,
+	 * }} PatchhubRuntimeModule
+	 */
+	/**
+	 * @typedef {{
+	 *   ts: string,
+	 *   kind: string,
+	 *   module?: string,
+	 *   cap?: string,
+	 *   details?: string,
+	 *   error?: string,
+	 *   url?: string,
+	 * }} PatchhubRuntimeDiag
+	 */
+	/**
+	 * @typedef {{
+	 *   moduleName: string,
+	 *   handler: (...args: unknown[]) => unknown,
+	 * }} PatchhubCapabilityHit
+	 */
+	/**
+	 * @typedef {{
+	 *   missing: Record<string, boolean>,
+	 *   fault: Record<string, boolean>,
+	 *   load: Record<string, boolean>,
+	 * }} PatchhubRuntimeOnce
+	 */
 	/** @type {any} */
 	const W = window;
 	const BOOT = W.PH_BOOT || null;
+	/** @type {Record<string, unknown>} */
 	const PH_NS = W.PH_RT || {};
 	W.PH_RT = PH_NS;
 	W.PH = PH_NS;
@@ -21,7 +54,7 @@
 		}
 	}
 
-	function withStaticVersion(url) {
+	function withStaticVersion(/** @type {string} */ url) {
 		const v = getStaticVersion();
 		if (!v) return url;
 		if (url.indexOf("?") >= 0) {
@@ -37,7 +70,10 @@
 		}
 	}
 
-	function logStatus(kind, message) {
+	function logStatus(
+		/** @type {string} */ kind,
+		/** @type {unknown} */ message,
+	) {
 		const msg = String(message || "");
 		try {
 			if (kind === "error") console.error("[PatchHub]", msg);
@@ -55,7 +91,7 @@
 		}
 	}
 
-	function setDegraded(reason) {
+	function setDegraded(/** @type {unknown} */ reason) {
 		try {
 			if (BOOT && typeof BOOT.setDegradedOnce === "function") {
 				BOOT.setDegradedOnce(reason);
@@ -72,17 +108,24 @@
 		}
 	}
 
-	function record(list, item, max) {
+	function record(
+		/** @type {PatchhubRuntimeDiag[]} */ list,
+		/** @type {PatchhubRuntimeDiag} */ item,
+		/** @type {number} */ max,
+	) {
 		if (!Array.isArray(list)) return;
 		list.push(item);
 		if (max && list.length > max) list.splice(0, list.length - max);
 	}
 
+	/** @type {Record<string, PatchhubRuntimeModule>} */
 	const registry = {};
+	/** @type {PatchhubRuntimeDiag[]} */
 	const diag = [];
+	/** @type {PatchhubRuntimeOnce} */
 	const once = { missing: {}, fault: {}, load: {} };
 
-	function ensureModule(name) {
+	function ensureModule(/** @type {string} */ name) {
 		if (!registry[name]) {
 			registry[name] = {
 				state: "missing",
@@ -93,13 +136,20 @@
 		return registry[name];
 	}
 
-	function degradedNote(moduleName, state, details) {
+	function degradedNote(
+		/** @type {string} */ moduleName,
+		/** @type {string} */ state,
+		/** @type {string | undefined} */ details,
+	) {
 		const base = `Degraded mode: ${String(moduleName)} ${String(state)}`;
 		if (!details) return base;
 		return `${base} (${String(details)})`;
 	}
 
-	function register(moduleName, exportsObj) {
+	function register(
+		/** @type {string} */ moduleName,
+		/** @type {Record<string, unknown>} */ exportsObj,
+	) {
 		const name = String(moduleName || "");
 		const m = ensureModule(name);
 		m.state = "ready";
@@ -108,35 +158,46 @@
 		record(diag, { ts: nowIso(), kind: "register", module: name }, 50);
 	}
 
-	function hasOwn(obj, key) {
+	function hasOwn(/** @type {object} */ obj, /** @type {string} */ key) {
 		return Object.hasOwn(obj, key);
 	}
 
-	function findCapability(capabilityName) {
+	/** @returns {PatchhubCapabilityHit | null} */
+	function findCapability(/** @type {string} */ capabilityName) {
 		const name = String(capabilityName || "");
 		const keys = Object.keys(registry);
 		for (let i = 0; i < keys.length; i++) {
 			const mod = registry[keys[i]];
 			if (!mod || mod.state !== "ready" || !mod.exports) continue;
 			if (hasOwn(mod.exports, name)) {
-				return { moduleName: keys[i], handler: mod.exports[name] };
+				return {
+					moduleName: keys[i],
+					handler: /** @type {(...args: unknown[]) => unknown} */ (
+						mod.exports[name]
+					),
+				};
 			}
 		}
 		return null;
 	}
 
-	function has(capabilityName) {
+	function has(/** @type {string} */ capabilityName) {
 		return !!findCapability(capabilityName);
 	}
 
-	function findFallback(capabilityName) {
+	function findFallback(/** @type {string} */ capabilityName) {
 		const map = W.PH_APP_FALLBACKS || null;
 		if (!map) return null;
 		const fn = map[String(capabilityName || "")];
 		return typeof fn === "function" ? fn : null;
 	}
 
-	function runFallback(cap, args, kind, details) {
+	function runFallback(
+		/** @type {string} */ cap,
+		/** @type {unknown[]} */ args,
+		/** @type {string} */ kind,
+		/** @type {string} */ details,
+	) {
 		const fallback = findFallback(cap);
 		if (!fallback) return undefined;
 		record(diag, { ts: nowIso(), kind, cap, details }, 50);
@@ -144,9 +205,15 @@
 		return fallback.apply(null, args);
 	}
 
-	function call(capabilityName, ...args) {
+	function call(
+		/** @type {string} */ capabilityName,
+		/** @type {unknown[]} */
+		...args
+	) {
 		const cap = String(capabilityName || "");
 		const hit = findCapability(cap);
+		/** @type {{ message?: string } | null} */
+		var err = null;
 		if (!hit) {
 			record(diag, { ts: nowIso(), kind: "missing", cap }, 50);
 			if (!once.missing[cap]) {
@@ -161,7 +228,10 @@
 			return hit.handler.apply(null, args);
 		} catch (e) {
 			const mod = ensureModule(hit.moduleName);
-			mod.last_error = String((e && e.message) || e || "");
+			err = /** @type {{ message?: string } | null} */ (
+				e && typeof e === "object" ? e : null
+			);
+			mod.last_error = String((err && err.message) || e || "");
 			record(
 				diag,
 				{
@@ -183,7 +253,10 @@
 		}
 	}
 
-	function loadScript(url, moduleName) {
+	function loadScript(
+		/** @type {string} */ url,
+		/** @type {string} */ moduleName,
+	) {
 		const rawUrl = String(url || "");
 		const u = withStaticVersion(rawUrl);
 		const name = String(moduleName || "");

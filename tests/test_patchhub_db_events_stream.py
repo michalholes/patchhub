@@ -135,11 +135,10 @@ async def test_db_live_stream_replays_db_tail_then_switches_to_broker(
 async def test_db_live_stream_default_tail_replays_20000_rows(
     seeded_db: WebJobsDatabase,
 ) -> None:
-    for idx in range(2, 20_006):
-        seeded_db.append_event_line(
-            "job-514-events",
-            f'{{"type":"log","msg":"{idx}"}}',
-        )
+    seeded_db.append_event_lines(
+        "job-514-events",
+        [f'{{"type":"log","msg":"{idx}"}}' for idx in range(2, 20_006)],
+    )
 
     broker = JobEventBroker()
     broker.close()

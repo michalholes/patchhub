@@ -1,18 +1,43 @@
 /** @type {any} */
 var __ph_w = /** @type {any} */ (window);
-var PH = /** @type {any} */ (window).PH;
+/** @type {PatchhubHeaderRuntime | null} */
+var workspacesPh = /** @type {any} */ (window).PH || null;
 
-function phCall(name, ...args) {
-	if (!PH || typeof PH.call !== "function") return undefined;
-	return PH.call(name, ...args);
+/**
+ * @typedef {{
+ *   issue_id?: string | number,
+ *   state?: string,
+ *   busy?: boolean,
+ *   commit_summary?: string,
+ *   attempt?: number,
+ *   allowed_union_count?: number,
+ *   mtime_utc?: string,
+ *   workspace_rel_path?: string,
+ * }} PatchWorkspaceItem
+ * @typedef {{
+ *   ok?: boolean,
+ *   error?: string,
+ *   items?: PatchWorkspaceItem[],
+ *   workspaces?: PatchWorkspaceItem[],
+ *   sig?: string,
+ *   unchanged?: boolean,
+ * }} PatchWorkspacesResponse
+ */
+
+function phCall(/** @type {string} */ name, /** @type {unknown[]} */ ...args) {
+	if (!workspacesPh || typeof workspacesPh.call !== "function")
+		return undefined;
+	return workspacesPh.call(name, ...args);
 }
 
-function renderWorkspacesFromResponse(r) {
+function renderWorkspacesFromResponse(
+	/** @type {PatchWorkspacesResponse} */ r,
+) {
 	var items = r.items || r.workspaces || [];
 	workspacesCache = items;
 
 	var html = items
-		.map((ws, idx) => {
+		.map((/** @type {PatchWorkspaceItem} */ ws, idx) => {
 			var issueId = Number(ws.issue_id || 0);
 			var state =
 				String(ws.state || "")
@@ -68,7 +93,7 @@ function renderWorkspacesFromResponse(r) {
 		(node) => {
 			var idx = parseInt(node.getAttribute("data-idx") || "-1", 10);
 			if (idx < 0 || idx >= workspacesCache.length) return;
-			var ws = workspacesCache[idx];
+			var ws = /** @type {PatchWorkspaceItem} */ (workspacesCache[idx]);
 			var rel = String(ws.workspace_rel_path || "");
 			var issueId = String(ws.issue_id || "");
 
@@ -117,6 +142,7 @@ function renderWorkspacesFromResponse(r) {
 					})
 						.then((resp) => resp.json())
 						.then((obj) => {
+							obj = /** @type {{ ok?: boolean, error?: string }} */ (obj);
 							if (!obj || obj.ok === false) {
 								setFsHint(
 									obj && obj.error ? String(obj.error) : "Delete failed",
@@ -133,7 +159,9 @@ function renderWorkspacesFromResponse(r) {
 	);
 }
 
-function refreshWorkspaces(opts) {
+function refreshWorkspaces(
+	/** @type {{ mode?: string } | null | undefined} */ opts,
+) {
 	opts = opts || {};
 	var mode = String(opts.mode || "user");
 	var sf = mode === "periodic";
@@ -141,19 +169,20 @@ function refreshWorkspaces(opts) {
 		mode: mode,
 		single_flight: sf,
 	}).then((r) => {
-		if (!r || r.ok === false) {
-			setPre("workspacesList", r);
+		var resp = /** @type {PatchWorkspacesResponse} */ (r);
+		if (!resp || resp.ok === false) {
+			setPre("workspacesList", resp);
 			return;
 		}
-		if (r.unchanged) return;
-		var sig = String(r.sig || "");
+		if (resp.unchanged) return;
+		var sig = String(resp.sig || "");
 		if (sig) idleSigs.workspaces = sig;
-		renderWorkspacesFromResponse(r);
+		renderWorkspacesFromResponse(resp);
 	});
 }
 
-if (PH && typeof PH.register === "function") {
-	PH.register("app_part_workspaces", {
+if (workspacesPh && typeof workspacesPh.register === "function") {
+	workspacesPh.register("app_part_workspaces", {
 		renderWorkspacesFromResponse,
 		refreshWorkspaces,
 	});

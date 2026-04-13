@@ -1,60 +1,72 @@
 (() => {
+	/** @type {Array<{ message: string, ts?: string, source?: string, line?: number, col?: number }>} */
 	var errors = [];
+	/** @type {Array<{ method: string, url: string, status: number, ms: number, error?: string }>} */
 	var net = [];
 
-	function el(id) {
+	function el(/** @type {string} */ id) {
 		return document.getElementById(id);
 	}
-	function setPre(id, obj) {
-		el(id).textContent =
+	function setPre(/** @type {string} */ id, /** @type {unknown} */ obj) {
+		var node = el(id);
+		if (!node) return;
+		node.textContent =
 			typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
 	}
 
-	function pushClientError(err) {
+	function pushClientError(/** @type {unknown} */ err) {
 		errors.push({ message: String(err), ts: new Date().toISOString() });
 		setPre("clientErrors", errors);
 	}
 
-	function copyPreToClipboard(preId) {
-		var text = el(preId).textContent || "";
+	function copyPreToClipboard(/** @type {string} */ preId) {
+		var node = el(preId);
+		var text = node ? node.textContent || "" : "";
 		// Prefer modern clipboard API, fallback to execCommand for older contexts.
 		if (navigator.clipboard && navigator.clipboard.writeText) {
 			return navigator.clipboard.writeText(text);
 		}
-		return new Promise((resolve, reject) => {
-			/** @type {HTMLTextAreaElement | null} */
-			var ta = null;
-			var ok = false;
-			try {
-				ta = document.createElement("textarea");
-				ta.value = text;
-				ta.setAttribute("readonly", "true");
-				ta.style.position = "absolute";
-				ta.style.left = "-9999px";
-				document.body.appendChild(ta);
-				ta.select();
-				ok = document.execCommand("copy");
-				document.body.removeChild(ta);
-				ta = null;
-				if (ok) {
-					resolve();
-					return;
-				}
-				reject(new Error("execCommand(copy) returned false"));
-			} catch (e) {
-				if (ta) {
-					try {
-						document.body.removeChild(ta);
-					} catch {
-						// ignore
+		return /** @type {Promise<void>} */ (
+			new Promise((resolve, reject) => {
+				/** @type {HTMLTextAreaElement | null} */
+				var ta = null;
+				var ok = false;
+				try {
+					ta = document.createElement("textarea");
+					ta.value = text;
+					ta.setAttribute("readonly", "true");
+					ta.style.position = "absolute";
+					ta.style.left = "-9999px";
+					document.body.appendChild(ta);
+					ta.select();
+					ok = document.execCommand("copy");
+					document.body.removeChild(ta);
+					ta = null;
+					if (ok) {
+						resolve();
+						return;
 					}
+					reject(new Error("execCommand(copy) returned false"));
+				} catch (e) {
+					if (ta) {
+						try {
+							document.body.removeChild(ta);
+						} catch {
+							// ignore
+						}
+					}
+					reject(e);
 				}
-				reject(e);
-			}
-		});
+			})
+		);
 	}
 
-	function wireFlushCopy(flushBtnId, copyBtnId, preId, flushFn) {
+	function wireFlushCopy(
+		/** @type {string} */ flushBtnId,
+		/** @type {string} */ copyBtnId,
+		/** @type {string} */ preId,
+		/** @type {() => void} */ flushFn,
+	) {
 		var flushBtn = el(flushBtnId);
 		var copyBtn = el(copyBtnId);
 		if (!flushBtn || !copyBtn) {
@@ -63,6 +75,7 @@
 			);
 			return;
 		}
+		var stableCopyBtn = copyBtn;
 
 		flushBtn.addEventListener("click", () => {
 			try {
@@ -75,10 +88,10 @@
 			copyPreToClipboard(preId)
 				.then(() => {
 					// Minimal UX feedback without adding new UI elements
-					var oldText = copyBtn.textContent;
-					copyBtn.textContent = "Copied";
+					var oldText = stableCopyBtn.textContent;
+					stableCopyBtn.textContent = "Copied";
 					setTimeout(() => {
-						copyBtn.textContent = oldText;
+						stableCopyBtn.textContent = oldText;
 					}, 800);
 				})
 				.catch((e) => pushClientError(e));
@@ -141,12 +154,12 @@
 			});
 	};
 
-	function apiGet(url) {
+	function apiGet(/** @type {string} */ url) {
 		return fetch(url, { headers: { Accept: "application/json" } }).then((r) =>
 			r.json(),
 		);
 	}
-	function apiPost(url, obj) {
+	function apiPost(/** @type {string} */ url, /** @type {unknown} */ obj) {
 		return fetch(url, {
 			method: "POST",
 			headers: {
@@ -164,7 +177,7 @@
 	}
 
 	function refreshTail() {
-		apiGet("/api/runner/tail?lines=200").then((r) => {
+		apiGet("/api/runner/tail?lines=200").then((/** @type {any} */ r) => {
 			setPre("tail", r.tail || "");
 		});
 	}
@@ -213,9 +226,12 @@
 			setPre("tail", "");
 		});
 
-		el("diagRefresh").addEventListener("click", refreshDiag);
-		el("tailRefresh").addEventListener("click", refreshTail);
-		el("parse").addEventListener("click", parseCmd);
+		var diagRefresh = el("diagRefresh");
+		var tailRefresh = el("tailRefresh");
+		var parseBtn = el("parse");
+		if (diagRefresh) diagRefresh.addEventListener("click", refreshDiag);
+		if (tailRefresh) tailRefresh.addEventListener("click", refreshTail);
+		if (parseBtn) parseBtn.addEventListener("click", parseCmd);
 
 		refreshDiag();
 		loadClientStatus();

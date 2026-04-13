@@ -232,8 +232,40 @@ def _load_bytes(relpath: str) -> bytes:
 
 def _write_target_documents(target_root: Path) -> None:
     (target_root / "governance").mkdir(parents=True, exist_ok=True)
-    (target_root / "governance" / "specification.jsonl").write_bytes(
-        _load_bytes("governance/specification.jsonl")
+    (target_root / "governance" / "specification.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "meta",
+                        "id": "META.TEST",
+                        "version": "1.0.1",
+                        "authoritative": True,
+                        "draft_only": False,
+                        "description": "tiny editor test document",
+                        "counts": {"records": 0, "rules": 0},
+                    },
+                    ensure_ascii=True,
+                ),
+                json.dumps(
+                    {
+                        "type": "rule",
+                        "id": "RULE.TEST",
+                        "heading_path": "",
+                        "order": 0,
+                        "kind": "paragraph",
+                        "layer_prefix": "",
+                        "rule_layer": "",
+                        "normativity": "MUST",
+                        "scope": "",
+                        "statement": "Test rule",
+                    },
+                    ensure_ascii=True,
+                ),
+                "",
+            ]
+        ),
+        encoding="utf-8",
     )
     (target_root / "governance" / "governance.jsonl").write_text("\n", encoding="utf-8")
 

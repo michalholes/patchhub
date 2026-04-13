@@ -3,22 +3,18 @@
 /**
  * @typedef {{
  *   saveLiveJobId?: function(string): void,
- *   updateProgressPanelFromEvents?: function({ jobs: unknown[] }): void,
+ *   savePatchesVisible?: function(boolean): void,
+ *   saveWorkspacesVisible?: function(boolean): void,
+ *   saveRunsVisible?: function(boolean): void,
+ *   saveJobsVisible?: function(boolean): void,
+ *   updateProgressPanelFromEvents?: function({ jobs?: unknown[] }=): void,
  * }} PatchHubUiBridge
  * @typedef {{
- *   loadScript?: function(string, string): Promise<boolean>,
- *   call?: function(string, ...*): *,
- *   has?: function(string): boolean,
- *   register?: function(string, Object): void,
+ *   loadScript: function(string, string): Promise<boolean>,
+ *   call: function(string, ...*): *,
+ *   has: function(string): boolean,
+ *   register: function(string, Object): void,
  * }} PatchHubRuntime
- * @typedef {{
- *   filename_pattern?: string, keep_count?: number,
- *   matched_count?: number, deleted_count?: number,
- * }} CleanupRecentStatusRule
- * @typedef {{
- *   job_id?: string, issue_id?: string, created_utc?: string,
- *   deleted_count?: number, rules?: CleanupRecentStatusRule[], summary_text?: string,
- * }} CleanupRecentStatusItem
  * @typedef {HTMLElement & {
  *   value?: string, disabled?: boolean, checked?: boolean, files?: FileList | null,
  * }} PatchHubUiElement
@@ -39,8 +35,12 @@ var appWindow = /** @type {PatchHubWindow} */ (window);
 /** @type {PatchHubRuntime | null} */
 var appPhRuntime = appWindow.PH || null;
 
-appWindow.AMP_PATCHHUB_UI = appWindow.AMP_PATCHHUB_UI || {};
-var AMP_UI = /** @type {PatchHubUiBridge} */ (appWindow.AMP_PATCHHUB_UI);
+appWindow.AMP_PATCHHUB_UI = /** @type {PatchhubUiBridge & PatchHubUiBridge} */ (
+	appWindow.AMP_PATCHHUB_UI || {}
+);
+var AMP_UI = /** @type {PatchhubUiBridge & PatchHubUiBridge} */ (
+	appWindow.AMP_PATCHHUB_UI
+);
 
 var activeJobId = /** @type {string | null} */ (null);
 var autoRefreshTimer = /** @type {ReturnType<typeof setInterval> | null} */ (
@@ -76,8 +76,8 @@ var patchesVisible = false;
 var workspacesVisible = false;
 var runsVisible = false;
 var jobsVisible = false;
-var patchesCache = [];
-var workspacesCache = [];
+var patchesCache = /** @type {unknown[]} */ ([]);
+var workspacesCache = /** @type {unknown[]} */ ([]);
 
 function runValidateAndPreview() {
 	if (typeof appWindow.validateAndPreview === "function") {
@@ -105,11 +105,15 @@ function appLog(/** @type {string} */ kind, /** @type {string} */ message) {
 }
 
 function canRenderInfoPoolUi() {
-	return !!(
-		appPhRuntime &&
-		typeof appPhRuntime.has === "function" &&
-		appPhRuntime.has("renderInfoPoolUi")
-	);
+	return !!(appPhRuntime && appPhRuntime.has("renderInfoPoolUi"));
+}
+
+function appPhCall(
+	/** @type {string} */ name,
+	/** @type {unknown[]} */ ...args
+) {
+	if (!appPhRuntime) return undefined;
+	return appPhRuntime.call(name, ...args);
 }
 
 function syncLegacyDegradedBanner() {
@@ -128,7 +132,7 @@ function rememberDegraded(/** @type {string} */ message) {
 		degradedNotes.splice(0, degradedNotes.length - UI_STATUS_LIMIT);
 	}
 	if (canRenderInfoPoolUi()) {
-		appPhRuntime.call("renderInfoPoolUi");
+		appPhCall("renderInfoPoolUi");
 		return;
 	}
 	syncLegacyDegradedBanner();
@@ -137,7 +141,7 @@ function rememberDegraded(/** @type {string} */ message) {
 function setBackendDegradedNote(/** @type {unknown} */ message) {
 	backendDegradedNote = String(message || "").trim();
 	if (canRenderInfoPoolUi()) {
-		appPhRuntime.call("renderInfoPoolUi");
+		appPhCall("renderInfoPoolUi");
 		return;
 	}
 	syncLegacyDegradedBanner();
@@ -415,7 +419,7 @@ function setInfoPoolHint(
 	infoPoolHints[key] = text;
 	infoPoolHintSeq[key] = text ? ++infoPoolSeq : 0;
 	if (canRenderInfoPoolUi()) {
-		appPhRuntime.call("renderInfoPoolUi");
+		appPhCall("renderInfoPoolUi");
 		return;
 	}
 	var legacyId = "";
@@ -428,7 +432,7 @@ function setInfoPoolHint(
 
 function renderUiStatusLines() {
 	if (canRenderInfoPoolUi()) {
-		appPhRuntime.call("renderInfoPoolUi");
+		appPhCall("renderInfoPoolUi");
 		return;
 	}
 	var node = el("uiStatusBar");
@@ -857,7 +861,7 @@ function refreshFs() {
 				(
 					/** @type {{ name?: string, is_dir?: boolean, size?: number }} */ it,
 				) => {
-					var name = it.name;
+					var name = String(it.name || "");
 					var isDir = !!it.is_dir;
 					var rel = joinRel(path, name);
 					fsLastRels.push(rel);
@@ -933,6 +937,7 @@ function refreshFs() {
 			(node) => {
 				node.addEventListener("click", () => {
 					var item = node.parentElement;
+					if (!item) return;
 					var rel = item.getAttribute("data-rel") || "";
 					var isDir = (item.getAttribute("data-isdir") || "0") === "1";
 					if (isDir) {

@@ -149,11 +149,10 @@ def test_compacted_event_tail_keeps_20000_lines_when_config_requests_it(
         status="running",
     )
     db.upsert_job(job)
-    for idx in range(20_005):
-        db.append_event_line(
-            job.job_id,
-            f'{{"type":"log","msg":"{idx}"}}',
-        )
+    db.append_event_lines(
+        job.job_id,
+        [f'{{"type":"log","msg":"{idx}"}}' for idx in range(20_005)],
+    )
 
     job.status = "success"
     job.ended_utc = "2026-03-09T10:05:00Z"

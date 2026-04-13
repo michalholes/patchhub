@@ -31,7 +31,7 @@ function prepareFormForNewPatchLoad() {
 			dirty.targetRepo = false;
 		}
 	} catch (_) {}
-	PH.call("clearGateOverrides");
+	phCall("clearGateOverrides");
 	try {
 		const m = el("mode");
 		if (m) m.value = "patch";
@@ -91,7 +91,7 @@ function resetOutputForNewPatch() {
 	selectedJobId = null;
 	AMP_UI.saveLiveJobId("");
 
-	PH.call("openLiveStream", null);
+	phCall("openLiveStream", null);
 	setPre("tail", "");
 	phCall("updateShortProgressFromText", "");
 
@@ -327,14 +327,11 @@ function renderIssueDetail() {
 		if (content) content.style.display = "none";
 		return;
 	}
+	var run = selectedRun;
 
 	if (cardTitle) {
 		cardTitle.textContent =
-			"Issue #" +
-			String(selectedRun.issue_id) +
-			" (" +
-			String(selectedRun.result || "") +
-			")";
+			"Issue #" + String(run.issue_id) + " (" + String(run.result || "") + ")";
 	}
 	if (tabs) tabs.style.display = "flex";
 	if (content) content.style.display = "block";
@@ -357,10 +354,10 @@ function renderIssueDetail() {
 			);
 		}
 
-		add("log", selectedRun.log_rel_path);
-		add("archived patch", selectedRun.archived_patch_rel_path);
-		add("diff bundle", selectedRun.diff_bundle_rel_path);
-		add("latest success zip", selectedRun.success_zip_rel_path);
+		add("log", run.log_rel_path);
+		add("archived patch", run.archived_patch_rel_path);
+		add("diff bundle", run.diff_bundle_rel_path);
+		add("latest success zip", run.success_zip_rel_path);
 
 		links.innerHTML = parts.join(" ");
 	}
@@ -368,17 +365,17 @@ function renderIssueDetail() {
 	function renderOverview() {
 		setTabActive("Overview");
 		renderLinks();
-		setPre("issueTabBody", selectedRun);
+		setPre("issueTabBody", run);
 	}
 
 	function renderLogs() {
 		setTabActive("Logs");
 		renderLinks();
-		if (!selectedRun.log_rel_path) {
+		if (!run.log_rel_path) {
 			setPre("issueTabBody", "(no log path)");
 			return;
 		}
-		var p = String(selectedRun.log_rel_path);
+		var p = String(run.log_rel_path);
 		var url =
 			"/api/fs/read_text?path=" + encodeURIComponent(p) + "&tail_lines=2000";
 		apiGet(url).then((r) => {
@@ -398,11 +395,10 @@ function renderIssueDetail() {
 	function renderPatch() {
 		setTabActive("Patch");
 		renderLinks();
-		if (selectedRun.archived_patch_rel_path) {
+		if (run.archived_patch_rel_path) {
 			setPre(
 				"issueTabBody",
-				"Download: /api/fs/download?path=" +
-					selectedRun.archived_patch_rel_path,
+				"Download: /api/fs/download?path=" + run.archived_patch_rel_path,
 			);
 		} else {
 			setPre("issueTabBody", "(no archived patch)");
@@ -412,10 +408,10 @@ function renderIssueDetail() {
 	function renderDiff() {
 		setTabActive("Diff");
 		renderLinks();
-		if (selectedRun.diff_bundle_rel_path) {
+		if (run.diff_bundle_rel_path) {
 			setPre(
 				"issueTabBody",
-				"Download: /api/fs/download?path=" + selectedRun.diff_bundle_rel_path,
+				"Download: /api/fs/download?path=" + run.diff_bundle_rel_path,
 			);
 		} else {
 			setPre("issueTabBody", "(no diff bundle)");
@@ -427,8 +423,8 @@ function renderIssueDetail() {
 		renderLinks();
 		// Convenience: jump file manager to the issue directory if possible.
 		var p = "";
-		if (selectedRun.log_rel_path) {
-			p = parentRel(stripPatchesPrefix(selectedRun.log_rel_path));
+		if (run.log_rel_path) {
+			p = parentRel(stripPatchesPrefix(run.log_rel_path));
 		}
 		if (p) {
 			el("fsPath").value = p;

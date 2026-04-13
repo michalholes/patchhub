@@ -21,7 +21,7 @@
 		}
 	}
 
-	function withStaticVersion(url) {
+	function withStaticVersion(/** @type {string} */ url) {
 		const v = getStaticVersion();
 		if (!v) return url;
 		if (url.indexOf("?") >= 0) {
@@ -45,7 +45,10 @@
 		}
 	}
 
-	function recordClientStatus(kind, message) {
+	function recordClientStatus(
+		/** @type {unknown} */ kind,
+		/** @type {unknown} */ message,
+	) {
 		const store = tryGetLocalStorage();
 		if (!store) return;
 		const item = {
@@ -69,7 +72,10 @@
 		}
 	}
 
-	function bootLog(kind, message) {
+	function bootLog(
+		/** @type {unknown} */ kind,
+		/** @type {unknown} */ message,
+	) {
 		const msg = String(message || "");
 		try {
 			if (kind === "error") console.error("[PatchHub]", msg);
@@ -82,13 +88,16 @@
 	}
 
 	var degradedOnce = false;
-	function setDegradedOnce(reason) {
+	function setDegradedOnce(/** @type {unknown} */ reason) {
 		if (degradedOnce) return;
 		degradedOnce = true;
 		recordClientStatus("degraded", String(reason || ""));
 	}
 
-	function loadScript(url, label) {
+	function loadScript(
+		/** @type {unknown} */ url,
+		/** @type {unknown} */ label,
+	) {
 		const rawUrl = String(url || "");
 		const u = withStaticVersion(rawUrl);
 		const l = String(label || "");
@@ -118,7 +127,7 @@
 		});
 	}
 
-	W.addEventListener("error", (ev) => {
+	W.addEventListener("error", (/** @type {ErrorEvent} */ ev) => {
 		try {
 			const msg = (ev && ev.message) || "window error";
 			bootLog("error", `Unhandled error: ${String(msg)}`);
@@ -128,16 +137,19 @@
 		}
 	});
 
-	W.addEventListener("unhandledrejection", (ev) => {
-		try {
-			const r = ev && ev.reason;
-			const msg = (r && r.message) || String(r || "unhandled rejection");
-			bootLog("error", `Unhandled rejection: ${msg}`);
-			setDegradedOnce("fatal: unhandled rejection");
-		} catch (e) {
-			// ignore
-		}
-	});
+	W.addEventListener(
+		"unhandledrejection",
+		(/** @type {PromiseRejectionEvent} */ ev) => {
+			try {
+				const r = ev && ev.reason;
+				const msg = (r && r.message) || String(r || "unhandled rejection");
+				bootLog("error", `Unhandled rejection: ${msg}`);
+				setDegradedOnce("fatal: unhandled rejection");
+			} catch (e) {
+				// ignore
+			}
+		},
+	);
 
 	W.PH_BOOT = {
 		recordClientStatus,

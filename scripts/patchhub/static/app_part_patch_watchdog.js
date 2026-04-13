@@ -11,7 +11,10 @@
 	 *   } | null,
 	 * }} */ (window);
 	var PH = patchWatchdogWindow.PH || null;
-	function phCall(name, ...args) {
+	function phCall(
+		/** @type {string} */ name,
+		/** @type {unknown[]} */ ...args
+	) {
 		if (!PH || typeof PH.call !== "function") return undefined;
 		return PH.call(name, ...args);
 	}
@@ -32,6 +35,7 @@
 	var patchStatNextDueMs = 0;
 	var patchStatIdleBackoffIdx = 0;
 	var PATCH_STAT_ACTIVE_MS = 5000;
+	/** @type {number[]} */
 	var PATCH_STAT_IDLE_BACKOFF_MS = Array.isArray(globalThis.IDLE_BACKOFF_MS)
 		? globalThis.IDLE_BACKOFF_MS.slice()
 		: [2000, 5000, 15000, 30000, 60000];
@@ -44,22 +48,17 @@
 	};
 
 	function patchesRootRel() {
+		var config = getPatchWatchdogConfig();
+		var paths = config && config.paths ? config.paths : null;
 		var p =
-			getPatchWatchdogConfig() &&
-			getPatchWatchdogConfig().paths &&
-			getPatchWatchdogConfig().paths.patches_root
-				? String(getPatchWatchdogConfig().paths.patches_root)
-				: "patches";
+			paths && paths.patches_root ? String(paths.patches_root) : "patches";
 		return p.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
 	}
 
 	function uploadRelUnderPatchesRoot() {
-		var uploadDir =
-			getPatchWatchdogConfig() &&
-			getPatchWatchdogConfig().paths &&
-			getPatchWatchdogConfig().paths.upload_dir
-				? String(getPatchWatchdogConfig().paths.upload_dir)
-				: "";
+		var config = getPatchWatchdogConfig();
+		var paths = config && config.paths ? config.paths : null;
+		var uploadDir = paths && paths.upload_dir ? String(paths.upload_dir) : "";
 		var value = uploadDir
 			.replace(/\\/g, "/")
 			.replace(/^\/+/, "")
@@ -71,7 +70,7 @@
 		return value.slice(prefix.length + 1);
 	}
 
-	function normalizeMissingPatchRel(path) {
+	function normalizeMissingPatchRel(/** @type {unknown} */ path) {
 		var prefix = patchesRootRel();
 		var value = String(path || "")
 			.trim()
@@ -86,7 +85,10 @@
 		return value;
 	}
 
-	function isDirectChildFile(rel, prefix) {
+	function isDirectChildFile(
+		/** @type {unknown} */ rel,
+		/** @type {unknown} */ prefix,
+	) {
 		var value = normalizeMissingPatchRel(rel);
 		var base = normalizeMissingPatchRel(prefix);
 		var remainder = value;
@@ -98,12 +100,18 @@
 		return !!remainder && remainder.indexOf("/") < 0;
 	}
 
+	/** @param {unknown} rel */
 	function isInventoryMonitoredPatchRel(rel) {
 		var value = normalizeMissingPatchRel(rel);
 		var topLevel = "";
 		if (!value) return false;
 		topLevel = value.split("/", 1)[0] || "";
-		if (OUTSIDE_MONITORED_TOP_LEVEL[topLevel]) return false;
+		if (
+			OUTSIDE_MONITORED_TOP_LEVEL[
+				/** @type {keyof typeof OUTSIDE_MONITORED_TOP_LEVEL} */ (topLevel)
+			]
+		)
+			return false;
 		if (isDirectChildFile(value, "")) return true;
 		return isDirectChildFile(value, uploadRelUnderPatchesRoot());
 	}
@@ -139,7 +147,10 @@
 		return rel;
 	}
 
-	function nextMissingPatchDelayMs(mode, changedRel) {
+	function nextMissingPatchDelayMs(
+		/** @type {string} */ mode,
+		/** @type {boolean} */ changedRel,
+	) {
 		var idx = 0;
 		var delay = 0;
 		if (mode === "active") return PATCH_STAT_ACTIVE_MS;
@@ -153,7 +164,9 @@
 		return delay;
 	}
 
-	function syncMissingPatchStateAfterResponse(requestRel) {
+	function syncMissingPatchStateAfterResponse(
+		/** @type {string} */ requestRel,
+	) {
 		var currentRel = "";
 		if (isProtectedRerunLatestLifecycleActive()) {
 			patchStatNextDueMs = 0;
@@ -173,7 +186,9 @@
 		return currentRel;
 	}
 
-	function tickMissingPatchClear(opts) {
+	function tickMissingPatchClear(
+		/** @type {{ mode?: string, force?: boolean } | null | undefined} */ opts,
+	) {
 		var rel = "";
 		var requestRel = "";
 		var mode = "idle";
@@ -203,10 +218,13 @@
 		patchStatInFlight = true;
 		apiGet(`/api/fs/stat?path=${encodeURIComponent(requestRel)}`)
 			.then((response) => {
+				var statResp = /** @type {{ ok?: boolean, exists?: boolean }} */ (
+					response
+				);
 				var currentRel = "";
 				patchStatInFlight = false;
 				currentRel = syncMissingPatchStateAfterResponse(requestRel);
-				if (response && response.ok !== false && response.exists === false) {
+				if (statResp && statResp.ok !== false && statResp.exists === false) {
 					if (currentRel === requestRel) {
 						clearRunFieldsBecauseMissingPatch();
 					}

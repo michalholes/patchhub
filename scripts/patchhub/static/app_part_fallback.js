@@ -1,8 +1,22 @@
 // PatchHub built-in degraded-mode fallbacks.
 var __ph_w = /** @type {any} */ (window);
-var PH = __ph_w.PH || __ph_w.PH_RT || null;
+/** @type {PatchhubHeaderRuntime | null} */
+var fallbackPh = __ph_w.PH || __ph_w.PH_RT || null;
 
-function fallbackApplyModeRules(mode) {
+/**
+ * @typedef {{
+ *   ok?: boolean,
+ *   error?: string,
+ *   job_id?: string,
+ *   stored_rel_path?: string,
+ *   runs?: unknown[],
+ *   jobs?: unknown[],
+ *   items?: unknown[],
+ *   tail?: string,
+ * }} FallbackApiResponse
+ */
+
+function fallbackApplyModeRules(/** @type {unknown} */ mode) {
 	mode = String(mode || "patch");
 	if (mode === "finalize_live") {
 		return { issue_id: false, commit_message: true, patch_path: false };
@@ -16,7 +30,9 @@ function fallbackApplyModeRules(mode) {
 	return { issue_id: true, commit_message: true, patch_path: true };
 }
 
-function fallbackSetStartFormState(state) {
+function fallbackSetStartFormState(
+	/** @type {{ issue_id?: boolean, commit_message?: boolean, patch_path?: boolean } | null | undefined} */ state,
+) {
 	var issueEnabled = !!(state && state.issue_id);
 	var msgEnabled = !!(state && state.commit_message);
 	var patchEnabled = !!(state && state.patch_path);
@@ -49,6 +65,7 @@ function fallbackValidateAndPreview() {
 			ok = !!commitMsg && !!issueId && /^[0-9]+$/.test(issueId);
 		else ok = !!commitMsg && !!patchPath;
 	}
+	/** @type {{ mode: string, issue_id: string, commit_message: string, patch_path: string, raw_command: string, degraded: boolean }} */
 	var preview = {
 		mode: mode,
 		issue_id: issueId,
@@ -57,14 +74,20 @@ function fallbackValidateAndPreview() {
 		raw_command: rawCommand,
 		degraded: true,
 	};
-	preview = PH.call("applyGatePreview", preview) || preview;
+	var appliedPreview = null;
+	if (fallbackPh && typeof fallbackPh.call === "function") {
+		appliedPreview = fallbackPh.call("applyGatePreview", preview);
+		if (appliedPreview && typeof appliedPreview === "object") {
+			preview = /** @type {typeof preview} */ (appliedPreview);
+		}
+	}
 	setPre("previewRight", preview);
 	if (el("enqueueBtn")) el("enqueueBtn").disabled = !ok;
 	setInfoPoolHint("enqueue", ok ? "" : "degraded mode: missing fields");
 	return ok;
 }
 
-function fallbackUploadFile(file) {
+function fallbackUploadFile(/** @type {File | null | undefined} */ file) {
 	if (!file) return;
 	var fd = new FormData();
 	fd.append("file", file);
@@ -84,6 +107,7 @@ function fallbackUploadFile(file) {
 			}),
 		)
 		.then((payload) => {
+			payload = /** @type {FallbackApiResponse} */ (payload);
 			pushApiStatus(payload);
 			setInfoPoolHint(
 				"upload",
@@ -147,9 +171,10 @@ function fallbackSetupUpload() {
 }
 
 function fallbackLoadConfig() {
+	/** @returns {Promise<PatchhubConfig | null>} */
 	return apiGet("/api/config")
 		.then((r) => {
-			cfg = r || null;
+			cfg = /** @type {PatchhubConfig | null} */ (r || null);
 			if (cfg && cfg.issue && cfg.issue.default_regex) {
 				try {
 					issueRegex = new RegExp(cfg.issue.default_regex);
@@ -162,15 +187,19 @@ function fallbackLoadConfig() {
 			}
 			return cfg;
 		})
-		.catch(() => {
-			cfg = null;
-			return null;
-		});
+		.catch(
+			/** @returns {null} */
+			() => {
+				cfg = null;
+				return null;
+			},
+		);
 }
 
 function fallbackEnqueue() {
 	if (!fallbackValidateAndPreview()) return;
 	var mode = String((el("mode") && el("mode").value) || "patch");
+	/** @type {{ mode: string, raw_command: string, issue_id?: string, commit_message?: string, patch_path?: string }} */
 	var body = {
 		mode: mode,
 		raw_command: String(
@@ -194,13 +223,14 @@ function fallbackEnqueue() {
 	}
 	setUiStatus("enqueue: started mode=" + mode);
 	apiPost("/api/jobs/enqueue", body).then((payload) => {
-		pushApiStatus(payload);
-		setPre("previewRight", payload);
-		if (payload && payload.ok && payload.job_id) {
-			setUiStatus("enqueue: ok job_id=" + String(payload.job_id || ""));
-			selectedJobId = String(payload.job_id || "");
+		var resp = /** @type {FallbackApiResponse} */ (payload);
+		pushApiStatus(resp);
+		setPre("previewRight", resp);
+		if (resp && resp.ok && resp.job_id) {
+			setUiStatus("enqueue: ok job_id=" + String(resp.job_id || ""));
+			selectedJobId = String(resp.job_id || "");
 		} else {
-			setUiError(String((payload && payload.error) || "enqueue failed"));
+			setUiError(String((resp && resp.error) || "enqueue failed"));
 		}
 		fallbackRefreshJobs();
 	});
@@ -208,34 +238,37 @@ function fallbackEnqueue() {
 
 function fallbackRefreshRuns() {
 	return apiGet("/api/runs?limit=80").then((payload) => {
-		if (!payload || payload.ok === false) {
-			setPre("runsList", payload);
-			return payload;
+		var resp = /** @type {FallbackApiResponse} */ (payload);
+		if (!resp || resp.ok === false) {
+			setPre("runsList", resp);
+			return resp;
 		}
-		setPre("runsList", payload.runs || []);
-		return payload;
+		setPre("runsList", resp.runs || []);
+		return resp;
 	});
 }
 
 function fallbackRefreshJobs() {
 	return apiGet("/api/jobs").then((payload) => {
-		if (!payload || payload.ok === false) {
-			setPre("jobsList", payload);
-			return payload;
+		var resp = /** @type {FallbackApiResponse} */ (payload);
+		if (!resp || resp.ok === false) {
+			setPre("jobsList", resp);
+			return resp;
 		}
-		setPre("jobsList", payload.jobs || []);
-		return payload;
+		setPre("jobsList", resp.jobs || []);
+		return resp;
 	});
 }
 
 function fallbackRefreshWorkspaces() {
 	return apiGet("/api/workspaces").then((payload) => {
-		if (!payload || payload.ok === false) {
-			setPre("workspacesList", payload);
-			return payload;
+		var resp = /** @type {FallbackApiResponse} */ (payload);
+		if (!resp || resp.ok === false) {
+			setPre("workspacesList", resp);
+			return resp;
 		}
-		setPre("workspacesList", payload.items || []);
-		return payload;
+		setPre("workspacesList", resp.items || []);
+		return resp;
 	});
 }
 
@@ -247,15 +280,16 @@ function fallbackRefreshOverviewSnapshot() {
 	]);
 }
 
-function fallbackRefreshTail(lines) {
+function fallbackRefreshTail(/** @type {number | null | undefined} */ lines) {
 	var count = encodeURIComponent(String(lines || tailLines || 200));
 	return apiGet("/api/runner/tail?lines=" + count).then((payload) => {
-		if (!payload || payload.ok === false) {
-			setPre("tail", payload);
-			return payload;
+		var resp = /** @type {FallbackApiResponse} */ (payload);
+		if (!resp || resp.ok === false) {
+			setPre("tail", resp);
+			return resp;
 		}
-		setPre("tail", String(payload.tail || ""));
-		return payload;
+		setPre("tail", String(resp.tail || ""));
+		return resp;
 	});
 }
 

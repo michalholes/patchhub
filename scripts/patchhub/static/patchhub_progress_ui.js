@@ -1,4 +1,55 @@
 (() => {
+	/**
+	 * @typedef {{
+	 *   type?: string,
+	 *   msg?: string,
+	 *   kind?: string,
+	 *   stage?: string,
+	 *   seq?: string | number,
+	 *   ts_mono_ms?: string | number,
+	 *   ok?: boolean,
+	 *   event?: string,
+	 *   status?: string,
+	 * }} PatchhubProgressEvent
+	 */
+	/**
+	 * @typedef {{
+	 *   startMonoMs: number,
+	 *   stopMonoMs: number | null,
+	 * }} PatchhubProgressTiming
+	 */
+	/**
+	 * @typedef {{
+	 *   eventKey: string,
+	 *   monoMs: number,
+	 *   perfMs: number,
+	 * }} PatchhubProgressClock
+	 */
+	/**
+	 * @typedef {{
+	 *   order: string[],
+	 *   state: Record<string, string>,
+	 *   details: Record<string, string>,
+	 *   timing: Record<string, PatchhubProgressTiming>,
+	 *   clock: PatchhubProgressClock,
+	 *   resultStatus: string,
+	 * }} PatchhubProgressModel
+	 */
+	/**
+	 * @typedef {{
+	 *   text: string,
+	 *   status: string,
+	 * }} PatchhubProgressSummary
+	 */
+	/**
+	 * @typedef {PatchhubJob & { applied_files?: string[] }} PatchhubAppliedFilesJob
+	 */
+	/**
+	 * @typedef {{
+	 *   jobs?: PatchhubJob[],
+	 *   forceAppliedFilesRetry?: boolean,
+	 * }} PatchhubProgressUpdateOpts
+	 */
 	var w = /** @type {any} */ (window);
 	var ui = w.AMP_PATCHHUB_UI;
 	if (!ui) {
@@ -6,11 +57,11 @@
 		w.AMP_PATCHHUB_UI = ui;
 	}
 
-	function el(id) {
+	function el(/** @type {string} */ id) {
 		return document.getElementById(id);
 	}
 
-	function setPre(id, obj) {
+	function setPre(/** @type {string} */ id, /** @type {unknown} */ obj) {
 		var node = el(id);
 		if (!node) return;
 		if (typeof obj === "string") {
@@ -24,7 +75,7 @@
 		}
 	}
 
-	function escapeHtml(s) {
+	function escapeHtml(/** @type {unknown} */ s) {
 		return String(s || "")
 			.replace(/&/g, "&amp;")
 			.replace(/</g, "&lt;")
@@ -33,13 +84,13 @@
 			.replace(/'/g, "&#39;");
 	}
 
-	function normStepName(s) {
+	function normStepName(/** @type {unknown} */ s) {
 		return String(s || "")
 			.replace(/\s+/g, " ")
 			.trim();
 	}
 
-	function stageNameFromGateName(name) {
+	function stageNameFromGateName(/** @type {unknown} */ name) {
 		name = String(name || "")
 			.trim()
 			.toUpperCase()
@@ -48,7 +99,10 @@
 		return `GATE_${name}`;
 	}
 
-	function parseSkipInfo(ev, fallbackStage) {
+	function parseSkipInfo(
+		/** @type {PatchhubProgressEvent | null | undefined} */ ev,
+		/** @type {string} */ fallbackStage,
+	) {
 		var msg = String((ev && ev.msg) || "").trim();
 		var m = msg.match(/^gate_([a-z0-9_-]+)=SKIP \((.+)\)$/i);
 		if (!m) return null;
@@ -60,7 +114,10 @@
 		};
 	}
 
-	function apiPost(path, body) {
+	function apiPost(
+		/** @type {string} */ path,
+		/** @type {Record<string, unknown>} */ body,
+	) {
 		return fetch(path, {
 			method: "POST",
 			headers: {
@@ -84,15 +141,21 @@
 		);
 	}
 
+	/** @type {PatchhubProgressModel | null} */
 	var lastProgressModel = null;
+	/** @type {PatchhubJob[]} */
 	var lastProgressJobs = [];
+	/** @type {PatchhubProgressClock} */
 	var progressClock = {
 		eventKey: "",
 		monoMs: 0,
 		perfMs: 0,
 	};
+	/** @type {unknown} */
 	var progressElapsedClock = null;
 	var progressElapsedJobId = "";
+	/** @type {string | null} */
+	var activeJobId = null;
 
 	function getVisibleDurationNowMs() {
 		var value = Number(
@@ -103,7 +166,7 @@
 		return Number.isFinite(value) ? value : Date.now();
 	}
 
-	function formatVisibleDurationMs(ms) {
+	function formatVisibleDurationMs(/** @type {number} */ ms) {
 		var text =
 			PH && typeof PH.call === "function"
 				? PH.call("formatVisibleDurationMs", ms)
@@ -114,7 +177,10 @@
 		return String((tenths / 10).toFixed(1));
 	}
 
-	function readVisibleRuntimeElapsedMs(clock, tickNowMs) {
+	function readVisibleRuntimeElapsedMs(
+		/** @type {any} */ clock,
+		/** @type {number | undefined} */ tickNowMs,
+	) {
 		var value =
 			PH && typeof PH.call === "function"
 				? PH.call("readVisibleRuntimeElapsedMs", clock, tickNowMs)
@@ -127,24 +193,26 @@
 		) {
 			return null;
 		}
-		var currentNowMs = Number.isFinite(tickNowMs)
+		var currentNowMsRaw = Number.isFinite(tickNowMs)
 			? tickNowMs
 			: getVisibleDurationNowMs();
+		if (!Number.isFinite(currentNowMsRaw)) return null;
+		var currentNowMs = Number(currentNowMsRaw);
 		var deltaMs = currentNowMs - Number(clock.anchorNowMs);
 		if (!Number.isFinite(deltaMs) || deltaMs < 0) deltaMs = 0;
 		return Number(clock.anchorElapsedMs) + deltaMs;
 	}
 
-	function isTimedGateStage(name) {
+	function isTimedGateStage(/** @type {string} */ name) {
 		return !!normStepName(name);
 	}
 
-	function parseMonoMs(value) {
+	function parseMonoMs(/** @type {unknown} */ value) {
 		var num = Number(value);
 		return Number.isFinite(num) ? num : null;
 	}
 
-	function getProgressElapsedJob(jobs) {
+	function getProgressElapsedJob(/** @type {PatchhubJob[] | unknown} */ jobs) {
 		var list = Array.isArray(jobs) ? jobs : [];
 		var liveJobId = getCurrentLiveJobId();
 		var liveMatch = null;
@@ -157,7 +225,7 @@
 		return getTrackedActiveJob(list);
 	}
 
-	function syncProgressElapsedClock(jobs) {
+	function syncProgressElapsedClock(/** @type {PatchhubJob[]} */ jobs) {
 		var job = getProgressElapsedJob(jobs);
 		var startMs = NaN;
 		if (
@@ -181,11 +249,14 @@
 		progressElapsedClock = null;
 	}
 
-	function syncProgressClock(events) {
+	function syncProgressClock(
+		/** @type {PatchhubProgressEvent[] | unknown} */ events,
+	) {
+		const list = Array.isArray(events) ? events : [];
 		var lastKey = "";
 		var lastMonoMs = null;
-		for (let i = 0; i < (events || []).length; i++) {
-			const ev = events[i];
+		for (let i = 0; i < list.length; i++) {
+			const ev = list[i];
 			if (!ev || typeof ev !== "object") continue;
 			const monoMs = parseMonoMs(ev.ts_mono_ms);
 			if (monoMs === null) continue;
@@ -206,20 +277,32 @@
 		return progressClock;
 	}
 
-	function formatDurationSeconds(startMonoMs, endMonoMs) {
+	function formatDurationSeconds(
+		/** @type {number | null} */ startMonoMs,
+		/** @type {number | null} */ endMonoMs,
+	) {
 		if (!Number.isFinite(startMonoMs) || !Number.isFinite(endMonoMs)) return "";
-		return formatVisibleDurationMs(endMonoMs - startMonoMs);
+		return formatVisibleDurationMs(
+			/** @type {number} */ (endMonoMs) - /** @type {number} */ (startMonoMs),
+		);
 	}
 
-	function getStepDurationLabel(progress, name, st, tickNowMs) {
+	function getStepDurationLabel(
+		/** @type {PatchhubProgressModel | null} */ progress,
+		/** @type {string} */ name,
+		/** @type {string} */ st,
+		/** @type {number | undefined} */ tickNowMs,
+	) {
 		if (!progress || st === "skip") return "";
 		var timing = progress.timing && progress.timing[name];
 		var endMonoMs = null;
 		var clock = null;
 		var deltaMs = 0;
-		var currentNowMs = Number.isFinite(tickNowMs)
+		var currentNowMsRaw = Number.isFinite(tickNowMs)
 			? tickNowMs
 			: getVisibleDurationNowMs();
+		if (!Number.isFinite(currentNowMsRaw)) return "";
+		var currentNowMs = Number(currentNowMsRaw);
 		if (!timing || !Number.isFinite(timing.startMonoMs)) return "";
 		if (st !== "running" && st !== "ok" && st !== "fail") return "";
 		endMonoMs = Number.isFinite(timing.stopMonoMs) ? timing.stopMonoMs : null;
@@ -235,7 +318,10 @@
 		return formatDurationSeconds(timing.startMonoMs, endMonoMs);
 	}
 
-	function hasRunningTimedGate(progress, tickNowMs) {
+	function hasRunningTimedGate(
+		/** @type {PatchhubProgressModel | null} */ progress,
+		/** @type {number | undefined} */ tickNowMs,
+	) {
 		var order = progress && progress.order ? progress.order : [];
 		var state = progress && progress.state ? progress.state : {};
 		for (let i = 0; i < order.length; i++) {
@@ -250,7 +336,10 @@
 		return false;
 	}
 
-	function getProgressElapsedLabel(job, tickNowMs) {
+	function getProgressElapsedLabel(
+		/** @type {PatchhubJob | null} */ job,
+		/** @type {number | undefined} */ tickNowMs,
+	) {
 		var runningElapsedMs = null;
 		var currentNowMs = Number.isFinite(tickNowMs)
 			? tickNowMs
@@ -293,7 +382,10 @@
 		);
 	}
 
-	function renderProgressElapsed(jobs, tickNowMs) {
+	function renderProgressElapsed(
+		/** @type {PatchhubJob[]} */ jobs,
+		/** @type {number | undefined} */ tickNowMs,
+	) {
 		var node = el("progressElapsed");
 		var job = null;
 		var label = "";
@@ -304,7 +396,10 @@
 		node.textContent = label ? `elapsed ${label}s` : "";
 	}
 
-	function getProgressDurationSignature(tickNowMs) {
+	function getProgressDurationSignature(
+		/** @type {number | undefined} */ tickNowMs,
+	) {
+		/** @type {string[]} */
 		var parts = [];
 		var job = getProgressElapsedJob(lastProgressJobs);
 		var label = "";
@@ -353,7 +448,10 @@
 		PH.call("clearVisibleDurationSurface", "progress_card_duration");
 	}
 
-	function renderProgressSteps(progress, tickNowMs) {
+	function renderProgressSteps(
+		/** @type {PatchhubProgressModel | null} */ progress,
+		/** @type {number | undefined} */ tickNowMs,
+	) {
 		var box = el("progressSteps");
 		var order = progress && progress.order ? progress.order : [];
 		var state = progress && progress.state ? progress.state : {};
@@ -393,13 +491,16 @@
 		box.innerHTML = html;
 	}
 
-	function renderProgressSurface(progress, jobs) {
+	function renderProgressSurface(
+		/** @type {PatchhubProgressModel | null} */ progress,
+		/** @type {PatchhubJob[]} */ jobs,
+	) {
 		var tickNowMs = getVisibleDurationNowMs();
 		renderProgressElapsed(jobs, tickNowMs);
 		renderProgressSteps(progress, tickNowMs);
 	}
 
-	function renderProgressSummary(summaryLine) {
+	function renderProgressSummary(/** @type {string} */ summaryLine) {
 		var node = el("progressSummary");
 		if (!node) return;
 		node.textContent = summaryLine || "(idle)";
@@ -417,7 +518,7 @@
 			} catch (e) {}
 		});
 	}
-	function apiGet(path) {
+	function apiGet(/** @type {string} */ path) {
 		return fetch(path, { headers: { Accept: "application/json" } }).then((r) =>
 			r.text().then((t) => {
 				try {
@@ -429,33 +530,33 @@
 		);
 	}
 
-	function getTrackedActiveJob(jobs) {
+	function getTrackedActiveJob(/** @type {PatchhubJob[]} */ jobs) {
 		if (!PH || typeof PH.call !== "function") return null;
 		return PH.call("getTrackedActiveJob", jobs || []) || null;
 	}
 
-	function getTrackedActiveJobId(jobs) {
+	function getTrackedActiveJobId(/** @type {PatchhubJob[]} */ jobs) {
 		if (!PH || typeof PH.call !== "function") return "";
 		return String(PH.call("getTrackedActiveJobId", jobs || []) || "");
 	}
 
-	function summaryFromTerminalStatus(status) {
-		status = String(status || "")
+	function summaryFromTerminalStatus(/** @type {unknown} */ status) {
+		var statusText = String(status || "")
 			.trim()
 			.toLowerCase();
-		if (status === "success") {
+		if (statusText === "success") {
 			return { text: "RESULT: SUCCESS", status: "success" };
 		}
-		if (status === "canceled") {
+		if (statusText === "canceled") {
 			return { text: "RESULT: CANCELED", status: "fail" };
 		}
-		if (status) {
-			return { text: `RESULT: ${status.toUpperCase()}`, status: "fail" };
+		if (statusText) {
+			return { text: `RESULT: ${statusText.toUpperCase()}`, status: "fail" };
 		}
 		return { text: "RESULT: UNKNOWN", status: "fail" };
 	}
 
-	function pickProgressSummaryLineFromText(text) {
+	function pickProgressSummaryLineFromText(/** @type {unknown} */ text) {
 		var lines = String(text || "").split(/\r?\n/);
 		for (let i = lines.length - 1; i >= 0; i--) {
 			const s = String(lines[i] || "").trim();
@@ -469,7 +570,7 @@
 		return "(idle)";
 	}
 
-	function summaryFromTailText(text) {
+	function summaryFromTailText(/** @type {unknown} */ text) {
 		var line = pickProgressSummaryLineFromText(text);
 		var upper = String(line || "")
 			.trim()
@@ -490,16 +591,23 @@
 		return { text: line, status: "idle" };
 	}
 
-	function deriveProgressFromEvents(events) {
+	function deriveProgressFromEvents(
+		/** @type {PatchhubProgressEvent[] | unknown} */ events,
+	) {
+		const list = Array.isArray(events) ? events : [];
+		/** @type {string[]} */
 		var order = [];
+		/** @type {Record<string, string>} */
 		var state = {};
+		/** @type {Record<string, string>} */
 		var details = {};
+		/** @type {Record<string, PatchhubProgressTiming>} */
 		var timing = {};
 		var currentRunning = "";
 		var resultStatus = "";
 		var clock = syncProgressClock(events);
 
-		function ensureStep(name) {
+		function ensureStep(/** @type {string} */ name) {
 			if (!name) return;
 			if (!Object.hasOwn(state, name)) {
 				state[name] = "pending";
@@ -507,21 +615,30 @@
 			if (order.indexOf(name) < 0) order.push(name);
 		}
 
-		function ensureTiming(name, startMonoMs) {
+		function ensureTiming(
+			/** @type {string} */ name,
+			/** @type {number | null} */ startMonoMs,
+		) {
 			if (!isTimedGateStage(name) || !Number.isFinite(startMonoMs)) return;
 			if (!Object.hasOwn(timing, name)) {
-				timing[name] = { startMonoMs: startMonoMs, stopMonoMs: null };
+				timing[name] = {
+					startMonoMs: /** @type {number} */ (startMonoMs),
+					stopMonoMs: null,
+				};
 			}
 		}
 
-		function setState(name, st) {
+		function setState(/** @type {string} */ name, /** @type {string} */ st) {
 			name = normStepName(name);
 			if (!name) return;
 			ensureStep(name);
 			state[name] = st;
 		}
 
-		function setSkip(name, reason) {
+		function setSkip(
+			/** @type {string} */ name,
+			/** @type {unknown} */ reason,
+		) {
 			name = normStepName(name);
 			if (!name) return;
 			ensureStep(name);
@@ -530,8 +647,8 @@
 			delete timing[name];
 		}
 
-		for (let i = 0; i < (events || []).length; i++) {
-			const ev = events[i];
+		for (let i = 0; i < list.length; i++) {
+			const ev = list[i];
 			if (!ev || typeof ev !== "object") continue;
 			const t = String(ev.type || "");
 			const monoMs = parseMonoMs(ev.ts_mono_ms);
@@ -616,12 +733,17 @@
 		};
 	}
 
-	function deriveProgressSummaryFromEvents(events, progress, active) {
+	function deriveProgressSummaryFromEvents(
+		/** @type {PatchhubProgressEvent[] | unknown} */ events,
+		/** @type {PatchhubProgressModel | null} */ progress,
+		/** @type {PatchhubJob | null} */ active,
+	) {
+		const list = Array.isArray(events) ? events : [];
 		var lastTerminal = null;
 		var lastResult = null;
 		var lastLog = null;
-		for (let i = (events || []).length - 1; i >= 0; i--) {
-			const ev = events[i];
+		for (let i = list.length - 1; i >= 0; i--) {
+			const ev = list[i];
 			if (!ev || typeof ev !== "object") continue;
 			const t = String(ev.type || "");
 			if (t === "control" && String(ev.event || "") === "stream_end") {
@@ -704,7 +826,9 @@
 		return { text: "(idle)", status: "idle" };
 	}
 
-	function setProgressSummaryState(summary) {
+	function setProgressSummaryState(
+		/** @type {PatchhubProgressSummary | null} */ summary,
+	) {
 		var node = el("progressSummary");
 		if (!node) return;
 		var st = summary && summary.status ? String(summary.status) : "idle";
@@ -716,14 +840,17 @@
 
 	var appliedJobKey = "";
 
-	function renderAppliedFilesBlock(html, hidden) {
+	function renderAppliedFilesBlock(
+		/** @type {string} */ html,
+		/** @type {boolean} */ hidden,
+	) {
 		var node = el("progressApplied");
 		if (!node) return;
 		node.classList.toggle("hidden", !!hidden);
 		node.innerHTML = hidden ? "" : html;
 	}
 
-	function renderAppliedFilesUnavailable(statusText) {
+	function renderAppliedFilesUnavailable(/** @type {string} */ statusText) {
 		renderAppliedFilesBlock(
 			'<div class="progress-applied-title">Applied files unavailable</div>' +
 				`<div class="muted">${escapeHtml(statusText)}</div>`,
@@ -731,7 +858,7 @@
 		);
 	}
 
-	function renderAppliedFiles(job) {
+	function renderAppliedFiles(/** @type {PatchhubAppliedFilesJob} */ job) {
 		var files = Array.isArray(job.applied_files) ? job.applied_files : [];
 		if (!files.length) {
 			renderAppliedFilesUnavailable("successful run with no applied file list");
@@ -777,7 +904,10 @@
 		return jobId;
 	}
 
-	function refreshAppliedFilesForCurrentJob(summary, opts) {
+	function refreshAppliedFilesForCurrentJob(
+		/** @type {PatchhubProgressSummary | null} */ summary,
+		/** @type {PatchhubProgressUpdateOpts | null | undefined} */ opts,
+	) {
 		var status = summary && summary.status ? String(summary.status) : "idle";
 		var force = !!(opts && opts.forceAppliedFilesRetry);
 		var jobId = getCurrentLiveJobId();
@@ -802,11 +932,14 @@
 		});
 	}
 
-	function updateProgressPanelFromEvents(opts) {
+	function updateProgressPanelFromEvents(
+		/** @type {PatchhubProgressUpdateOpts | null | undefined} */ opts,
+	) {
 		var hasJobs = !!opts && Object.hasOwn(opts, "jobs");
+		var safeOpts = opts || {};
 		var jobs = hasJobs
-			? Array.isArray(opts.jobs)
-				? opts.jobs
+			? Array.isArray(safeOpts.jobs)
+				? safeOpts.jobs
 				: []
 			: Array.isArray(lastProgressJobs)
 				? lastProgressJobs.slice()
@@ -834,6 +967,7 @@
 			}
 			var s = r.stats || {};
 			var all = s.all_time || {};
+			/** @type {Array<{ k: string, v: string }>} */
 			var lines = [];
 			lines.push({ k: "all_time.total", v: String(all.total || 0) });
 			lines.push({ k: "all_time.success", v: String(all.success || 0) });
@@ -841,7 +975,7 @@
 			lines.push({ k: "all_time.unknown", v: String(all.unknown || 0) });
 			lines.push({ k: "all_time.canceled", v: String(all.canceled || 0) });
 
-			(s.windows || []).forEach((w) => {
+			(s.windows || []).forEach((/** @type {any} */ w) => {
 				var d = w.days;
 				lines.push({ k: `${String(d)}d.total`, v: String(w.total || 0) });
 				lines.push({ k: `${String(d)}d.success`, v: String(w.success || 0) });
@@ -850,22 +984,27 @@
 				lines.push({ k: `${String(d)}d.canceled`, v: String(w.canceled || 0) });
 			});
 
-			el("stats").innerHTML = lines
-				.map(
-					(x) =>
-						`<div class="rowline"><span class="k">${escapeHtml(x.k)}</span>` +
-						`<span class="v">${escapeHtml(x.v)}</span></div>`,
-				)
-				.join("");
+			var statsNode = el("stats");
+			if (statsNode) {
+				statsNode.innerHTML = lines
+					.map(
+						(x) =>
+							`<div class="rowline"><span class="k">${escapeHtml(x.k)}</span>` +
+							`<span class="v">${escapeHtml(x.v)}</span></div>`,
+					)
+					.join("");
+			}
 		});
 	}
 
-	function renderActiveJob(jobs) {
+	function renderActiveJob(/** @type {PatchhubJob[]} */ jobs) {
 		var active = getTrackedActiveJob(jobs);
 		var activeStatus = "";
 		activeJobId = getTrackedActiveJobId(jobs) || null;
 		w.activeJobId = activeJobId;
-		var queued = (jobs || []).filter((j) => j.status === "queued");
+		var queued = (jobs || []).filter(
+			(/** @type {PatchhubJob} */ j) => j.status === "queued",
+		);
 		var jidEnc = "";
 
 		var box = el("activeJob");

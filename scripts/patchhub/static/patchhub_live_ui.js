@@ -1,4 +1,51 @@
 (() => {
+	/**
+	 * @typedef {{
+	 *   type?: string,
+	 *   msg?: string,
+	 *   kind?: string,
+	 *   stage?: string,
+	 *   ch?: string,
+	 *   sev?: string,
+	 *   summary?: boolean,
+	 *   bypass?: boolean,
+	 *   stdout?: string,
+	 *   stderr?: string,
+	 *   ok?: boolean,
+	 *   event?: string,
+	 *   status?: string,
+	 *   reason?: string,
+	 *   job_id?: string,
+	 *   runner_mode?: string,
+	 *   issue_id?: string,
+	 *   protocol?: string,
+	 *   data?: unknown,
+	 *   cmd?: string,
+	 *   cmd_id?: string,
+	 * }} PatchhubLiveEvent
+	 */
+	/**
+	 * @typedef {{
+	 *   jobId: string,
+	 *   status: string,
+	 *   reason: string,
+	 * }} PatchhubLiveTerminalInfo
+	 */
+	/**
+	 * @typedef {{
+	 *   mode: string,
+	 *   issue_id: string,
+	 * }} PatchhubTrackedFallbackMeta
+	 */
+	/**
+	 * @typedef {{
+	 *   kind: string,
+	 *   msg: string,
+	 * }} PatchhubBufferedStageLine
+	 */
+	/**
+	 * @typedef {Record<string, PatchhubBufferedStageLine[]>} PatchhubStageBufferMap
+	 */
 	var w = /** @type {any} */ (window);
 	var ui = w.AMP_PATCHHUB_UI;
 	if (!ui) {
@@ -7,20 +54,30 @@
 	}
 
 	// Module-local state. Split UI modules must not rely on app.js locals.
+	/** @type {string | null} */
 	var liveStreamJobId = null;
+	/** @type {EventSource | null} */
 	var liveES = null;
+	/** @type {PatchhubLiveEvent[]} */
 	var liveEvents = [];
 	var MAX_LIVE_EVENTS = 20000;
+	/** @type {ReturnType<typeof setTimeout> | null} */
 	var liveRenderTimer = null;
 	var liveLevel = "normal";
 	var liveAutoscrollEnabled = true;
+	/** @type {PatchhubLiveTerminalInfo | null} */
 	var liveTerminalInfo = null;
+	var patchesVisible = false;
 	var workspacesVisible = false;
 	var runsVisible = false;
 	var jobsVisible = false;
 	ui.liveEvents = liveEvents;
 
-	function safeExport(name, fn) {
+	function safeExport(
+		/** @type {string} */ name,
+		/** @type {(...args: unknown[]) => unknown} */ fn,
+	) {
+		/** @type {(...args: unknown[]) => unknown} */
 		ui[name] = (...args) => {
 			try {
 				return fn(...args);
@@ -31,11 +88,11 @@
 		};
 	}
 
-	function el(id) {
+	function el(/** @type {string} */ id) {
 		return document.getElementById(id);
 	}
 
-	function apiGet(path) {
+	function apiGet(/** @type {string} */ path) {
 		return fetch(path, { headers: { Accept: "application/json" } }).then((r) =>
 			r.text().then((t) => {
 				try {
@@ -57,7 +114,7 @@
 		return String(v);
 	}
 
-	function saveLiveJobId(jobId) {
+	function saveLiveJobId(/** @type {unknown} */ jobId) {
 		try {
 			localStorage.setItem("amp.liveJobId", String(jobId || ""));
 		} catch (e) {}
@@ -116,9 +173,9 @@
 		return isDebugHumanLevel() || isDebugRawLevel();
 	}
 
-	function setLiveLevel(v) {
-		v = String(v || "").trim();
-		if (v === "debug") v = "debug_raw";
+	function setLiveLevel(/** @type {unknown} */ v) {
+		var nextLevel = String(v || "").trim();
+		if (nextLevel === "debug") nextLevel = "debug_raw";
 		if (
 			[
 				"quiet",
@@ -127,18 +184,18 @@
 				"verbose",
 				"debug_human",
 				"debug_raw",
-			].indexOf(v) < 0
+			].indexOf(nextLevel) < 0
 		) {
-			v = "normal";
+			nextLevel = "normal";
 		}
-		liveLevel = v;
+		liveLevel = nextLevel;
 		try {
 			localStorage.setItem("amp.liveLogLevel", liveLevel);
 		} catch (e) {}
 		return liveLevel;
 	}
 
-	function setLiveAutoscrollEnabled(v) {
+	function setLiveAutoscrollEnabled(/** @type {unknown} */ v) {
 		liveAutoscrollEnabled = !!v;
 		try {
 			localStorage.setItem(
@@ -209,31 +266,31 @@
 		};
 	}
 
-	function savePatchesVisible(v) {
+	function savePatchesVisible(/** @type {unknown} */ v) {
 		try {
 			localStorage.setItem("amp.ui.patchesVisible", v ? "1" : "0");
 		} catch (e) {}
 	}
 
-	function saveWorkspacesVisible(v) {
+	function saveWorkspacesVisible(/** @type {unknown} */ v) {
 		try {
 			localStorage.setItem("amp.ui.workspacesVisible", v ? "1" : "0");
 		} catch (e) {}
 	}
 
-	function saveRunsVisible(v) {
+	function saveRunsVisible(/** @type {unknown} */ v) {
 		try {
 			localStorage.setItem("amp.ui.runsVisible", v ? "1" : "0");
 		} catch (e) {}
 	}
 
-	function saveJobsVisible(v) {
+	function saveJobsVisible(/** @type {unknown} */ v) {
 		try {
 			localStorage.setItem("amp.ui.jobsVisible", v ? "1" : "0");
 		} catch (e) {}
 	}
 
-	function setPatchesVisible(v) {
+	function setPatchesVisible(/** @type {unknown} */ v) {
 		patchesVisible = !!v;
 		var wrap = el("patchesWrap");
 		var btn = el("patchesCollapse");
@@ -241,7 +298,7 @@
 		if (btn) btn.textContent = patchesVisible ? "Hide" : "Show";
 	}
 
-	function setWorkspacesVisible(v) {
+	function setWorkspacesVisible(/** @type {unknown} */ v) {
 		workspacesVisible = !!v;
 		var wrap = el("workspacesWrap");
 		var btn = el("workspacesCollapse");
@@ -249,7 +306,7 @@
 		if (btn) btn.textContent = workspacesVisible ? "Hide" : "Show";
 	}
 
-	function setRunsVisible(v) {
+	function setRunsVisible(/** @type {unknown} */ v) {
 		runsVisible = !!v;
 		var wrap = el("runsWrap");
 		var btn = el("runsCollapse");
@@ -257,7 +314,7 @@
 		if (btn) btn.textContent = runsVisible ? "Hide" : "Show";
 	}
 
-	function setJobsVisible(v) {
+	function setJobsVisible(/** @type {unknown} */ v) {
 		jobsVisible = !!v;
 		var wrap = el("jobsWrap");
 		var btn = el("jobsCollapse");
@@ -265,7 +322,7 @@
 		if (btn) btn.textContent = jobsVisible ? "Hide" : "Show";
 	}
 
-	function setLiveStreamStatus(text) {
+	function setLiveStreamStatus(/** @type {unknown} */ text) {
 		var box = el("liveStreamStatus");
 		if (!box) return;
 		box.textContent = String(text || "");
@@ -278,11 +335,11 @@
 		return null;
 	}
 
-	function isNonTerminalJobStatus(status) {
-		status = String(status || "")
+	function isNonTerminalJobStatus(/** @type {unknown} */ status) {
+		var statusText = String(status || "")
 			.trim()
 			.toLowerCase();
-		return status === "queued" || status === "running";
+		return statusText === "queued" || statusText === "running";
 	}
 
 	function getTrackedLiveJobId() {
@@ -292,6 +349,7 @@
 		return "";
 	}
 
+	/** @param {string} trackedId */
 	function hasTrackedLiveContext(trackedId) {
 		if (!trackedId) return false;
 		if (liveStreamJobId && String(liveStreamJobId) === trackedId) {
@@ -325,6 +383,7 @@
 	}
 
 	function deriveTrackedFallbackMeta() {
+		/** @type {PatchhubTrackedFallbackMeta} */
 		var meta = { mode: "", issue_id: "" };
 		for (let i = 0; i < liveEvents.length; i++) {
 			const ev = liveEvents[i];
@@ -340,7 +399,7 @@
 		return meta;
 	}
 
-	function getTrackedActiveJob(jobs) {
+	function getTrackedActiveJob(/** @type {PatchhubJob[] | unknown} */ jobs) {
 		var trackedId = getTrackedLiveJobId();
 		var match = null;
 		var fallbackMeta = null;
@@ -369,16 +428,20 @@
 		};
 	}
 
-	function getTrackedActiveJobId(jobs) {
+	function getTrackedActiveJobId(/** @type {PatchhubJob[] | unknown} */ jobs) {
 		var tracked = getTrackedActiveJob(jobs);
 		return tracked ? String(tracked.job_id || "") : "";
 	}
 
-	function hasTrackedActiveJob(jobs) {
+	function hasTrackedActiveJob(/** @type {PatchhubJob[] | unknown} */ jobs) {
 		return !!getTrackedActiveJobId(jobs);
 	}
 
-	function rememberTerminalEvent(jobId, status, reason) {
+	function rememberTerminalEvent(
+		/** @type {unknown} */ jobId,
+		/** @type {unknown} */ status,
+		/** @type {unknown} */ reason,
+	) {
 		liveTerminalInfo = {
 			jobId: String(jobId || ""),
 			status: String(status || ""),
@@ -407,21 +470,26 @@
 		liveStreamJobId = null;
 	}
 
-	function isSubprocessKind(kind) {
+	function isSubprocessKind(/** @type {unknown} */ kind) {
 		return kind === "SUBPROCESS_STDOUT" || kind === "SUBPROCESS_STDERR";
 	}
 
-	function subprocessLabelFromKind(kind) {
+	function subprocessLabelFromKind(/** @type {unknown} */ kind) {
 		return kind === "SUBPROCESS_STDERR" ? "stderr" : "stdout";
 	}
 
-	function formatSubprocessLine(kind, message) {
+	function formatSubprocessLine(
+		/** @type {unknown} */ kind,
+		/** @type {unknown} */ message,
+	) {
 		var label = `[${subprocessLabelFromKind(kind)}]`;
 		var payload = String(message || "");
 		return payload ? `${label} ${payload}` : label;
 	}
 
-	function humanLevelAllowsLogEvent(ev) {
+	function humanLevelAllowsLogEvent(
+		/** @type {PatchhubLiveEvent | null | undefined} */ ev,
+	) {
 		if (!ev) return false;
 		if (ev.bypass === true) return true;
 
@@ -445,7 +513,9 @@
 		return false;
 	}
 
-	function filterLiveEvent(ev) {
+	function filterLiveEvent(
+		/** @type {PatchhubLiveEvent | null | undefined} */ ev,
+	) {
 		if (!ev) return false;
 		if (isDebugLevel()) return true;
 		var t = String(ev.type || "");
@@ -454,7 +524,7 @@
 		return humanLevelAllowsLogEvent(ev);
 	}
 
-	function compactJson(value) {
+	function compactJson(/** @type {unknown} */ value) {
 		try {
 			return JSON.stringify(value);
 		} catch (e) {
@@ -462,7 +532,7 @@
 		}
 	}
 
-	function formatHumanLogEvent(ev) {
+	function formatHumanLogEvent(/** @type {PatchhubLiveEvent} */ ev) {
 		var line = String(ev.msg || "");
 		if (!line) {
 			line = `JSON ${compactJson(ev)}`;
@@ -479,28 +549,38 @@
 		return line;
 	}
 
-	function normalizeEventStage(stage) {
+	function normalizeEventStage(/** @type {unknown} */ stage) {
 		return String(stage || "")
 			.replace(/\s+/g, " ")
 			.trim();
 	}
 
-	function stageBufferKey(ev) {
+	function stageBufferKey(
+		/** @type {PatchhubLiveEvent | null | undefined} */ ev,
+	) {
 		var stage = normalizeEventStage(ev && ev.stage);
 		return stage || "__NO_STAGE__";
 	}
 
-	function isFailedStepOutputEvent(ev) {
+	function isFailedStepOutputEvent(
+		/** @type {PatchhubLiveEvent | null | undefined} */ ev,
+	) {
 		return String((ev && ev.msg) || "").trim() === "FAILED STEP OUTPUT";
 	}
 
-	function takeBufferedStageLines(buffers, key) {
+	function takeBufferedStageLines(
+		/** @type {PatchhubStageBufferMap} */ buffers,
+		/** @type {string} */ key,
+	) {
 		var items = Array.isArray(buffers[key]) ? buffers[key].slice() : [];
 		delete buffers[key];
 		return items;
 	}
 
-	function formatFailureDetailEvent(ev, stageBuffers) {
+	function formatFailureDetailEvent(
+		/** @type {PatchhubLiveEvent} */ ev,
+		/** @type {PatchhubStageBufferMap} */ stageBuffers,
+	) {
 		var key = stageBufferKey(ev);
 		var grouped = takeBufferedStageLines(stageBuffers, key);
 		if (liveLevel === "verbose" && grouped.length > 0) {
@@ -516,7 +596,7 @@
 		return formatHumanLogEvent(ev);
 	}
 
-	function formatLiveEvent(ev) {
+	function formatLiveEvent(/** @type {PatchhubLiveEvent} */ ev) {
 		if (isDebugRawLevel()) return compactJson(ev);
 
 		var t = String(ev.type || "");
@@ -545,11 +625,16 @@
 		return formatHumanLogEvent(ev);
 	}
 
-	function renderHumanLiveLines(events) {
+	function renderHumanLiveLines(
+		/** @type {PatchhubLiveEvent[] | unknown} */ events,
+	) {
+		/** @type {string[]} */
 		var lines = [];
+		/** @type {PatchhubStageBufferMap} */
 		var stageBuffers = Object.create(null);
-		for (let i = 0; i < (events || []).length; i++) {
-			const ev = events[i];
+		var list = Array.isArray(events) ? events : [];
+		for (let i = 0; i < list.length; i++) {
+			const ev = list[i];
 			if (!ev || typeof ev !== "object") continue;
 			const t = String(ev.type || "");
 			if (t === "result") {
@@ -640,7 +725,7 @@
 		return "";
 	}
 
-	function copyLiveTextExecCommand(payload) {
+	function copyLiveTextExecCommand(/** @type {string} */ payload) {
 		return new Promise((resolve, reject) => {
 			var ta = null;
 			var ok = false;
@@ -677,7 +762,7 @@
 		});
 	}
 
-	function copyLiveText(text) {
+	function copyLiveText(/** @type {unknown} */ text) {
 		var payload = String(text || "");
 		if (!payload) return Promise.resolve("");
 		var nav = typeof navigator !== "undefined" ? navigator : null;
@@ -753,7 +838,7 @@
 		}
 	}
 
-	function openLiveStream(jobId) {
+	function openLiveStream(/** @type {unknown} */ jobId) {
 		if (!jobId) {
 			closeLiveStream();
 			liveEvents = [];
@@ -764,12 +849,12 @@
 			setLiveStreamStatus("");
 			return;
 		}
-		jobId = String(jobId);
+		var jobIdText = String(jobId);
 
-		if (liveStreamJobId === jobId && liveES) return;
+		if (liveStreamJobId === jobIdText && liveES) return;
 
 		closeLiveStream();
-		liveStreamJobId = jobId;
+		liveStreamJobId = jobIdText;
 		liveTerminalInfo = null;
 		liveEvents = [];
 		ui.liveEvents = liveEvents;
@@ -777,7 +862,7 @@
 		if (ui.updateProgressPanelFromEvents) ui.updateProgressPanelFromEvents();
 		setLiveStreamStatus("connecting...");
 
-		var url = `/api/jobs/${encodeURIComponent(jobId)}/events`;
+		var url = `/api/jobs/${encodeURIComponent(jobIdText)}/events`;
 		var es = new EventSource(url);
 		liveES = es;
 
@@ -810,7 +895,7 @@
 					}
 				} catch (err) {}
 			}
-			rememberTerminalEvent(jobId, status, reason);
+			rememberTerminalEvent(jobIdText, status, reason);
 			var msg = "ended";
 			if (status) msg += ` (${status})`;
 			if (reason) msg += ` [${reason}]`;
@@ -827,7 +912,7 @@
 		});
 
 		es.onerror = () => {
-			apiGet(`/api/jobs/${encodeURIComponent(jobId)}`).then((r) => {
+			apiGet(`/api/jobs/${encodeURIComponent(jobIdText)}`).then((r) => {
 				if (!r || r.ok === false) {
 					closeLiveStream();
 					setLiveStreamStatus("ended [job_not_found]");
@@ -836,7 +921,7 @@
 				var j = r.job || {};
 				var st = String(j.status || "");
 				if (st && !isNonTerminalJobStatus(st)) {
-					rememberTerminalEvent(jobId, st, "job_completed");
+					rememberTerminalEvent(jobIdText, st, "job_completed");
 					closeLiveStream();
 					setLiveStreamStatus(`ended (${st}) [job_completed]`);
 					if (ui.updateProgressPanelFromEvents) {
@@ -849,24 +934,28 @@
 		};
 	}
 
-	function jobSummaryCommit(msg) {
-		msg = String(msg || "");
-		msg = msg.replace(/\s+/g, " ").trim();
-		if (!msg) return "";
-		if (msg.length <= 60) return msg;
-		return `${msg.slice(0, 57)}...`;
+	function jobSummaryCommit(/** @type {unknown} */ msg) {
+		var text = String(msg || "")
+			.replace(/\s+/g, " ")
+			.trim();
+		if (!text) return "";
+		if (text.length <= 60) return text;
+		return `${text.slice(0, 57)}...`;
 	}
 
-	function jobSummaryPatchName(p) {
-		p = String(p || "").trim();
-		if (!p) return "";
-		p = p.replace(/\\/g, "/");
-		var idx = p.lastIndexOf("/");
-		if (idx >= 0) return p.slice(idx + 1);
-		return p;
+	function jobSummaryPatchName(/** @type {unknown} */ p) {
+		var pathText = String(p || "").trim();
+		if (!pathText) return "";
+		pathText = pathText.replace(/\\/g, "/");
+		var idx = pathText.lastIndexOf("/");
+		if (idx >= 0) return pathText.slice(idx + 1);
+		return pathText;
 	}
 
-	function jobSummaryDurationSeconds(startUtc, endUtc) {
+	function jobSummaryDurationSeconds(
+		/** @type {unknown} */ startUtc,
+		/** @type {unknown} */ endUtc,
+	) {
 		var a = null;
 		var b = null;
 		var deltaMs = 0;

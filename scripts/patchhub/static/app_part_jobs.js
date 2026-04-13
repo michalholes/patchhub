@@ -88,7 +88,7 @@ function getTrackedJobDurationLabel(
 			)
 		);
 		if (Number.isFinite(runningElapsedMs)) {
-			return formatVisibleDurationMs(runningElapsedMs);
+			return formatVisibleDurationMs(/** @type {number} */ (runningElapsedMs));
 		}
 	}
 	return String(
@@ -399,7 +399,7 @@ function initJobsListActions() {
 				triggerRevertJob(String(revertJobId || ""));
 				return;
 			}
-			target = target.parentElement;
+			target = /** @type {JobsEventTarget | null} */ (target.parentElement);
 		}
 	});
 }
@@ -685,7 +685,7 @@ function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 					dirty.commitMsg = false;
 					dirty.patchPath = false;
 				} catch (_) {}
-				jobsPH.call("clearGateOverrides");
+				phCall("clearGateOverrides");
 				try {
 					if (phCall("validateAndPreview") == null && m) {
 						m.dispatchEvent(new Event("change"));
@@ -703,7 +703,7 @@ function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 	var idleAutoSelect = !!(cfg && cfg.ui && cfg.ui.idle_auto_select_last_job);
 
 	if (!selectedJobId) {
-		const saved = /** @type {string | null} */ (jobsPH.call("loadLiveJobId"));
+		const saved = /** @type {string | null} */ (phCall("loadLiveJobId"));
 		if (saved) selectedJobId = saved;
 	}
 
@@ -727,7 +727,7 @@ function renderJobsFromResponse(/** @type {JobsListResponse} */ r) {
 	) {
 		__ph_w.AMP_PATCHHUB_UI.updateProgressPanelFromEvents({ jobs });
 	} else {
-		jobsPH.call("renderActiveJob", jobs);
+		phCall("renderActiveJob", jobs);
 	}
 	syncTrackedJobDurationClock(jobs);
 	ensureAutoRefresh(jobs);
@@ -828,7 +828,7 @@ function refreshJobs(/** @type {{ mode?: string } | null | undefined} */ opts) {
 			syncTrackedJobDurationClock([]);
 			syncJobsDurationSurface();
 			setPre("jobsList", r);
-			jobsPH.call("renderActiveJob", []);
+			phCall("renderActiveJob", []);
 			return;
 		}
 		if (r.unchanged) return;
@@ -839,20 +839,20 @@ function refreshJobs(/** @type {{ mode?: string } | null | undefined} */ opts) {
 function ensureAutoRefresh(
 	/** @type {PatchhubJob[] | null | undefined} */ jobs,
 ) {
-	var id = jobsPH.call("getLiveJobId");
+	var id = phCall("getLiveJobId");
 	var st = "";
 	var trackedActive = false;
 	if (id && jobs && jobs.length) {
 		const j = jobs.find((x) => String(x.job_id || "") === String(id)) || null;
 		st = j ? String(j.status || "") : "";
 	}
-	trackedActive = !!jobsPH.call("hasTrackedActiveJob", jobs || []);
+	trackedActive = !!phCall("hasTrackedActiveJob", jobs || []);
 	if ((st === "running" || st === "queued") && id) {
-		jobsPH.call("openLiveStream", id);
+		phCall("openLiveStream", id);
 	} else if (trackedActive && id) {
-		jobsPH.call("openLiveStream", id);
+		phCall("openLiveStream", id);
 	} else {
-		jobsPH.call("closeLiveStream");
+		phCall("closeLiveStream");
 	}
 
 	if (trackedActive) {

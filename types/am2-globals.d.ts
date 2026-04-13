@@ -249,6 +249,10 @@ declare global {
 		value: string;
 		innerHTML: string;
 		textContent: string;
+		disabled?: boolean;
+		checked?: boolean;
+		files?: FileList | null;
+		placeholder?: string;
 	}
 
 	type PatchhubStringMap = Record<string, string>;
@@ -334,26 +338,28 @@ declare global {
 	}
 
 	interface PatchhubUiBridge {
-		saveLiveJobId?(jobId: string): void;
-		savePatchesVisible?(): void;
-		saveWorkspacesVisible?(): void;
-		saveRunsVisible?(): void;
-		saveJobsVisible?(): void;
-		updateProgressPanelFromEvents?(payload: {
+		saveLiveJobId(jobId: string): void;
+		savePatchesVisible(visible: boolean): void;
+		saveWorkspacesVisible(visible: boolean): void;
+		saveRunsVisible(visible: boolean): void;
+		saveJobsVisible(visible: boolean): void;
+		updateProgressPanelFromEvents(payload?: {
 			jobs: Array<Record<string, unknown>>;
 		}): void;
-		getPmValidationSnapshot?(): PatchhubPmValidationPayload | null;
-		getPmValidationSummary?(): string;
-		setPmValidationPayload?(
+		getPmValidationSnapshot(): PatchhubPmValidationPayload | null;
+		getPmValidationSummary(): string;
+		setPmValidationPayload(
 			payload: unknown,
 		): PatchhubPmValidationPayload | null;
-		clearPmValidationPayload?(): void;
-		initInfoPoolUi?(): void;
-		renderInfoPoolUi?(): void;
+		clearPmValidationPayload(): void;
+		initInfoPoolUi(): void;
+		renderInfoPoolUi(): void;
 	}
 
 	interface PatchhubConfig {
 		runner?: { command?: string[] };
+		issue?: { issue_id?: string | number; default_regex?: string };
+		meta?: { commit_message?: string; version?: string | number };
 		autofill?: {
 			enabled?: boolean;
 			fill_patch_path?: boolean;
@@ -409,9 +415,9 @@ declare global {
 	}
 
 	interface PatchhubHeaderRuntime {
-		call?: (name: string, ...args: unknown[]) => unknown;
-		has?: (name: string) => boolean;
-		register?: (name: string, exportsObj: Record<string, unknown>) => void;
+		call: (name: string, ...args: unknown[]) => unknown;
+		has: (name: string) => boolean;
+		register: (name: string, exportsObj: Record<string, unknown>) => void;
 	}
 
 	interface PatchhubAutofillHeaderWindow extends Window {
@@ -490,6 +496,7 @@ declare global {
 	interface PatchhubHeaderRunDetail {
 		issue_id?: string | number;
 		result?: string;
+		mtime_utc?: string;
 		log_rel_path?: string;
 		archived_patch_rel_path?: string;
 		diff_bundle_rel_path?: string;
@@ -532,6 +539,7 @@ declare global {
 	interface Window {
 		__ph_last_enqueued_job_id?: string;
 		__ph_last_enqueued_mode?: string;
+		activeJobId?: string | null;
 		AMP_PATCHHUB_UI?: PatchhubUiBridge;
 		PH?: PatchhubHeaderRuntime | null;
 		PH_BACKEND_DEGRADED_FROM_OPERATOR_INFO?: (operatorInfo: unknown) => string;

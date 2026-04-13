@@ -1,5 +1,25 @@
 /**
  * @typedef {{
+ *   key: string,
+ *   label: string,
+ *   configRun: (value: boolean) => boolean,
+ *   argvFor: (value: boolean) => string[],
+ * }} GateOptionDef
+ * @typedef {{
+ *   configValues: Record<string, boolean> | null,
+ *   overrides: Record<string, boolean>,
+ *   modalOpen: boolean,
+ *   loading: boolean,
+ *   error: string,
+ * }} GateOptionsState
+ * @typedef {{
+ *   mode?: string,
+ *   raw_command?: string,
+ *   gate_argv?: string[],
+ *   error?: string,
+ * }} GatePreview
+ * @typedef {{ ok?: boolean, error?: string, values?: Record<string, unknown> }} GateOptionsConfigResponse
+ * @typedef {{
  *   call?: function(string, ...*): *,
  *   register?: function(string, Object): void,
  * }} GateOptionsRuntime
@@ -9,25 +29,26 @@
 var gateOptionsWindow = /** @type {GateOptionsWindow} */ (window);
 var gateOptionsRuntime = gateOptionsWindow.PH || null;
 
-function phCall(name, ...args) {
+function phCall(/** @type {string} */ name, /** @type {unknown[]} */ ...args) {
 	if (!gateOptionsRuntime || typeof gateOptionsRuntime.call !== "function")
 		return undefined;
 	return gateOptionsRuntime.call(name, ...args);
 }
 
+/** @type {GateOptionDef[]} */
 var gateOptionDefs = [
 	{
 		key: "compile_check",
 		label: "Compile check",
-		configRun: (value) => !!value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !!value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value ? ["--override", "compile_check=true"] : ["--no-compile-check"],
 	},
 	{
 		key: "gates_skip_dont_touch",
 		label: "Dont touch",
-		configRun: (value) => !value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value
 				? ["--skip-dont-touch"]
 				: ["--override", "gates_skip_dont_touch=false"],
@@ -35,63 +56,64 @@ var gateOptionDefs = [
 	{
 		key: "gates_skip_ruff",
 		label: "Ruff",
-		configRun: (value) => !value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value ? ["--skip-ruff"] : ["--override", "gates_skip_ruff=false"],
 	},
 	{
 		key: "gates_skip_pytest",
 		label: "Pytest",
-		configRun: (value) => !value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value ? ["--skip-pytest"] : ["--override", "gates_skip_pytest=false"],
 	},
 	{
 		key: "gates_skip_mypy",
 		label: "Mypy",
-		configRun: (value) => !value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value ? ["--skip-mypy"] : ["--override", "gates_skip_mypy=false"],
 	},
 	{
 		key: "gates_skip_js",
 		label: "JS",
-		configRun: (value) => !value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value ? ["--skip-js"] : ["--override", "gates_skip_js=false"],
 	},
 	{
 		key: "gates_skip_docs",
 		label: "Docs",
-		configRun: (value) => !value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value ? ["--skip-docs"] : ["--override", "gates_skip_docs=false"],
 	},
 	{
 		key: "gates_skip_monolith",
 		label: "Monolith",
-		configRun: (value) => !value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value ? ["--skip-monolith"] : ["--override", "gates_skip_monolith=false"],
 	},
 	{
 		key: "gates_skip_biome",
 		label: "Biome",
-		configRun: (value) => !value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value ? ["--skip-biome"] : ["--override", "gates_skip_biome=false"],
 	},
 	{
 		key: "gates_skip_typescript",
 		label: "Typescript",
-		configRun: (value) => !value,
-		argvFor: (value) =>
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
 			value
 				? ["--skip-typescript"]
 				: ["--override", "gates_skip_typescript=false"],
 	},
 ];
 
+/** @type {GateOptionsState} */
 var gateOptionsState = {
 	configValues: null,
 	overrides: {},
@@ -112,11 +134,14 @@ function gateOptionsList() {
 	return el("gateOptionsList");
 }
 
-function gateOptionsRawDisabled(rawCommand) {
+function gateOptionsRawDisabled(/** @type {unknown} */ rawCommand) {
 	return !!String(rawCommand || "").trim();
 }
 
-function gateOptionsModeSupported(mode, rawCommand) {
+function gateOptionsModeSupported(
+	/** @type {unknown} */ mode,
+	/** @type {unknown} */ rawCommand,
+) {
 	var currentMode = String(mode || (el("mode") && el("mode").value) || "patch");
 	if (gateOptionsRawDisabled(rawCommand)) return false;
 	return (
@@ -126,7 +151,10 @@ function gateOptionsModeSupported(mode, rawCommand) {
 	);
 }
 
-function gateOptionsReason(mode, rawCommand) {
+function gateOptionsReason(
+	/** @type {unknown} */ mode,
+	/** @type {unknown} */ rawCommand,
+) {
 	if (gateOptionsRawDisabled(rawCommand)) {
 		return "Gate options are disabled when raw command is set";
 	}
@@ -139,28 +167,31 @@ function gateOptionsReason(mode, rawCommand) {
 	return "";
 }
 
-function gateConfigValue(key) {
+function gateConfigValue(/** @type {string} */ key) {
 	var src = gateOptionsState.configValues || {};
 	return !!src[key];
 }
 
-function gateEffectiveValue(key) {
+function gateEffectiveValue(/** @type {string} */ key) {
 	if (Object.hasOwn(gateOptionsState.overrides, key)) {
 		return !!gateOptionsState.overrides[key];
 	}
 	return gateConfigValue(key);
 }
 
-function gateConfigRun(def) {
+function gateConfigRun(/** @type {GateOptionDef} */ def) {
 	return !!def.configRun(gateConfigValue(def.key));
 }
 
-function gateThisRun(def) {
+function gateThisRun(/** @type {GateOptionDef} */ def) {
 	return !!def.configRun(gateEffectiveValue(def.key));
 }
 
-function normalizeGateConfigValues(values) {
+function normalizeGateConfigValues(
+	/** @type {Record<string, unknown> | null | undefined} */ values,
+) {
 	var raw = values && typeof values === "object" ? values : {};
+	/** @type {Record<string, boolean>} */
 	var out = {};
 	var i;
 	var def;
@@ -172,6 +203,7 @@ function normalizeGateConfigValues(values) {
 }
 
 function gateOverrideArgv() {
+	/** @type {string[]} */
 	var argv = [];
 	var i;
 	var def;
@@ -187,7 +219,7 @@ function gateOverrideArgv() {
 	return argv;
 }
 
-function syncGateOptionsUi(preview) {
+function syncGateOptionsUi(/** @type {GatePreview} */ preview) {
 	var btn = gateOptionsButton();
 	if (!btn) return;
 	var rawCommand =
@@ -207,7 +239,10 @@ function clearGateOverrides() {
 	if (gateOptionsState.modalOpen) renderGateOptionsModal();
 }
 
-function applyGatePreview(preview) {
+function applyGatePreview(
+	/** @type {GatePreview | null | undefined} */ preview,
+) {
+	/** @type {GatePreview} */
 	var out = preview || {};
 	var gateArgv = [];
 	syncGateOptionsUi(out);
@@ -218,7 +253,7 @@ function applyGatePreview(preview) {
 	return out;
 }
 
-function getGateOptionsEnqueuePayload(mode) {
+function getGateOptionsEnqueuePayload(/** @type {unknown} */ mode) {
 	if (!gateOptionsModeSupported(mode, "")) return {};
 	if (!gateOptionsState.configValues) {
 		if (Object.keys(gateOptionsState.overrides).length) {
@@ -308,13 +343,16 @@ function openGateOptionsModal() {
 	}
 	apiGet("/api/amp/config")
 		.then((r) => {
-			if (!r || r.ok === false) {
+			var resp = /** @type {GateOptionsConfigResponse} */ (r);
+			if (!resp || resp.ok === false) {
 				gateOptionsState.error = String(
-					(r && r.error) || "Cannot load gate options",
+					(resp && resp.error) || "Cannot load gate options",
 				);
 				return;
 			}
-			gateOptionsState.configValues = normalizeGateConfigValues(r.values || {});
+			gateOptionsState.configValues = normalizeGateConfigValues(
+				resp.values || {},
+			);
 			gateOptionsState.error = "";
 		})
 		.catch((e) => {
@@ -326,7 +364,10 @@ function openGateOptionsModal() {
 		});
 }
 
-function setGateRunState(key, runEnabled) {
+function setGateRunState(
+	/** @type {string} */ key,
+	/** @type {boolean} */ runEnabled,
+) {
 	var i;
 	var def;
 	var nextValue;

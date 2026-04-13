@@ -13,6 +13,7 @@ from unittest.mock import patch
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
+import patchhub.asgi.async_event_pump as async_event_pump_mod
 import patchhub.asgi.async_queue as async_queue_mod
 from patchhub.models import JobRecord
 
@@ -41,6 +42,30 @@ class _FakeExecutor:
             (),
             {"return_code": 0, "stdout_tail_timed_out": False},
         )()
+
+
+async def _fast_wait_with_grace(
+    task: asyncio.Task[object],
+    *,
+    grace_s: int,
+) -> bool:
+    del grace_s
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=0.02)
+        return False
+    except TimeoutError:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return True
+
+
+_ORIGINAL_COMMAND_SEND = async_event_pump_mod.EventPumpCommandChannel.send
+
+
+async def _fast_command_send(self, **kwargs) -> bool:
+    kwargs["timeout_s"] = 0.05
+    return await _ORIGINAL_COMMAND_SEND(self, **kwargs)
 
 
 class _FakeFailingFinalizeQueue(async_queue_mod.AsyncJobQueue):
@@ -227,6 +252,11 @@ class TestPatchhubAsyncQueueForcedCompletion(unittest.IsolatedAsyncioTestCase):
                 ),
                 patch.object(
                     async_queue_mod,
+                    "wait_with_grace",
+                    side_effect=_fast_wait_with_grace,
+                ),
+                patch.object(
+                    async_queue_mod,
                     "job_socket_path",
                     side_effect=lambda job_id: str(root / f"{job_id}.sock"),
                 ),
@@ -310,6 +340,11 @@ class TestPatchhubAsyncQueueForcedCompletion(unittest.IsolatedAsyncioTestCase):
                     async_queue_mod,
                     "start_event_pump",
                     side_effect=hanging_pump,
+                ),
+                patch.object(
+                    async_queue_mod,
+                    "wait_with_grace",
+                    side_effect=_fast_wait_with_grace,
                 ),
                 patch.object(
                     async_queue_mod,
@@ -402,6 +437,11 @@ class TestPatchhubAsyncQueueForcedCompletion(unittest.IsolatedAsyncioTestCase):
                     async_queue_mod,
                     "start_event_pump",
                     side_effect=hanging_pump,
+                ),
+                patch.object(
+                    async_queue_mod,
+                    "wait_with_grace",
+                    side_effect=_fast_wait_with_grace,
                 ),
                 patch.object(
                     async_queue_mod,
@@ -595,7 +635,7 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
                         if str(obj.get("cmd", "")) != "cancel":
                             continue
                         cancel_seen.set()
-                        await asyncio.sleep(3.1)
+                        await asyncio.sleep(0.1)
                         return None
                 finally:
                     writer.close()
@@ -616,6 +656,11 @@ class TestPatchhubAsyncQueueCancelStates(unittest.IsolatedAsyncioTestCase):
                     async_queue_mod,
                     "start_event_pump",
                     side_effect=timeout_command_pump,
+                ),
+                patch.object(
+                    async_event_pump_mod.EventPumpCommandChannel,
+                    "send",
+                    new=_fast_command_send,
                 ),
                 patch.object(
                     async_queue_mod,

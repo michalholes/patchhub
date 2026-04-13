@@ -1,10 +1,18 @@
 /**
  * @typedef {{
- *   call?: function(string, ...*): *,
- *   has?: function(string): boolean,
- *   register?: function(string, Object): void,
+ *   call: function(string, ...*): *,
+ *   has: function(string): boolean,
+ *   register: function(string, Object): void,
  * }} WireInitRuntime
  * @typedef {Window & typeof globalThis & { PH?: WireInitRuntime | null }} WireInitWindow
+ * @typedef {{ ok?: boolean, error?: string }} WireInitApiResponse
+ * @typedef {{
+ *   patchesVisible?: boolean,
+ *   workspacesVisible?: boolean,
+ *   runsVisible?: boolean,
+ *   jobsVisible?: boolean,
+ * }} WireInitVisibilityState
+ * @typedef {{ keepLiveStream?: boolean }} WireInitTimerOpts
  * @typedef {EventTarget & {
  *   getAttribute?: function(string): string | null,
  *   parentElement?: EventTarget | null,
@@ -13,18 +21,27 @@
 var wireInitWindow = /** @type {WireInitWindow} */ (window);
 var wireInitRuntime = wireInitWindow.PH || null;
 
-function phCall(name, ...args) {
+function phCall(/** @type {string} */ name, /** @type {unknown[]} */ ...args) {
 	if (!wireInitRuntime || typeof wireInitRuntime.call !== "function")
 		return undefined;
 	return wireInitRuntime.call(name, ...args);
 }
 
 function hasTrackedActiveJob() {
-	return !!(
-		wireInitRuntime &&
-		typeof wireInitRuntime.call === "function" &&
-		wireInitRuntime.call("hasTrackedActiveJob")
-	);
+	return !!(wireInitRuntime && runtimeCall("hasTrackedActiveJob"));
+}
+
+function runtimeCall(
+	/** @type {string} */ name,
+	/** @type {unknown[]} */ ...args
+) {
+	if (!wireInitRuntime) return undefined;
+	return wireInitRuntime.call(name, ...args);
+}
+
+function runtimeHas(/** @type {string} */ name) {
+	if (!wireInitRuntime) return false;
+	return wireInitRuntime.has(name);
 }
 function wireButtons() {
 	el("fsRefresh").addEventListener("click", refreshFs);
@@ -64,7 +81,8 @@ function wireButtons() {
 			if (!name) return;
 			var rel = joinRel(base, name);
 			apiPost("/api/fs/mkdir", { path: rel }).then((r) => {
-				if (!r || r.ok === false) {
+				var resp = /** @type {WireInitApiResponse} */ (r);
+				if (!resp || resp.ok === false) {
 					setFsHint("mkdir failed");
 					return;
 				}
@@ -85,7 +103,8 @@ function wireButtons() {
 			if (!dstName) return;
 			var dst = joinRel(base, dstName);
 			apiPost("/api/fs/rename", { src: fsSelected, dst: dst }).then((r) => {
-				if (!r || r.ok === false) {
+				var resp = /** @type {WireInitApiResponse} */ (r);
+				if (!resp || resp.ok === false) {
 					setFsHint("rename failed");
 					return;
 				}
@@ -108,16 +127,19 @@ function wireButtons() {
 			}
 			if (!confirm("Delete selected item(s)?")) return;
 
+			/** @type {Promise<void>} */
 			var seq = Promise.resolve();
 			paths.sort().forEach((p) => {
 				seq = seq.then(() =>
 					apiPost("/api/fs/delete", { path: p }).then((r) => {
-						if (!r || r.ok !== true) {
-							const err = r && r.error ? String(r.error) : "unknown error";
+						var resp = /** @type {WireInitApiResponse} */ (r);
+						if (!resp || resp.ok !== true) {
+							const err =
+								resp && resp.error ? String(resp.error) : "unknown error";
 							setFsHint("delete failed: " + err);
 							throw new Error(err);
 						}
-						return r;
+						return;
 					}),
 				);
 			});
@@ -150,7 +172,8 @@ function wireButtons() {
 				zip_path: fsSelected,
 				dest_dir: String(dst || ""),
 			}).then((r) => {
-				if (!r || r.ok === false) {
+				var resp = /** @type {WireInitApiResponse} */ (r);
+				if (!resp || resp.ok === false) {
 					setFsHint("unzip failed");
 					return;
 				}
@@ -166,8 +189,8 @@ function wireButtons() {
 	if (el("patchesCollapse")) {
 		el("patchesCollapse").addEventListener("click", () => {
 			patchesVisible = !patchesVisible;
-			wireInitRuntime.call("setPatchesVisible", patchesVisible);
-			AMP_UI.savePatchesVisible(patchesVisible);
+			runtimeCall("setPatchesVisible", patchesVisible);
+			AMP_UI.savePatchesVisible?.(patchesVisible);
 			if (patchesVisible) phCall("refreshPatches", { mode: "user" });
 		});
 	}
@@ -177,8 +200,8 @@ function wireButtons() {
 	});
 	el("workspacesCollapse").addEventListener("click", () => {
 		workspacesVisible = !workspacesVisible;
-		wireInitRuntime.call("setWorkspacesVisible", workspacesVisible);
-		AMP_UI.saveWorkspacesVisible(workspacesVisible);
+		runtimeCall("setWorkspacesVisible", workspacesVisible);
+		AMP_UI.saveWorkspacesVisible?.(workspacesVisible);
 		if (workspacesVisible) phCall("refreshWorkspaces", { mode: "user" });
 	});
 
@@ -189,8 +212,8 @@ function wireButtons() {
 	if (el("runsCollapse")) {
 		el("runsCollapse").addEventListener("click", () => {
 			runsVisible = !runsVisible;
-			wireInitRuntime.call("setRunsVisible", runsVisible);
-			AMP_UI.saveRunsVisible(runsVisible);
+			runtimeCall("setRunsVisible", runsVisible);
+			AMP_UI.saveRunsVisible?.(runsVisible);
 		});
 	}
 
@@ -212,8 +235,8 @@ function wireButtons() {
 	if (el("jobsCollapse")) {
 		el("jobsCollapse").addEventListener("click", () => {
 			jobsVisible = !jobsVisible;
-			wireInitRuntime.call("setJobsVisible", jobsVisible);
-			AMP_UI.saveJobsVisible(jobsVisible);
+			runtimeCall("setJobsVisible", jobsVisible);
+			AMP_UI.saveJobsVisible?.(jobsVisible);
 		});
 	}
 
@@ -225,16 +248,16 @@ function wireButtons() {
 	if (el("liveLevel")) {
 		el("liveLevel").addEventListener("change", () => {
 			var v = String(el("liveLevel").value || "normal");
-			wireInitRuntime.call("setLiveLevel", v);
-			wireInitRuntime.call("renderLiveLog");
-			wireInitRuntime.call("updateProgressFromEvents");
+			runtimeCall("setLiveLevel", v);
+			runtimeCall("renderLiveLog");
+			runtimeCall("updateProgressFromEvents");
 		});
 	}
 
 	if (el("jobsList")) {
 		el("jobsList").addEventListener("click", (e) => {
 			var t = /** @type {WireInitEventTarget | null} */ (
-				e && e.target ? e.target : null
+				e && e.target ? /** @type {WireInitEventTarget} */ (e.target) : null
 			);
 			while (t && t !== el("jobsList")) {
 				const rerunJobId = t.getAttribute && t.getAttribute("data-rerun-jobid");
@@ -248,16 +271,13 @@ function wireButtons() {
 				const jobId = t.getAttribute && t.getAttribute("data-jobid");
 				if (jobId) {
 					selectedJobId = String(jobId);
-					AMP_UI.saveLiveJobId(selectedJobId);
+					AMP_UI.saveLiveJobId?.(selectedJobId);
 					suppressIdleOutput = false;
 					phCall("refreshJobs");
-					wireInitRuntime.call(
-						"openLiveStream",
-						wireInitRuntime.call("getLiveJobId"),
-					);
+					runtimeCall("openLiveStream", runtimeCall("getLiveJobId"));
 					return;
 				}
-				t = t.parentElement;
+				t = /** @type {WireInitEventTarget | null} */ (t.parentElement);
 			}
 		});
 	}
@@ -342,7 +362,7 @@ function wireButtons() {
 	if (el("refreshAll")) {
 		el("refreshAll").addEventListener("click", () => {
 			refreshFs();
-			wireInitRuntime.call("refreshStats");
+			runtimeCall("refreshStats");
 			if (hasTrackedActiveJob()) {
 				if (patchesVisible) {
 					phCall("refreshPatches", { mode: "user" });
@@ -370,32 +390,34 @@ function init() {
 		phCall("setupUpload");
 		wireButtons();
 		setPreviewVisible(false);
-		var vis = wireInitRuntime.call("loadUiVisibility") || {};
+		var vis = /** @type {WireInitVisibilityState} */ (
+			runtimeCall("loadUiVisibility") || {}
+		);
 		patchesVisible = !!vis.patchesVisible;
 		workspacesVisible = !!vis.workspacesVisible;
 		runsVisible = !!vis.runsVisible;
 		jobsVisible = !!vis.jobsVisible;
-		wireInitRuntime.call("setPatchesVisible", patchesVisible);
-		wireInitRuntime.call("setWorkspacesVisible", workspacesVisible);
-		wireInitRuntime.call("setRunsVisible", runsVisible);
-		wireInitRuntime.call("setJobsVisible", jobsVisible);
+		runtimeCall("setPatchesVisible", patchesVisible);
+		runtimeCall("setWorkspacesVisible", workspacesVisible);
+		runtimeCall("setRunsVisible", runsVisible);
+		runtimeCall("setJobsVisible", jobsVisible);
 
-		wireInitRuntime.call("loadLiveLevel");
+		runtimeCall("loadLiveLevel");
 		var PH = wireInitRuntime;
-		PH.call("loadLiveAutoscroll");
-		var savedJobId = wireInitRuntime.call("loadLiveJobId");
-		if (savedJobId) selectedJobId = savedJobId;
+		if (PH && typeof PH.call === "function") PH.call("loadLiveAutoscroll");
+		var savedJobId = runtimeCall("loadLiveJobId");
+		if (savedJobId) selectedJobId = String(savedJobId);
 		phCall("initGateOptionsUi");
 		phCall("initLiveCopyButtons");
 
 		if (el("liveLevel")) {
-			const v = wireInitRuntime.call("getLiveLevel");
+			const v = runtimeCall("getLiveLevel");
 			if (v) el("liveLevel").value = String(v);
 		}
 
 		Promise.resolve(phCall("loadConfig")).then(() => {
 			refreshFs();
-			wireInitRuntime.call("refreshStats");
+			runtimeCall("refreshStats");
 			Promise.resolve(phCall("refreshOverviewSnapshot", { mode: "user" }))
 				.catch((e) => setUiError(e))
 				.finally(() => {
@@ -403,11 +425,12 @@ function init() {
 					phCall("validateAndPreview");
 				});
 
+			/** @type {ReturnType<typeof setInterval> | null} */
 			var refreshTimer = null;
+			/** @type {ReturnType<typeof setInterval> | null} */
 			var headerTimer = null;
 
-			function stopTimers(opts) {
-				opts = opts || {};
+			function stopTimers(/** @type {WireInitTimerOpts} */ opts = {}) {
 				if (refreshTimer) {
 					clearInterval(refreshTimer);
 					refreshTimer = null;
@@ -419,12 +442,11 @@ function init() {
 				phCall("stopAutofillPolling");
 				phCall("stopSnapshotEvents");
 				if (!opts.keepLiveStream) {
-					wireInitRuntime.call("closeLiveStream");
+					runtimeCall("closeLiveStream");
 				}
 			}
 
-			function startTimers(opts) {
-				opts = opts || {};
+			function startTimers(/** @type {WireInitTimerOpts} */ opts = {}) {
 				var activeMode = false;
 				stopTimers({ keepLiveStream: !!opts.keepLiveStream });
 
@@ -449,14 +471,14 @@ function init() {
 							phCall("tickMissingPatchClear", { mode: "idle" });
 							phCall("ensureSnapshotEvents");
 							if (
-								!wireInitRuntime.has("snapshotEventsNeedPolling") ||
+								!runtimeHas("snapshotEventsNeedPolling") ||
 								phCall("snapshotEventsNeedPolling")
 							) {
 								phCall("idleRefreshTick");
 							}
 						}
 					} catch (e) {
-						setUiError(e);
+						setUiError(String(e));
 					}
 				}, 2000);
 
@@ -465,7 +487,7 @@ function init() {
 						if (hasTrackedActiveJob())
 							phCall("refreshHeader", { mode: "periodic" });
 					} catch (e) {
-						setUiError(e);
+						setUiError(String(e));
 					}
 				}, 5000);
 
@@ -477,7 +499,7 @@ function init() {
 
 			function resyncVisible() {
 				refreshFs();
-				wireInitRuntime.call("refreshStats");
+				runtimeCall("refreshStats");
 				if (hasTrackedActiveJob()) {
 					if (patchesVisible) {
 						phCall("refreshPatches", { mode: "user" });
@@ -493,7 +515,7 @@ function init() {
 					return;
 				}
 				Promise.resolve(phCall("refreshOverviewSnapshot", { mode: "user" }))
-					.catch((e) => setUiError(e))
+					.catch((e) => setUiError(String(e)))
 					.finally(() => {
 						phCall("renderIssueDetail");
 						phCall("validateAndPreview");
@@ -505,19 +527,19 @@ function init() {
 			document.addEventListener("visibilitychange", () => {
 				try {
 					if (document.hidden) {
-						if (wireInitRuntime.call("hasTrackedActiveJob")) {
+						if (runtimeCall("hasTrackedActiveJob")) {
 							phCall("stopSnapshotEvents");
 							phCall("stopAutofillPolling");
 						} else {
 							stopTimers();
 						}
 					} else {
-						keepLiveStream = !!wireInitRuntime.call("hasTrackedActiveJob");
+						keepLiveStream = !!runtimeCall("hasTrackedActiveJob");
 						resyncVisible();
 						startTimers({ keepLiveStream: keepLiveStream });
 					}
 				} catch (e) {
-					setUiError(e);
+					setUiError(String(e));
 				}
 			});
 

@@ -16,7 +16,7 @@
 	 *   register?: (name: string, exportsObj: Record<string, unknown>) => void,
 	 * }} ListModalRuntime
 	 * @typedef {Window & typeof globalThis & {
-	 *   AMP_PATCHHUB_UI?: {
+	 *   AMP_PATCHHUB_UI?: PatchhubUiBridge & {
 	 *     zipSubsetModalController?: ListModalController | null,
 	 *     activeListModalController?: ListModalController | null,
 	 *     renderZipSubsetModal?: (model: Record<string, unknown>) => void,
@@ -34,17 +34,36 @@
 	 * }} ListModalElement
 	 */
 	var w = /** @type {ListModalWindow} */ (window);
-	var ui = w.AMP_PATCHHUB_UI;
+	var ui = /** @type {(PatchhubUiBridge & {
+	 *   zipSubsetModalController?: ListModalController | null,
+	 *   activeListModalController?: ListModalController | null,
+	 *   renderZipSubsetModal?: (model: Record<string, unknown>) => void,
+	 *   openZipSubsetModalView?: (model: Record<string, unknown>) => void,
+	 *   closeZipSubsetModalView?: () => void,
+	 * }) | undefined} */ (w.AMP_PATCHHUB_UI);
 	if (!ui) {
-		ui = {};
+		ui = /** @type {PatchhubUiBridge & {
+		 *   zipSubsetModalController?: ListModalController | null,
+		 *   activeListModalController?: ListModalController | null,
+		 *   renderZipSubsetModal?: (model: Record<string, unknown>) => void,
+		 *   openZipSubsetModalView?: (model: Record<string, unknown>) => void,
+		 *   closeZipSubsetModalView?: () => void,
+		 * }} */ ({});
 		w.AMP_PATCHHUB_UI = ui;
 	}
+	var uiBridge = /** @type {PatchhubUiBridge & {
+	 *   zipSubsetModalController?: ListModalController | null,
+	 *   activeListModalController?: ListModalController | null,
+	 *   renderZipSubsetModal?: (model: Record<string, unknown>) => void,
+	 *   openZipSubsetModalView?: (model: Record<string, unknown>) => void,
+	 *   closeZipSubsetModalView?: () => void,
+	 * }} */ (ui);
 
-	function el(id) {
+	function el(/** @type {string} */ id) {
 		return /** @type {ListModalElement | null} */ (document.getElementById(id));
 	}
 
-	function escapeHtml(s) {
+	function escapeHtml(/** @type {unknown} */ s) {
 		return String(s || "")
 			.replace(/&/g, "&amp;")
 			.replace(/</g, "&lt;")
@@ -54,17 +73,23 @@
 	}
 
 	function controller() {
-		return ui.activeListModalController || ui.zipSubsetModalController || null;
+		return (
+			uiBridge.activeListModalController ||
+			uiBridge.zipSubsetModalController ||
+			null
+		);
 	}
 
-	function setVisible(on) {
+	function setVisible(/** @type {boolean} */ on) {
 		var node = el("zipSubsetModal");
 		if (!node) return;
 		node.classList.toggle("hidden", !on);
 		node.setAttribute("aria-hidden", on ? "false" : "true");
 	}
 
-	function render(model) {
+	function render(
+		/** @type {Record<string, unknown> | null | undefined} */ model,
+	) {
 		var title = el("zipSubsetModalTitle");
 		var subtitle = el("zipSubsetModalSubtitle");
 		var list = el("zipSubsetModalList");
@@ -75,7 +100,7 @@
 		var safeModel = model && typeof model === "object" ? model : {};
 		var rows = Array.isArray(safeModel.rows) ? safeModel.rows : [];
 		var html = rows
-			.map((row) => {
+			.map((/** @type {any} */ row) => {
 				var entry = String(row && row.zip_member ? row.zip_member : "");
 				var repo = String(row && row.repo_path ? row.repo_path : "");
 				var checked = !!(row && row.checked === true);
@@ -105,7 +130,9 @@
 		list.innerHTML = html || '<div class="muted">(no patch entries)</div>';
 	}
 
-	function open(model) {
+	function open(
+		/** @type {Record<string, unknown> | null | undefined} */ model,
+	) {
 		render(model);
 		setVisible(true);
 	}
@@ -169,9 +196,9 @@
 	}
 
 	bindEvents();
-	ui.renderZipSubsetModal = render;
-	ui.openZipSubsetModalView = open;
-	ui.closeZipSubsetModalView = close;
+	uiBridge.renderZipSubsetModal = render;
+	uiBridge.openZipSubsetModalView = open;
+	uiBridge.closeZipSubsetModalView = close;
 
 	var PH = w.PH;
 	if (PH && typeof PH.register === "function") {

@@ -1,11 +1,32 @@
 (() => {
+	/**
+	 * @typedef {{
+	 *   anchorElapsedMs: number,
+	 *   anchorNowMs: number,
+	 * }} PatchhubVisibleClock
+	 */
+	/**
+	 * @typedef {{
+	 *   getSignature: (tickNowMs: number) => string,
+	 *   render: () => void,
+	 *   lastSignature: string,
+	 * }} PatchhubVisibleSurfaceState
+	 */
+	/**
+	 * @typedef {{
+	 *   getSignature: (tickNowMs: number) => string,
+	 *   render: () => void,
+	 * }} PatchhubVisibleSurfaceSpec
+	 */
 	var w = /** @type {any} */ (window);
 	var ui = w.AMP_PATCHHUB_UI;
 	if (!ui) {
 		ui = {};
 		w.AMP_PATCHHUB_UI = ui;
 	}
+	/** @type {ReturnType<typeof setInterval> | null} */
 	var tickerId = null;
+	/** @type {Record<string, PatchhubVisibleSurfaceState>} */
 	var surfaces = Object.create(null);
 
 	function nowMs() {
@@ -23,7 +44,7 @@
 		return Date.now();
 	}
 
-	function formatVisibleDurationMs(ms) {
+	function formatVisibleDurationMs(/** @type {number} */ ms) {
 		var tenths = 0;
 		if (!Number.isFinite(ms)) return "";
 		if (ms < 0) return "";
@@ -31,7 +52,7 @@
 		return String((tenths / 10).toFixed(1));
 	}
 
-	function makeVisibleRuntimeClock(baseElapsedMs) {
+	function makeVisibleRuntimeClock(/** @type {number} */ baseElapsedMs) {
 		if (!Number.isFinite(baseElapsedMs)) return null;
 		if (baseElapsedMs < 0) baseElapsedMs = 0;
 		return {
@@ -40,15 +61,23 @@
 		};
 	}
 
-	function readVisibleRuntimeElapsedMs(clock, tickNowMs) {
+	function readVisibleRuntimeElapsedMs(
+		/** @type {PatchhubVisibleClock | null} */ clock,
+		/** @type {number | undefined} */ tickNowMs,
+	) {
 		if (!clock || !Number.isFinite(clock.anchorElapsedMs)) return null;
-		var currentNowMs = Number.isFinite(tickNowMs) ? tickNowMs : nowMs();
+		var currentNowMsRaw = Number.isFinite(tickNowMs) ? tickNowMs : nowMs();
+		if (!Number.isFinite(currentNowMsRaw)) return null;
+		var currentNowMs = Number(currentNowMsRaw);
 		var deltaMs = currentNowMs - Number(clock.anchorNowMs || 0);
 		if (!Number.isFinite(deltaMs) || deltaMs < 0) deltaMs = 0;
 		return Number(clock.anchorElapsedMs) + deltaMs;
 	}
 
-	function computeSignature(name, tickNowMs) {
+	function computeSignature(
+		/** @type {string} */ name,
+		/** @type {number} */ tickNowMs,
+	) {
 		var surface = surfaces[name];
 		if (!surface || typeof surface.getSignature !== "function") return "";
 		var sig = surface.getSignature(tickNowMs);
@@ -96,7 +125,10 @@
 		}
 	}
 
-	function setVisibleDurationSurface(name, spec) {
+	function setVisibleDurationSurface(
+		/** @type {string} */ name,
+		/** @type {PatchhubVisibleSurfaceSpec | null | undefined} */ spec,
+	) {
 		name = String(name || "").trim();
 		if (!name) return;
 		if (
@@ -116,7 +148,7 @@
 		syncTicker();
 	}
 
-	function clearVisibleDurationSurface(name) {
+	function clearVisibleDurationSurface(/** @type {string} */ name) {
 		name = String(name || "").trim();
 		if (!name) return;
 		delete surfaces[name];

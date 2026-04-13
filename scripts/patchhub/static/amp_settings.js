@@ -1,9 +1,49 @@
 (() => {
-	function el(id) {
+	/**
+	 * @typedef {string | number | boolean | string[] | null | undefined} AmpValue
+	 */
+	/**
+	 * @typedef {Record<string, AmpValue>} AmpValues
+	 */
+	/**
+	 * @typedef {{
+	 *   key: string,
+	 *   kind: string,
+	 *   label: string,
+	 *   help: string,
+	 *   enum: string[] | null,
+	 *   section: string,
+	 *   read_only: boolean,
+	 * }} AmpField
+	 */
+	/**
+	 * @typedef {{
+	 *   type?: string,
+	 *   enum?: unknown[],
+	 *   label?: string,
+	 *   help?: string,
+	 *   section?: string,
+	 *   read_only?: boolean,
+	 *   default?: unknown,
+	 * }} AmpPolicyField
+	 */
+	/**
+	 * @typedef {{
+	 *   fields?: AmpField[],
+	 *   policy?: Record<string, AmpPolicyField>,
+	 * }} AmpSchema
+	 */
+	/**
+	 * @typedef {{ ok?: boolean, error?: string, schema?: AmpSchema, values?: AmpValues }} AmpApiResponse
+	 */
+	/**
+	 * @typedef {(key: string, value: AmpValue) => void} AmpOnChange
+	 */
+	function el(/** @type {string} */ id) {
 		return document.getElementById(id);
 	}
 
-	function apiGet(path) {
+	function apiGet(/** @type {string} */ path) {
 		return fetch(path, { headers: { Accept: "application/json" } }).then((r) =>
 			r.text().then((t) => {
 				try {
@@ -15,7 +55,10 @@
 		);
 	}
 
-	function apiPost(path, body) {
+	function apiPost(
+		/** @type {string} */ path,
+		/** @type {Record<string, unknown>} */ body,
+	) {
 		return fetch(path, {
 			method: "POST",
 			headers: {
@@ -34,7 +77,10 @@
 		);
 	}
 
-	function setStatus(msg, isError) {
+	function setStatus(
+		/** @type {unknown} */ msg,
+		/** @type {unknown} */ isError,
+	) {
 		var node = el("ampStatus");
 		if (!node) return;
 		node.textContent = String(msg || "");
@@ -46,7 +92,10 @@
 		setStatus("", false);
 	}
 
-	function toggleVisible(btnId, wrapId) {
+	function toggleVisible(
+		/** @type {string} */ btnId,
+		/** @type {string} */ wrapId,
+	) {
 		var btn = el(btnId);
 		var wrap = el(wrapId);
 		if (!btn || !wrap) return;
@@ -55,23 +104,27 @@
 		btn.textContent = nowHidden ? "Show" : "Hide";
 	}
 
-	function mk(tag, cls, text) {
+	function mk(
+		/** @type {string} */ tag,
+		/** @type {string | null} */ cls,
+		/** @type {unknown} */ text,
+	) {
 		var n = document.createElement(tag);
 		if (cls) n.className = cls;
 		if (text != null) n.textContent = String(text);
 		return n;
 	}
 
-	function cloneListValue(v) {
+	function cloneListValue(/** @type {unknown} */ v) {
 		if (!Array.isArray(v)) return [];
 		return v.map((x) => String(x == null ? "" : x));
 	}
 
-	function parseListToken(v) {
+	function parseListToken(/** @type {unknown} */ v) {
 		return String(v == null ? "" : v).trim();
 	}
 
-	function listValuesEqual(a, b) {
+	function listValuesEqual(/** @type {unknown} */ a, /** @type {unknown} */ b) {
 		const aa = cloneListValue(a);
 		const bb = cloneListValue(b);
 		if (aa.length !== bb.length) return false;
@@ -81,13 +134,14 @@
 		return true;
 	}
 
-	function listDisplayValue(v) {
+	function listDisplayValue(/** @type {unknown} */ v) {
 		return v === "" ? "(empty)" : String(v);
 	}
 
-	function humanizeKey(key) {
+	function humanizeKey(/** @type {unknown} */ key) {
 		var s = String(key || "");
 		var parts = s.split("_").filter((t) => !!t);
+		/** @type {string[]} */
 		var out = [];
 		parts.forEach((t) => {
 			var token = String(t || "");
@@ -99,7 +153,10 @@
 		return out.join(" ");
 	}
 
-	function fallbackHelp(p, key) {
+	function fallbackHelp(
+		/** @type {AmpPolicyField | null | undefined} */ p,
+		/** @type {unknown} */ key,
+	) {
 		var o = p || {};
 		var type = o && o.type != null ? String(o.type) : "";
 		var defv =
@@ -124,15 +181,19 @@
 		);
 	}
 
-	function schemaToFields(schemaObj) {
+	function schemaToFields(
+		/** @type {AmpSchema | null | undefined} */ schemaObj,
+	) {
+		var policy = schemaObj && schemaObj.policy ? schemaObj.policy : null;
 		if (schemaObj && Array.isArray(schemaObj.fields)) {
 			return schemaObj.fields;
 		}
 
 		if (schemaObj && schemaObj.policy && typeof schemaObj.policy === "object") {
+			/** @type {AmpField[]} */
 			const out = [];
 			Object.keys(schemaObj.policy).forEach((k) => {
-				var p = schemaObj.policy[k] || {};
+				var p = policy && policy[k] ? policy[k] : {};
 
 				var kind = "str";
 				if (Array.isArray(p.enum) && p.enum.length > 0) kind = "enum";
@@ -154,7 +215,7 @@
 					kind: kind,
 					label: label,
 					help: help,
-					enum: Array.isArray(p.enum) ? p.enum : null,
+					enum: Array.isArray(p.enum) ? p.enum.map((v) => String(v)) : null,
 					section: p.section || "",
 					read_only: !!p.read_only,
 				});
@@ -176,19 +237,24 @@
 		return [];
 	}
 
-	function renderChipList(container, key, values, onChange) {
+	function renderChipList(
+		/** @type {HTMLElement} */ container,
+		/** @type {string} */ key,
+		/** @type {unknown} */ values,
+		/** @type {AmpOnChange} */ onChange,
+	) {
 		container.textContent = "";
 
 		var chips = mk("div", "chips", null);
 		container.appendChild(chips);
 
-		function redraw(list) {
+		function redraw(/** @type {string[]} */ list) {
 			chips.textContent = "";
 			list.forEach((v, idx) => {
 				var chip = mk("span", "chip", null);
 				chip.appendChild(mk("span", "chip-text", listDisplayValue(v)));
 				if (v === "") chip.title = "Empty string item";
-				var x = mk("button", "chip-x", "x");
+				var x = /** @type {HTMLButtonElement} */ (mk("button", "chip-x", "x"));
 				x.type = "button";
 				x.addEventListener("click", () => {
 					var next = list.slice();
@@ -202,7 +268,7 @@
 			});
 		}
 
-		function addValue(v) {
+		function addValue(/** @type {string} */ v) {
 			var cur = cloneListValue(values);
 			cur.push(v);
 			inp.value = "";
@@ -212,9 +278,9 @@
 		}
 
 		var row = mk("div", "row", null);
-		var inp = mk("input", "input", null);
+		var inp = /** @type {HTMLInputElement} */ (mk("input", "input", null));
 		inp.placeholder = "Add item and press Enter";
-		inp.addEventListener("keydown", (ev) => {
+		inp.addEventListener("keydown", (/** @type {KeyboardEvent} */ ev) => {
 			if (ev.key !== "Enter") return;
 			ev.preventDefault();
 			var v = parseListToken(inp.value);
@@ -222,7 +288,9 @@
 			addValue(v);
 		});
 		row.appendChild(inp);
-		var addEmpty = mk("button", "input", "Add empty item");
+		var addEmpty = /** @type {HTMLButtonElement} */ (
+			mk("button", "input", "Add empty item")
+		);
 		addEmpty.type = "button";
 		addEmpty.addEventListener("click", () => {
 			addValue("");
@@ -234,11 +302,11 @@
 	}
 
 	function renderFields(
-		schemaFields,
-		baseValues,
-		values,
-		onChange,
-		filterText,
+		/** @type {AmpField[]} */ schemaFields,
+		/** @type {AmpValues | null} */ baseValues,
+		/** @type {AmpValues} */ values,
+		/** @type {AmpOnChange} */ onChange,
+		/** @type {unknown} */ filterText,
 	) {
 		var wrap = el("ampFields");
 		if (!wrap) return;
@@ -246,7 +314,8 @@
 
 		var ftxt = String(filterText || "").toLowerCase();
 
-		schemaFields.forEach((f) => {
+		schemaFields.forEach((/** @type {AmpField} */ f) => {
+			if (!wrap) return;
 			var key = String(f.key || "");
 			var kind = String(f.kind || "str");
 			var enumVals = Array.isArray(f.enum) ? f.enum : null;
@@ -286,7 +355,7 @@
 
 			if (kind === "bool") {
 				const sw = mk("label", "switch", null);
-				const cb = mk("input", null, null);
+				const cb = /** @type {HTMLInputElement} */ (mk("input", null, null));
 				cb.type = "checkbox";
 				cb.checked = !!values[key];
 				cb.addEventListener("change", () => {
@@ -296,9 +365,13 @@
 				sw.appendChild(mk("span", "slider", null));
 				ctl.appendChild(sw);
 			} else if (kind === "enum" && enumVals) {
-				const sel = mk("select", "input", null);
+				const sel = /** @type {HTMLSelectElement} */ (
+					mk("select", "input", null)
+				);
 				enumVals.forEach((optV) => {
-					var opt = mk("option", null, String(optV));
+					var opt = /** @type {HTMLOptionElement} */ (
+						mk("option", null, String(optV))
+					);
 					opt.value = String(optV);
 					sel.appendChild(opt);
 				});
@@ -308,7 +381,7 @@
 				});
 				ctl.appendChild(sel);
 			} else if (kind === "int") {
-				const ni = mk("input", "input", null);
+				const ni = /** @type {HTMLInputElement} */ (mk("input", "input", null));
 				ni.type = "number";
 				ni.value = String(values[key] == null ? "" : values[key]);
 				ni.addEventListener("change", () => {
@@ -322,7 +395,7 @@
 				ctl.appendChild(box);
 				renderChipList(box, key, values[key], onChange);
 			} else {
-				const ti = mk("input", "input", null);
+				const ti = /** @type {HTMLInputElement} */ (mk("input", "input", null));
 				ti.type = "text";
 				ti.value = String(values[key] == null ? "" : values[key]);
 				ti.addEventListener("change", () => {
@@ -363,13 +436,18 @@
 			});
 		}
 
+		/** @type {AmpSchema | null} */
 		var schema = null;
+		/** @type {AmpValues | null} */
 		var baseValues = null;
+		/** @type {AmpValues} */
 		var curValues = {};
+		/** @type {Record<string, string>} */
 		var fieldKinds = {};
 		var filterText = "";
 
-		function cloneValues(src) {
+		function cloneValues(/** @type {AmpValues | null | undefined} */ src) {
+			/** @type {AmpValues} */
 			var out = {};
 			Object.keys(fieldKinds).forEach((k) => {
 				var kind = fieldKinds[k];
@@ -387,7 +465,7 @@
 			return out;
 		}
 
-		function isDirty(k) {
+		function isDirty(/** @type {string} */ k) {
 			var kind = fieldKinds[k] || "str";
 			var a = baseValues ? baseValues[k] : undefined;
 			var b = curValues[k];
@@ -396,14 +474,14 @@
 			return a !== b;
 		}
 
-		function updateRowDirty(k) {
+		function updateRowDirty(/** @type {string} */ k) {
 			var row = el("ampRow__" + k);
 			if (!row) return;
 			if (isDirty(k)) row.classList.add("amp-dirty");
 			else row.classList.remove("amp-dirty");
 		}
 
-		function setCur(k, v) {
+		function setCur(/** @type {string} */ k, /** @type {AmpValue} */ v) {
 			curValues[k] = v;
 			updateRowDirty(k);
 		}
@@ -411,19 +489,21 @@
 		function reload() {
 			clearStatus();
 			return apiGet("/api/amp/schema").then((s) => {
+				s = /** @type {AmpApiResponse} */ (s);
 				if (!s || s.ok === false) {
 					setStatus(s && s.error ? s.error : "schema load failed", true);
 					return;
 				}
 				schema = s.schema;
 				return apiGet("/api/amp/config").then((c) => {
+					c = /** @type {AmpApiResponse} */ (c);
 					if (!c || c.ok === false) {
 						setStatus(c && c.error ? c.error : "config load failed", true);
 						return;
 					}
 					var fields = schemaToFields(schema || {});
 					fieldKinds = {};
-					fields.forEach((f) => {
+					fields.forEach((/** @type {AmpField} */ f) => {
 						var k = String(f.key || "");
 						var kind = String(f.kind || "str");
 						fieldKinds[k] = kind;
@@ -438,12 +518,13 @@
 			});
 		}
 
-		function post(dry) {
+		function post(/** @type {unknown} */ dry) {
 			clearStatus();
 			return apiPost("/api/amp/config", {
 				values: curValues,
 				dry_run: !!dry,
 			}).then((r) => {
+				r = /** @type {AmpApiResponse} */ (r);
 				if (!r || r.ok === false) {
 					setStatus(r && r.error ? r.error : "update failed", true);
 					return;
@@ -492,7 +573,7 @@
 		var inpFilter = /** @type {HTMLInputElement|null} */ (el("ampFilter"));
 		if (inpFilter) {
 			inpFilter.addEventListener("input", () => {
-				filterText = String(inpFilter.value || "");
+				filterText = inpFilter ? String(inpFilter.value || "") : "";
 				renderFields(
 					schemaToFields(schema || {}),
 					baseValues,

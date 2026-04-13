@@ -1,19 +1,43 @@
 /** @type {any} */
 var __ph_w = /** @type {any} */ (window);
-var PH = /** @type {any} */ (window).PH;
+/** @type {PatchhubHeaderRuntime | null} */
+var patchInventoryPh = /** @type {any} */ (window).PH || null;
 
-function phCall(name, ...args) {
-	if (!PH || typeof PH.call !== "function") return undefined;
-	return PH.call(name, ...args);
+/**
+ * @typedef {{
+ *   stored_rel_path?: string,
+ *   source_bucket?: string,
+ *   kind?: string,
+ *   filename?: string,
+ *   derived_commit_message?: string,
+ *   derived_issue?: string | number,
+ *   derived_target_repo?: string,
+ *   mtime_utc?: string,
+ * }} PatchInventoryItem
+ * @typedef {{
+ *   ok?: boolean,
+ *   error?: string,
+ *   items?: PatchInventoryItem[],
+ *   sig?: string,
+ *   unchanged?: boolean,
+ * }} PatchInventoryResponse
+ */
+
+function phCall(/** @type {string} */ name, /** @type {unknown[]} */ ...args) {
+	if (!patchInventoryPh || typeof patchInventoryPh.call !== "function")
+		return undefined;
+	return patchInventoryPh.call(name, ...args);
 }
 
-function patchBucketLabel(item) {
+function patchBucketLabel(
+	/** @type {PatchInventoryItem | null | undefined} */ item,
+) {
 	var bucket = String((item && item.source_bucket) || "");
 	if (bucket === "upload_dir") return "incoming";
 	return "patches";
 }
 
-function clearLoadedPatchIfDeleted(storedRelPath) {
+function clearLoadedPatchIfDeleted(/** @type {unknown} */ storedRelPath) {
 	var current = normalizePatchPath(
 		String((el("patchPath") && el("patchPath").value) || ""),
 	);
@@ -35,7 +59,9 @@ function clearLoadedPatchIfDeleted(storedRelPath) {
 	phCall("validateAndPreview");
 }
 
-function preparePatchFormForInventoryItem(item) {
+function preparePatchFormForInventoryItem(
+	/** @type {PatchInventoryItem | null | undefined} */ item,
+) {
 	var payload = item || {};
 	phCall("prepareFormForNewPatchLoad");
 	if (el("issueId")) el("issueId").value = "";
@@ -58,12 +84,14 @@ function preparePatchFormForInventoryItem(item) {
 	phCall("validateAndPreview");
 }
 
-function renderPatchesFromResponse(r) {
-	var items = (r && r.items) || [];
-	patchesCache = Array.isArray(items) ? items.slice() : [];
+function renderPatchesFromResponse(/** @type {PatchInventoryResponse} */ r) {
+	var items = Array.isArray(r && r.items)
+		? /** @type {PatchInventoryItem[]} */ (r.items)
+		: [];
+	patchesCache = items.slice();
 
-	var html = patchesCache
-		.map((item, idx) => {
+	var html = /** @type {PatchInventoryItem[]} */ (patchesCache)
+		.map((/** @type {PatchInventoryItem} */ item, idx) => {
 			var kind = String((item && item.kind) || "").trim() || "patch";
 			var filename = String((item && item.filename) || "").trim();
 			var commit = String((item && item.derived_commit_message) || "").trim();
@@ -111,7 +139,7 @@ function renderPatchesFromResponse(r) {
 		(node) => {
 			var idx = parseInt(node.getAttribute("data-idx") || "-1", 10);
 			if (idx < 0 || idx >= patchesCache.length) return;
-			var item = patchesCache[idx];
+			var item = /** @type {PatchInventoryItem} */ (patchesCache[idx]);
 			var storedRelPath = String((item && item.stored_rel_path) || "");
 			var deleteBtn = node.querySelector(".patchDelete");
 			if (deleteBtn) {
@@ -120,9 +148,14 @@ function renderPatchesFromResponse(r) {
 					if (!storedRelPath) return;
 					if (!confirm(`Delete patch ${storedRelPath}?`)) return;
 					apiPost("/api/fs/delete", { path: storedRelPath }).then((resp) => {
-						if (!resp || resp.ok === false) {
+						var deleteResp = /** @type {{ ok?: boolean, error?: string }} */ (
+							resp
+						);
+						if (!deleteResp || deleteResp.ok === false) {
 							setFsHint(
-								resp && resp.error ? String(resp.error) : "Delete failed",
+								deleteResp && deleteResp.error
+									? String(deleteResp.error)
+									: "Delete failed",
 							);
 							return;
 						}
@@ -139,7 +172,9 @@ function renderPatchesFromResponse(r) {
 	);
 }
 
-function refreshPatches(opts) {
+function refreshPatches(
+	/** @type {{ mode?: string } | null | undefined} */ opts,
+) {
 	opts = opts || {};
 	var mode = String(opts.mode || "user");
 	var qs = "";
@@ -150,18 +185,19 @@ function refreshPatches(opts) {
 		mode: mode,
 		single_flight: mode === "periodic",
 	}).then((r) => {
-		if (!r || r.ok === false) {
-			setPre("patchesList", r);
+		var resp = /** @type {PatchInventoryResponse} */ (r);
+		if (!resp || resp.ok === false) {
+			setPre("patchesList", resp);
 			return;
 		}
-		if (r.unchanged) return;
-		if (r.sig) idleSigs.patches = String(r.sig || "");
-		renderPatchesFromResponse(r);
+		if (resp.unchanged) return;
+		if (resp.sig) idleSigs.patches = String(resp.sig || "");
+		renderPatchesFromResponse(resp);
 	});
 }
 
-if (PH && typeof PH.register === "function") {
-	PH.register("app_part_patch_inventory", {
+if (patchInventoryPh && typeof patchInventoryPh.register === "function") {
+	patchInventoryPh.register("app_part_patch_inventory", {
 		renderPatchesFromResponse,
 		refreshPatches,
 	});

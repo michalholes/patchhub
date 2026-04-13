@@ -1,5 +1,31 @@
 (() => {
 	/**
+	 * @typedef {Record<string, unknown>} OverviewItem
+	 * @typedef {{
+	 *   ok?: boolean,
+	 *   unchanged?: boolean,
+	 *   seq?: number,
+	 *   sigs?: OverviewSigs,
+	 *   snapshot?: OverviewSnapshot,
+	 * }} OverviewSnapshotResponse
+	 * @typedef {{
+	 *   removed?: OverviewItem[],
+	 *   updated?: OverviewItem[],
+	 *   added?: OverviewItem[],
+	 *   ordered_keys?: string[],
+	 * }} OverviewDeltaBucket
+	 * @typedef {{
+	 *   ok?: boolean,
+	 *   resync_needed?: boolean,
+	 *   seq?: number,
+	 *   sigs?: OverviewSigs,
+	 *   jobs?: OverviewDeltaBucket,
+	 *   runs?: OverviewDeltaBucket,
+	 *   patches?: OverviewDeltaBucket,
+	 *   workspaces?: OverviewDeltaBucket,
+	 *   header_changed?: boolean,
+	 *   header?: Record<string, unknown>,
+	 * }} OverviewDeltaResponse
 	 * @typedef {{
 	 *   jobs?: string,
 	 *   runs?: string,
@@ -27,20 +53,20 @@
 	 *   cleanup_recent_status?: CleanupRecentStatusItem[],
 	 * }} OperatorInfoSnapshot
 	 * @typedef {{
-	 *   jobs?: Array<Object>,
-	 *   runs?: Array<Object>,
-	 *   patches?: Array<Object>,
-	 *   workspaces?: Array<Object>,
-	 *   header?: Object,
+	 *   jobs?: OverviewItem[],
+	 *   runs?: OverviewItem[],
+	 *   patches?: OverviewItem[],
+	 *   workspaces?: OverviewItem[],
+	 *   header?: Record<string, unknown>,
 	 *   operator_info?: OperatorInfoSnapshot,
 	 * }} OverviewSnapshot
 	 * @typedef {{
 	 *   call?: function(string, ...*): *,
-	 *   register?: function(string, Object): void,
+	 *   register?: function(string, Record<string, unknown>): void,
 	 * }} PatchHubRuntime
 	 * @typedef {Window & typeof globalThis & {
 	 *   PH?: PatchHubRuntime | null,
-	 *   refreshOverviewSnapshot?: function(Object=): Promise<Object>,
+	 *   refreshOverviewSnapshot?: function(Record<string, unknown>=): Promise<Record<string, unknown>>,
 	 *   ensureSnapshotEvents?: function(): void,
 	 *   stopSnapshotEvents?: function(): void,
 	 *   snapshotEventsNeedPolling?: function(): boolean,
@@ -51,9 +77,13 @@
 	var snapshotEventsWindow = window;
 	/** @type {PatchHubRuntime | null} */
 	var snapshotEventsRuntime = window.PH || null;
+	/** @type {EventSource | null} */
 	var snapshotEventsSource = null;
 
-	function phCall(name, ...args) {
+	function phCall(
+		/** @type {string} */ name,
+		/** @type {unknown[]} */ ...args
+	) {
 		if (
 			!snapshotEventsRuntime ||
 			typeof snapshotEventsRuntime.call !== "function"
@@ -64,9 +94,12 @@
 	var snapshotEventsHealthy = false;
 	var snapshotSeenSeq = 0;
 	var snapshotAppliedSeq = 0;
+	/** @type {OverviewSnapshot | null} */
 	var overviewSnapshotCache = null;
 
-	function updateSnapshotEventSigs(payload) {
+	function updateSnapshotEventSigs(
+		/** @type {{ sigs?: OverviewSigs } | null | undefined} */ payload,
+	) {
 		var sigs = (payload && payload.sigs) || {};
 		var snapSig = String(sigs.snapshot || "");
 		if (snapSig) idleSigs.snapshot = snapSig;
@@ -84,14 +117,18 @@
 		if (os) idleSigs.operator_info = os;
 	}
 
-	function snapshotEventOperatorInfoChanged(payload) {
+	function snapshotEventOperatorInfoChanged(
+		/** @type {{ sigs?: OverviewSigs } | null | undefined} */ payload,
+	) {
 		var sigs = (payload && payload.sigs) || {};
 		var nextSig = String(sigs.operator_info || "");
 		if (!nextSig) return false;
 		return nextSig !== String(idleSigs.operator_info || "");
 	}
 
-	function handleSnapshotEventPayload(payload) {
+	function handleSnapshotEventPayload(
+		/** @type {{ seq?: number, sigs?: OverviewSigs } | null | undefined} */ payload,
+	) {
 		var seq = Number((payload && payload.seq) || 0);
 		if (!Number.isNaN(seq) && seq <= snapshotSeenSeq) return false;
 		if (!Number.isNaN(seq)) snapshotSeenSeq = seq;
@@ -106,20 +143,22 @@
 		return "";
 	}
 
-	function cloneOverviewSnapshot(snapshot) {
+	function cloneOverviewSnapshot(
+		/** @type {OverviewSnapshot | null | undefined} */ snapshot,
+	) {
 		if (!snapshot) return null;
 		return {
 			jobs: Array.isArray(snapshot.jobs)
-				? snapshot.jobs.map((x) => ({ ...x }))
+				? snapshot.jobs.map((/** @type {OverviewItem} */ x) => ({ ...x }))
 				: [],
 			runs: Array.isArray(snapshot.runs)
-				? snapshot.runs.map((x) => ({ ...x }))
+				? snapshot.runs.map((/** @type {OverviewItem} */ x) => ({ ...x }))
 				: [],
 			patches: Array.isArray(snapshot.patches)
-				? snapshot.patches.map((x) => ({ ...x }))
+				? snapshot.patches.map((/** @type {OverviewItem} */ x) => ({ ...x }))
 				: [],
 			workspaces: Array.isArray(snapshot.workspaces)
-				? snapshot.workspaces.map((x) => ({ ...x }))
+				? snapshot.workspaces.map((/** @type {OverviewItem} */ x) => ({ ...x }))
 				: [],
 			header: snapshot.header ? { ...snapshot.header } : {},
 			operator_info: snapshot.operator_info
@@ -128,7 +167,11 @@
 		};
 	}
 
-	function applyOverviewSnapshotData(snapshot, sigs, seq) {
+	function applyOverviewSnapshotData(
+		/** @type {OverviewSnapshot | null | undefined} */ snapshot,
+		/** @type {OverviewSigs | null | undefined} */ sigs,
+		/** @type {number | null | undefined} */ seq,
+	) {
 		snapshot = snapshot || {};
 		overviewSnapshotCache = cloneOverviewSnapshot(snapshot);
 		updateSnapshotEventSigs({ sigs: sigs || {} });
@@ -157,11 +200,11 @@
 		}
 	}
 
-	function overviewJobKey(item) {
+	function overviewJobKey(/** @type {OverviewItem} */ item) {
 		return String((item && item.job_id) || "");
 	}
 
-	function overviewRunKey(item) {
+	function overviewRunKey(/** @type {OverviewItem} */ item) {
 		return (
 			String((item && item.issue_id) || "") +
 			"|" +
@@ -169,11 +212,11 @@
 		);
 	}
 
-	function overviewPatchKey(item) {
+	function overviewPatchKey(/** @type {OverviewItem} */ item) {
 		return String((item && item.stored_rel_path) || "");
 	}
 
-	function overviewWorkspaceKey(item) {
+	function overviewWorkspaceKey(/** @type {OverviewItem} */ item) {
 		return (
 			String((item && item.issue_id) || "") +
 			"|" +
@@ -181,12 +224,17 @@
 		);
 	}
 
-	function applyDeltaOrder(items, keyFn, orderedKeys) {
+	function applyDeltaOrder(
+		/** @type {OverviewItem[]} */ items,
+		/** @type {(item: OverviewItem) => string} */ keyFn,
+		/** @type {string[] | null | undefined} */ orderedKeys,
+	) {
 		if (!Array.isArray(orderedKeys) || !orderedKeys.length) return items;
 		var pending = new Map();
-		items.forEach((item) => {
+		items.forEach((/** @type {OverviewItem} */ item) => {
 			pending.set(keyFn(item), { ...item });
 		});
+		/** @type {OverviewItem[]} */
 		var ordered = [];
 		orderedKeys.forEach((key) => {
 			var item = pending.get(String(key || ""));
@@ -200,11 +248,17 @@
 		return ordered;
 	}
 
-	function mergeDeltaItems(before, delta, keyFn) {
+	function mergeDeltaItems(
+		/** @type {OverviewItem[] | null | undefined} */ before,
+		/** @type {OverviewDeltaBucket | null | undefined} */ delta,
+		/** @type {(item: OverviewItem) => string} */ keyFn,
+	) {
 		delta = delta || {};
-		var items = Array.isArray(before) ? before.map((x) => ({ ...x })) : [];
+		var items = Array.isArray(before)
+			? before.map((/** @type {OverviewItem} */ x) => ({ ...x }))
+			: [];
 		var index = new Map();
-		items.forEach((item, idx) => {
+		items.forEach((/** @type {OverviewItem} */ item, idx) => {
 			index.set(keyFn(item), idx);
 		});
 
@@ -236,7 +290,9 @@
 		return applyDeltaOrder(items, keyFn, delta.ordered_keys);
 	}
 
-	function applyOverviewDelta(delta) {
+	function applyOverviewDelta(
+		/** @type {OverviewDeltaResponse | null | undefined} */ delta,
+	) {
 		if (!overviewSnapshotCache) return false;
 		if (!delta || delta.ok === false) return false;
 		if (delta.resync_needed) return false;
@@ -277,7 +333,9 @@
 		);
 	}
 
-	function refreshOverviewSnapshot(opts) {
+	function refreshOverviewSnapshot(
+		/** @type {{ mode?: string } | null | undefined} */ opts,
+	) {
 		opts = opts || {};
 		var mode = String(opts.mode || "user");
 		var qs = "";
@@ -288,9 +346,10 @@
 			mode: mode,
 			single_flight: mode === "periodic",
 		}).then((r) => {
-			if (!r || r.ok === false) return { changed: false };
-			if (r.unchanged) return { changed: false };
-			applyOverviewSnapshotData(r.snapshot || {}, r.sigs || {}, r.seq);
+			var resp = /** @type {OverviewSnapshotResponse} */ (r);
+			if (!resp || resp.ok === false) return { changed: false };
+			if (resp.unchanged) return { changed: false };
+			applyOverviewSnapshotData(resp.snapshot || {}, resp.sigs || {}, resp.seq);
 			return { changed: true };
 		});
 	}
@@ -307,9 +366,10 @@
 
 	function openSnapshotEvents() {
 		var PH = snapshotEventsRuntime;
+		// PH.call("hasTrackedActiveJob") || document.hidden keeps active-job flow on the live path.
 		if (
 			snapshotEventsSource ||
-			PH.call("hasTrackedActiveJob") ||
+			(PH && typeof PH.call === "function" && PH.call("hasTrackedActiveJob")) ||
 			document.hidden
 		)
 			return;
@@ -348,7 +408,8 @@
 			}
 			fetchOverviewDelta()
 				.then((delta) => {
-					if (!applyOverviewDelta(delta)) {
+					var deltaResp = /** @type {OverviewDeltaResponse} */ (delta);
+					if (!applyOverviewDelta(deltaResp)) {
 						return refreshOverviewSnapshot({ mode: "latest" });
 					}
 					return { changed: true };
@@ -367,10 +428,7 @@
 	}
 
 	function ensureSnapshotEvents() {
-		if (
-			snapshotEventsRuntime &&
-			snapshotEventsRuntime.call("hasTrackedActiveJob")
-		) {
+		if (snapshotEventsRuntime && phCall("hasTrackedActiveJob")) {
 			stopSnapshotEvents();
 			return;
 		}
@@ -392,8 +450,8 @@
 		snapshotEventsRuntime &&
 		typeof snapshotEventsRuntime.register === "function"
 	) {
-		const PH = snapshotEventsRuntime;
-		PH.register("app_part_snapshot_events", {
+		const register = snapshotEventsRuntime.register;
+		register("app_part_snapshot_events", {
 			refreshOverviewSnapshot,
 			ensureSnapshotEvents,
 			stopSnapshotEvents,

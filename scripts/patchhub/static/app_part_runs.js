@@ -1,16 +1,38 @@
-/** @type {any} */
-var PH = /** @type {any} */ (window).PH;
+/**
+ * @typedef {{
+ *   issue_id?: string | number,
+ *   result?: string,
+ *   log_rel_path?: string,
+ *   mtime_utc?: string,
+ * }} PatchhubRunThin
+ * @typedef {{
+ *   ok?: boolean,
+ *   error?: string,
+ *   runs?: PatchhubRunThin[],
+ *   run?: PatchhubHeaderRunDetail | null,
+ *   sig?: string,
+ *   unchanged?: boolean,
+ * }} PatchhubRunsResponse
+ * @typedef {{ ok?: boolean, text?: string, truncated?: boolean, tail?: string }} PatchhubTextResponse
+ * @typedef {{ order: string[], state: Record<string, string> }} PatchhubShortProgress
+ * @typedef {{
+ *   call?: (name: string, ...args: unknown[]) => unknown,
+ *   register?: (name: string, exportsObj: Record<string, unknown>) => void,
+ * }} PatchhubRunsRuntime
+ */
+/** @type {PatchhubRunsRuntime | null} */
+var runsPh = /** @type {any} */ (window).PH || null;
 var lastRunLogPath = "";
 
-function phCall(name, ...args) {
-	if (!PH || typeof PH.call !== "function") return undefined;
-	return PH.call(name, ...args);
+function phCall(/** @type {string} */ name, /** @type {unknown[]} */ ...args) {
+	if (!runsPh || typeof runsPh.call !== "function") return undefined;
+	return runsPh.call(name, ...args);
 }
-function renderRunsFromResponse(r) {
-	runsCache = r.runs || [];
+function renderRunsFromResponse(/** @type {PatchhubRunsResponse} */ r) {
+	runsCache = Array.isArray(r.runs) ? r.runs.slice() : [];
 
-	var html = runsCache
-		.map((x, idx) => {
+	var html = /** @type {PatchhubRunThin[]} */ (runsCache)
+		.map((/** @type {PatchhubRunThin} */ x, idx) => {
 			var log = x.log_rel_path || "";
 			var link = log
 				? '<a class="linklike" href="/api/fs/download?path=' +
@@ -49,20 +71,24 @@ function renderRunsFromResponse(r) {
 		(node) => {
 			node.addEventListener("click", () => {
 				var item = node.parentElement;
+				if (!item) return;
 				var idx = parseInt(item.getAttribute("data-idx") || "-1", 10);
+				/** @type {PatchhubRunThin | null} */
 				var thin = null;
 				var iid = NaN;
 				if (idx >= 0 && idx < runsCache.length) {
-					thin = runsCache[idx];
+					thin = /** @type {PatchhubRunThin | null} */ (runsCache[idx] || null);
+					if (!thin) return;
 					iid = Number(thin.issue_id);
 				}
 				if (!Number.isFinite(iid)) return;
 				apiGet(`/api/runs/${encodeURIComponent(String(iid))}`).then((dr) => {
-					if (!dr || dr.ok === false) {
-						setPre("issueTabBody", dr);
+					var resp = /** @type {PatchhubRunsResponse} */ (dr);
+					if (!resp || resp.ok === false) {
+						setPre("issueTabBody", resp);
 						return;
 					}
-					selectedRun = dr.run;
+					selectedRun = resp.run || null;
 					phCall("renderIssueDetail");
 				});
 			});
@@ -70,9 +96,10 @@ function renderRunsFromResponse(r) {
 	);
 }
 
-function refreshRuns(opts) {
+function refreshRuns(/** @type {{ mode?: string } | null | undefined} */ opts) {
 	opts = opts || {};
 	var mode = String(opts.mode || "user");
+	/** @type {string[]} */
 	var q = [];
 	var issue = String(el("runsIssue").value || "").trim();
 	var res = String(el("runsResult").value || "");
@@ -84,24 +111,26 @@ function refreshRuns(opts) {
 		mode: mode,
 		single_flight: mode === "periodic",
 	}).then((r) => {
-		if (!r || r.ok === false) {
-			setPre("runsList", r);
+		var resp = /** @type {PatchhubRunsResponse} */ (r);
+		if (!resp || resp.ok === false) {
+			setPre("runsList", resp);
 			return;
 		}
-		if (r.unchanged) return;
-		var sig = String(r.sig || "");
+		if (resp.unchanged) return;
+		var sig = String(resp.sig || "");
 		if (sig) idleSigs.runs = sig;
-		renderRunsFromResponse(r);
+		renderRunsFromResponse(resp);
 	});
 }
 
 function refreshLastRunLog() {
 	apiGet("/api/runs?limit=1").then((r) => {
-		if (!r || r.ok === false) {
-			setPre("lastRunLog", r);
+		var resp = /** @type {PatchhubRunsResponse} */ (r);
+		if (!resp || resp.ok === false) {
+			setPre("lastRunLog", resp);
 			return;
 		}
-		var runs = r.runs || [];
+		var runs = resp.runs || [];
 		if (!runs.length) {
 			lastRunLogPath = "";
 			setPre("lastRunLog", "");
@@ -122,23 +151,24 @@ function refreshLastRunLog() {
 			encodeURIComponent(logRel) +
 			"&tail_lines=2000";
 		apiGet(url).then((rt) => {
-			if (!rt || rt.ok === false) {
-				setPre("lastRunLog", rt);
+			var textResp = /** @type {PatchhubTextResponse} */ (rt);
+			if (!textResp || textResp.ok === false) {
+				setPre("lastRunLog", textResp);
 				return;
 			}
-			var t = String(rt.text || "");
-			if (rt.truncated) t += "\n\n[TRUNCATED]";
+			var t = String(textResp.text || "");
+			if (textResp.truncated) t += "\n\n[TRUNCATED]";
 			setPre("lastRunLog", t);
 			if (wantFollow && box) box.scrollTop = box.scrollHeight;
 		});
 	});
 }
 
-function refreshTail(lines) {
+function refreshTail(/** @type {number | null | undefined} */ lines) {
 	tailLines = lines || tailLines || 200;
 
 	var idleGuardOn = !!(cfg && cfg.ui && cfg.ui.clear_output_on_autofill);
-	var jid = PH.call("getLiveJobId");
+	var jid = phCall("getLiveJobId");
 	if (!jid && suppressIdleOutput && idleGuardOn) {
 		setPre("tail", "");
 		return;
@@ -154,28 +184,31 @@ function refreshTail(lines) {
 			linesQ;
 	}
 	apiGet(url).then((r) => {
-		if (!r || r.ok === false) {
-			setPre("tail", r);
+		var resp = /** @type {PatchhubTextResponse} */ (r);
+		if (!resp || resp.ok === false) {
+			setPre("tail", resp);
 			return;
 		}
-		var t = String(r.tail || "");
+		var t = String(resp.tail || "");
 		setPre("tail", t);
 	});
 }
 
-function parseProgressFromText(text) {
+function parseProgressFromText(/** @type {unknown} */ text) {
 	var lines = String(text || "").split(/\r?\n/);
+	/** @type {string[]} */
 	var order = [];
+	/** @type {Record<string, string>} */
 	var state = {};
 	var currentRunning = "";
 
-	function normStepName(s) {
+	function normStepName(/** @type {unknown} */ s) {
 		return String(s || "")
 			.replace(/\s+/g, " ")
 			.trim();
 	}
 
-	function ensureStep(name) {
+	function ensureStep(/** @type {string} */ name) {
 		if (!name) return;
 		if (!Object.hasOwn(state, name)) {
 			state[name] = "pending";
@@ -183,7 +216,7 @@ function parseProgressFromText(text) {
 		if (order.indexOf(name) < 0) order.push(name);
 	}
 
-	function setState(name, st) {
+	function setState(/** @type {string} */ name, /** @type {string} */ st) {
 		name = normStepName(name);
 		if (!name) return;
 		ensureStep(name);
@@ -238,7 +271,7 @@ function parseProgressFromText(text) {
 	return { order: order, state: state };
 }
 
-function pickProgressSummaryLine(text) {
+function pickProgressSummaryLine(/** @type {unknown} */ text) {
 	var lines = String(text || "").split(/\r?\n/);
 	for (let i = lines.length - 1; i >= 0; i--) {
 		const s = String(lines[i] || "").trim();
@@ -253,7 +286,7 @@ function pickProgressSummaryLine(text) {
 	return "(idle)";
 }
 
-function renderProgressSteps(progress) {
+function renderProgressSteps(/** @type {PatchhubShortProgress} */ progress) {
 	var box = el("progressSteps");
 	if (!box) return;
 
@@ -281,30 +314,33 @@ function renderProgressSteps(progress) {
 	box.innerHTML = html;
 }
 
-function renderProgressSummary(summaryLine) {
+function renderProgressSummary(/** @type {unknown} */ summaryLine) {
 	var node = el("progressSummary");
 	if (!node) return;
-	node.textContent = summaryLine || "(idle)";
+	node.textContent = String(summaryLine || "(idle)");
 }
 
-function updateShortProgressFromText(text) {
+function updateShortProgressFromText(/** @type {unknown} */ text) {
 	var progress = parseProgressFromText(text);
 	renderProgressSteps(progress);
 	renderProgressSummary(pickProgressSummaryLine(text));
 }
 
-function normStepName(s) {
+function normStepName(/** @type {unknown} */ s) {
 	return String(s || "")
 		.replace(/\s+/g, " ")
 		.trim();
 }
 
-if (PH && typeof PH.register === "function") {
-	PH.register("app_part_runs", {
-		renderRunsFromResponse,
-		refreshRuns,
-		refreshLastRunLog,
-		refreshTail,
-		updateShortProgressFromText,
-	});
+if (runsPh && typeof runsPh.register === "function") {
+	const PH = runsPh;
+	if (PH.register) {
+		PH.register("app_part_runs", {
+			renderRunsFromResponse,
+			refreshRuns,
+			refreshLastRunLog,
+			refreshTail,
+			updateShortProgressFromText,
+		});
+	}
 }

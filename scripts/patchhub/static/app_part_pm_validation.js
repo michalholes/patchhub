@@ -7,7 +7,9 @@
 	/** @type {Window & typeof globalThis} */
 	var validationWindow = window;
 	/** @type {PatchhubUiBridge} */
-	var ui = validationWindow.AMP_PATCHHUB_UI || {};
+	var ui = /** @type {PatchhubUiBridge} */ (
+		validationWindow.AMP_PATCHHUB_UI || {}
+	);
 	validationWindow.AMP_PATCHHUB_UI = ui;
 
 	/** @type {PatchhubHeaderRuntime | null} */
