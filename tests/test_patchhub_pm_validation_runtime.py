@@ -463,7 +463,7 @@ def test_patch_validation_reports_instructions_failure_summary(
 
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
     assert payload["status"] == "fail"
-    assert payload["failure_summary"] == "missing or invalid instructions artifact"
+    assert payload["failure_summary"] == "instructions extension"
     assert "RULE INSTRUCTIONS_EXTENSION: FAIL" in payload["raw_output"]
 
 
@@ -472,20 +472,27 @@ def test_failure_summary_classifier_covers_phb_generated_prevalidator_failure() 
 
     assert (
         pm_runtime_mod._failure_summary("zip_target_missing_or_invalid:missing", {})
-        == "missing or invalid zip metadata"
+        == "target file"
     )
     assert pm_runtime_mod._failure_summary("", {}) == "generic validator failure"
 
 
-def test_failure_summary_classifier_does_not_promote_stale_cache_warning() -> None:
+def test_failure_summary_classifier_aggregates_and_counts_validator_tags() -> None:
     import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
 
     assert (
         pm_runtime_mod._failure_summary(
-            "RESULT: FAIL\nRULE MONOLITH: FAIL - file_too_large\n",
-            {"resolution_mode": "stale-cache", "error": "remote_not_found"},
+            "\n".join(
+                [
+                    "RESULT: FAIL",
+                    "RULE GIT_APPLY_CHECK:PATCH_1: FAIL - rejected",
+                    "RULE GIT_APPLY_CHECK:PATCH_2: FAIL - rejected",
+                    "RULE INSTRUCTIONS_LAYOUT: FAIL - missing_handoff",
+                ]
+            ),
+            {},
         )
-        == "monolith"
+        == "2x git apply | instructions layout"
     )
 
 
@@ -522,7 +529,11 @@ def test_patch_validation_reports_validator_rule_failure_summary(
         return __import__("subprocess").CompletedProcess(
             args=["pm_validator.py"],
             returncode=1,
-            stdout="RESULT: FAIL\nRULE MONOLITH: FAIL - file_too_large\n",
+            stdout=(
+                "RESULT: FAIL\n"
+                "RULE MONOLITH: FAIL - file_too_large\n"
+                "RULE EXTERNAL_GATE:PYTEST: FAIL - test_failed\n"
+            ),
             stderr="",
         )
 
@@ -530,8 +541,40 @@ def test_patch_validation_reports_validator_rule_failure_summary(
 
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
     assert payload["status"] == "fail"
-    assert payload["failure_summary"] == "monolith"
+    assert payload["failure_summary"] == "monolith | pytest gate"
     assert "RULE MONOLITH: FAIL" in payload["raw_output"]
+    assert "RULE EXTERNAL_GATE:PYTEST: FAIL" in payload["raw_output"]
+
+
+def test_failure_summary_classifier_suppresses_pack_rule_duplicates() -> None:
+    import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
+
+    assert (
+        pm_runtime_mod._failure_summary(
+            "\n".join(
+                [
+                    "RESULT: FAIL",
+                    "RULE PACK_RECOMPUTE: FAIL - mismatch",
+                    "RULE PACK_RULE:RC.PMI.N0477: FAIL - pack_recompute_mismatch",
+                    "RULE PACK_REQUIRED_VALIDATION: FAIL - missing",
+                ]
+            ),
+            {},
+        )
+        == "constraint pack recompute | constraint pack required validation"
+    )
+
+
+def test_failure_summary_classifier_keeps_pack_rule_without_primary_pack_failure() -> None:
+    import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
+
+    assert (
+        pm_runtime_mod._failure_summary(
+            "RESULT: FAIL\nRULE PACK_RULE:RC.PMI.N0477: FAIL - pack_rule_only\n",
+            {},
+        )
+        == "constraint pack rule"
+    )
 
 
 @pytest.mark.usefixtures("monkeypatch")
@@ -735,7 +778,11 @@ def test_patch_validation_stale_cache_preserves_final_validator_failure_summary(
         return __import__("subprocess").CompletedProcess(
             args=["pm_validator.py"],
             returncode=1,
-            stdout="RESULT: FAIL\nRULE MONOLITH: FAIL - file_too_large\n",
+            stdout=(
+                "RESULT: FAIL\n"
+                "RULE MONOLITH: FAIL - file_too_large\n"
+                "RULE EXTERNAL_GATE:PYTEST: FAIL - test_failed\n"
+            ),
             stderr="",
         )
 
@@ -745,7 +792,7 @@ def test_patch_validation_stale_cache_preserves_final_validator_failure_summary(
     assert payload["status"] == "fail"
     assert payload["toolkit_resolution"]["resolution_mode"] == "stale-cache"
     assert payload["toolkit_resolution"]["error"]
-    assert payload["failure_summary"] == "monolith"
+    assert payload["failure_summary"] == "monolith | pytest gate"
 
 
 @pytest.mark.usefixtures("monkeypatch")
@@ -791,6 +838,14 @@ def test_patch_validation_empty_raw_output_uses_generic_failure_summary(
     assert payload["status"] == "fail"
     assert payload["raw_output"] == ""
     assert payload["failure_summary"] == "generic validator failure"
+
+
+def test_failure_summary_classifier_uses_validation_error_for_unmapped_phb_failure() -> None:
+    import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
+
+    assert (
+        pm_runtime_mod._failure_summary("[stderr]\nphb_generated_failure", {}) == "validation error"
+    )
 
 
 @pytest.mark.usefixtures("monkeypatch")

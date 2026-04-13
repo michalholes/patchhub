@@ -184,7 +184,7 @@ const passState = {
 };
 window.PH.call("setPmValidationPayload", {
   status: "fail",
-  failure_summary: "monolith",
+  failure_summary: "2x git apply | instructions layout",
   raw_output: "RESULT: FAIL\\nRULE EXTERNAL_GATE: FAIL - ignored_by_ui",
 });
 window.PH.call("renderInfoPoolUi");
@@ -209,7 +209,7 @@ process.stdout.write(JSON.stringify({ passState, failState, degradedState }));
         "fail": False,
     }
     assert result["failState"] == {
-        "summary": "PM validation: FAIL - monolith",
+        "summary": "PM validation: FAIL - 2x git apply | instructions layout",
         "pass": False,
         "fail": True,
     }
@@ -267,7 +267,7 @@ window.PH.call("setPmValidationPayload", {{
   patch_path: "issue_330_v1.zip",
   authority_sources: ["patched_issue330_v01.zip", "live_workspace_snapshot"],
   supplemental_files: ["tests/test_sample.txt"],
-  failure_summary: "external gate",
+  failure_summary: "monolith | pytest gate",
   raw_output: {raw_output},
 }});
 window.PH.call("renderInfoPoolUi");
@@ -280,9 +280,9 @@ process.stdout.write(JSON.stringify({{
     result = _run_node(script)
     assert "PM validation" in result["body"]
     assert "repair-supplemental" in result["body"]
-    assert "PM validation: FAIL - external gate" in result["body"]
+    assert "PM validation: FAIL - monolith | pytest gate" in result["body"]
     assert "Failure summary" in result["body"]
-    assert "external gate" in result["body"]
+    assert "monolith | pytest gate" in result["body"]
     assert "RESULT: PASS" in result["body"]
     assert "tests/test_sample.txt" in result["body"]
 
