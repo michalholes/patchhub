@@ -24,9 +24,20 @@ from .zip_patch_subset import resolve_patch_zip_path
 
 _STATUS_PASS = "pass"
 _STATUS_FAIL = "fail"
-_STATUS_ERROR = "error"
-_STATUS_MISSING_CONTEXT = "missing_context"
 _INSTRUCTIONS_BASENAME_RE = re.compile(r"^instructions_(?P<issue>\d+)_v(?P<version>[1-9]\d*)\.zip$")
+_RULE_FAIL_RE = re.compile(
+    r"^RULE (?P<rule>[A-Z0-9_:-]+): FAIL(?: - (?P<detail>.*))?$",
+    re.MULTILINE,
+)
+_SUMMARY_TOOLKIT = "toolkit resolution"
+_SUMMARY_INSTRUCTIONS = "missing or invalid instructions artifact"
+_SUMMARY_ZIP_METADATA = "missing or invalid zip metadata"
+_SUMMARY_GIT_APPLY = "git apply"
+_SUMMARY_COMPILE_OR_SYNTAX = "compile or syntax"
+_SUMMARY_MONOLITH = "monolith"
+_SUMMARY_EXTERNAL_GATE = "external gate"
+_SUMMARY_VALIDATION = "validation error"
+_SUMMARY_GENERIC = "generic validator failure"
 
 
 def _instructions_paths(patches_root: Path, issue_id: str) -> tuple[Path | None, Path | None]:
@@ -176,6 +187,56 @@ def _parse_status(returncode: int, raw_output: str) -> str:
     return _STATUS_FAIL
 
 
+def _classify_validator_rule_failure(raw_output: str) -> str:
+    for match in _RULE_FAIL_RE.finditer(str(raw_output or "")):
+        rule_name = str(match.group("rule") or "").strip().lower().replace("_", " ")
+        detail = str(match.group("detail") or "").strip().lower().replace("_", " ")
+        haystack = f"{rule_name} {detail}".strip()
+        if "instructions" in haystack:
+            return _SUMMARY_INSTRUCTIONS
+        if any(token in haystack for token in ("zip", "target", "commit", "issue", "metadata")):
+            return _SUMMARY_ZIP_METADATA
+        if "git apply" in haystack or ("apply" in haystack and "git" in haystack):
+            return _SUMMARY_GIT_APPLY
+        if any(token in haystack for token in ("compile", "syntax")):
+            return _SUMMARY_COMPILE_OR_SYNTAX
+        if "monolith" in haystack:
+            return _SUMMARY_MONOLITH
+        if "external gate" in haystack or "externalgate" in haystack:
+            return _SUMMARY_EXTERNAL_GATE
+        return _SUMMARY_VALIDATION
+    if "RESULT: FAIL" in str(raw_output or ""):
+        return _SUMMARY_GENERIC
+    return ""
+
+
+def _failure_summary(raw_output: str, toolkit_resolution: dict[str, Any] | None) -> str:
+    resolution = dict(toolkit_resolution or {})
+    resolution_error = str(resolution.get("error") or "").strip()
+    if resolution_error:
+        return _SUMMARY_TOOLKIT
+
+    raw = str(raw_output or "").strip()
+    if not raw:
+        return ""
+
+    if raw.startswith("instructions_placeholder_invalid:"):
+        return _SUMMARY_INSTRUCTIONS
+    if raw.startswith("toolkit_resolution_failed:"):
+        return _SUMMARY_TOOLKIT
+    if raw.startswith("zip_issue_missing_or_invalid:"):
+        return _SUMMARY_ZIP_METADATA
+    if raw.startswith("zip_target_missing_or_invalid:"):
+        return _SUMMARY_ZIP_METADATA
+    if raw.startswith("repair_target_missing_or_invalid:"):
+        return _SUMMARY_ZIP_METADATA
+    if raw.startswith("repair_workspace_snapshot_missing:"):
+        return _SUMMARY_VALIDATION
+
+    classified = _classify_validator_rule_failure(raw)
+    return classified or _SUMMARY_GENERIC
+
+
 def _run_validator(
     *,
     validator_script: Path,
@@ -244,14 +305,16 @@ def _missing_context_payload(
     raw_output: str,
     toolkit_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    failure_summary = _failure_summary(raw_output, toolkit_resolution)
     return {
-        "status": _STATUS_MISSING_CONTEXT,
+        "status": _STATUS_FAIL,
         "effective_mode": effective_mode,
         "issue_id": issue_id,
         "commit_message": commit_message,
         "patch_path": patch_path,
         "authority_sources": authority_sources,
         "supplemental_files": supplemental_files,
+        "failure_summary": failure_summary,
         "raw_output": raw_output,
         "toolkit_resolution": dict(toolkit_resolution or {}),
     }
@@ -270,15 +333,17 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
         toolkit_resolution = dict(toolkit.resolution)
     except GovernanceToolkitRuntimeError as exc:
         toolkit_resolution = dict(exc.resolution)
+        raw_output = f"toolkit_resolution_failed:{exc}"
         return {
-            "status": _STATUS_ERROR,
+            "status": _STATUS_FAIL,
             "effective_mode": "initial",
             "issue_id": issue_id,
             "commit_message": commit_message,
             "patch_path": patch_rel,
             "authority_sources": [],
             "supplemental_files": [],
-            "raw_output": f"toolkit_resolution_failed:{exc}",
+            "failure_summary": _failure_summary(raw_output, toolkit_resolution),
+            "raw_output": raw_output,
             "toolkit_resolution": toolkit_resolution,
         }
     zip_issue_id, zip_issue_err = read_issue_number_from_zip_path(
@@ -411,14 +476,18 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
                 passed_sources.append(str(instructions_authority))
             raw = _raw_output(proc.stdout, proc.stderr)
 
+    status = _parse_status(proc.returncode, raw)
     return {
-        "status": _parse_status(proc.returncode, raw),
+        "status": status,
         "effective_mode": effective_mode,
         "issue_id": issue_id,
         "commit_message": commit_message,
         "patch_path": patch_rel,
         "authority_sources": passed_sources,
         "supplemental_files": supplemental_files,
+        "failure_summary": ""
+        if status == _STATUS_PASS
+        else _failure_summary(raw, toolkit_resolution),
         "raw_output": raw,
         "toolkit_resolution": toolkit_resolution,
     }

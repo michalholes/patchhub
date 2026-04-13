@@ -337,7 +337,11 @@
 		/** @type {PatchhubPmValidationPayload | null} */ snapshot,
 	) {
 		if (!snapshot || typeof snapshot !== "object") return "";
-		var metaHtml = [
+		var metaRows = [
+			infoPoolHintValue(
+				"Summary",
+				infoPoolPmSummary() || String(snapshot.status || ""),
+			),
 			infoPoolHintValue("Status", String(snapshot.status || "")),
 			infoPoolHintValue("Mode", String(snapshot.effective_mode || "")),
 			infoPoolHintValue("Issue", String(snapshot.issue_id || "")),
@@ -355,7 +359,16 @@
 					? snapshot.supplemental_files.join(", ")
 					: "",
 			),
-		].join("");
+		];
+		if (String(snapshot.failure_summary || "").trim()) {
+			metaRows.push(
+				infoPoolHintValue(
+					"Failure summary",
+					String(snapshot.failure_summary || ""),
+				),
+			);
+		}
+		var metaHtml = metaRows.join("");
 		return infoPoolSection(
 			"PM validation",
 			'<div class="info-pool-hints">' +
@@ -423,7 +436,7 @@
 		);
 		strip.classList.toggle(
 			"statusbar-pm-fail",
-			visiblePmSummary === "PM validation: FAIL",
+			visiblePmSummary.indexOf("PM validation: FAIL") === 0,
 		);
 		if (infoPoolOpen) renderInfoPoolModal();
 	}

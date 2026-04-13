@@ -430,9 +430,95 @@ def test_patch_zip_manifest_uses_standalone_toolkit_and_surfaces_resolution(
         str(snapshot),
         str(instructions),
     ]
+    assert pm["failure_summary"] == ""
     assert "RESULT: PASS" in pm["raw_output"]
     assert "SIG:sig-v1" in pm["raw_output"]
     assert not (tmp_path / "governance" / "pm_validator.py").exists()
+
+
+@pytest.mark.usefixtures("monkeypatch")
+def test_patch_validation_reports_instructions_failure_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolkit_v1 = _toolkit_zip(tmp_path / "toolkit-v1.zip", "sig-v1")
+    manifest = _write_manifest(tmp_path / "manifest.json", sig="sig-v1", archive_path=toolkit_v1)
+    _install_remote_bytes(monkeypatch, _remote_mapping(manifest, {"sig-v1": toolkit_v1}))
+    s = _mk_self(tmp_path, _github_manifest_url(), tmp_path / "toolkit-cache")
+
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    _snapshot_zip(
+        s.patches_root / "patchhub-main_20260315.zip",
+        {relpath: before.encode("utf-8")},
+    )
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Missing instructions",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert payload["status"] == "fail"
+    assert payload["failure_summary"] == "missing or invalid instructions artifact"
+    assert "RULE INSTRUCTIONS_EXTENSION: FAIL" in payload["raw_output"]
+
+
+def test_failure_summary_classifier_covers_phb_generated_prevalidator_failure() -> None:
+    import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
+
+    assert (
+        pm_runtime_mod._failure_summary("zip_target_missing_or_invalid:missing", {})
+        == "missing or invalid zip metadata"
+    )
+
+
+@pytest.mark.usefixtures("monkeypatch")
+def test_patch_validation_reports_validator_rule_failure_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolkit_v1 = _toolkit_zip(tmp_path / "toolkit-v1.zip", "sig-v1")
+    manifest = _write_manifest(tmp_path / "manifest.json", sig="sig-v1", archive_path=toolkit_v1)
+    _install_remote_bytes(monkeypatch, _remote_mapping(manifest, {"sig-v1": toolkit_v1}))
+    s = _mk_self(tmp_path, _github_manifest_url(), tmp_path / "toolkit-cache")
+
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    _snapshot_zip(
+        s.patches_root / "patchhub-main_20260315.zip",
+        {relpath: before.encode("utf-8")},
+    )
+    _instructions_zip(s.patches_root / "instructions_601_v1.zip")
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Monolith failure summary",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
+
+    def fake_run_validator(**kwargs):
+        del kwargs
+        return __import__("subprocess").CompletedProcess(
+            args=["pm_validator.py"],
+            returncode=1,
+            stdout="RESULT: FAIL\nRULE MONOLITH: FAIL - file_too_large\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(pm_runtime_mod, "_run_validator", fake_run_validator)
+
+    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert payload["status"] == "fail"
+    assert payload["failure_summary"] == "monolith"
+    assert "RULE MONOLITH: FAIL" in payload["raw_output"]
 
 
 @pytest.mark.usefixtures("monkeypatch")
@@ -500,6 +586,7 @@ def test_patch_validation_repair_supplemental_reuses_pinned_toolkit(
         str(snapshot),
         str(instructions),
     ]
+    assert payload["failure_summary"] == ""
     assert "SIG:sig-v1" in payload["raw_output"]
 
 
@@ -528,7 +615,8 @@ def test_patch_validation_fails_closed_without_authority_or_cache(
     )
 
     payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
-    assert payload["status"] == "error"
+    assert payload["status"] == "fail"
+    assert payload["failure_summary"] == "toolkit resolution"
     assert payload["toolkit_resolution"]["resolution_mode"] == "fail-closed"
     assert payload["toolkit_resolution"]["error"]
     assert payload["authority_sources"] == []
@@ -574,11 +662,13 @@ def test_patch_validation_reports_stale_cache_when_allowed(
 
     first = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
     assert first["status"] == "pass"
+    assert first["failure_summary"] == ""
     assert first["toolkit_resolution"]["selected_sig"] == "sig-v1"
 
     remote_mapping.pop(_github_manifest_url(), None)
     second = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
     assert second["status"] == "pass"
+    assert second["failure_summary"] == ""
     assert second["toolkit_resolution"]["selected_sig"] == "sig-v1"
     assert second["toolkit_resolution"]["resolution_mode"] == "stale-cache"
     assert second["toolkit_resolution"]["error"]

@@ -87,6 +87,7 @@
 			patch_path: String(source.patch_path || "").trim(),
 			authority_sources: normalizeList(source.authority_sources),
 			supplemental_files: normalizeList(source.supplemental_files),
+			failure_summary: String(source.failure_summary || "").trim(),
 			raw_output: String(source.raw_output || ""),
 			toolkit_resolution: normalizeToolkitResolution(source.toolkit_resolution),
 		};
@@ -101,6 +102,10 @@
 		var label = String(payload.status || "")
 			.replace(/_/g, " ")
 			.toUpperCase();
+		var failureSummary = String(payload.failure_summary || "").trim();
+		if (label === "FAIL" && failureSummary) {
+			return `PM validation: FAIL - ${failureSummary}`;
+		}
 		return `PM validation: ${label}`;
 	}
 

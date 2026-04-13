@@ -333,6 +333,7 @@ declare global {
 		patch_path?: string;
 		authority_sources?: string[];
 		supplemental_files?: string[];
+		failure_summary?: string;
 		raw_output?: string;
 		toolkit_resolution?: PatchhubToolkitResolutionRecord | null;
 	}
