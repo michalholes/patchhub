@@ -474,6 +474,19 @@ def test_failure_summary_classifier_covers_phb_generated_prevalidator_failure() 
         pm_runtime_mod._failure_summary("zip_target_missing_or_invalid:missing", {})
         == "missing or invalid zip metadata"
     )
+    assert pm_runtime_mod._failure_summary("", {}) == "generic validator failure"
+
+
+def test_failure_summary_classifier_does_not_promote_stale_cache_warning() -> None:
+    import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
+
+    assert (
+        pm_runtime_mod._failure_summary(
+            "RESULT: FAIL\nRULE MONOLITH: FAIL - file_too_large\n",
+            {"resolution_mode": "stale-cache", "error": "remote_not_found"},
+        )
+        == "monolith"
+    )
 
 
 @pytest.mark.usefixtures("monkeypatch")
@@ -672,6 +685,112 @@ def test_patch_validation_reports_stale_cache_when_allowed(
     assert second["toolkit_resolution"]["selected_sig"] == "sig-v1"
     assert second["toolkit_resolution"]["resolution_mode"] == "stale-cache"
     assert second["toolkit_resolution"]["error"]
+
+
+@pytest.mark.usefixtures("monkeypatch")
+def test_patch_validation_stale_cache_preserves_final_validator_failure_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolkit_v1 = _toolkit_zip(tmp_path / "toolkit-v1.zip", "sig-v1")
+    manifest = _write_manifest(tmp_path / "manifest.json", sig="sig-v1", archive_path=toolkit_v1)
+    remote_mapping = _remote_mapping(manifest, {"sig-v1": toolkit_v1})
+    _install_remote_bytes(monkeypatch, remote_mapping)
+    s = _mk_self(tmp_path, _github_manifest_url(), tmp_path / "toolkit-cache")
+    s.cfg = AppConfig(
+        **{
+            **s.cfg.__dict__,
+            "governance_toolkit": GovernanceToolkitConfig(
+                github_manifest_url=_github_manifest_url(),
+                cache_root=str(tmp_path / "toolkit-cache"),
+                allow_stale=True,
+                request_timeout_s=3,
+            ),
+        }
+    )
+
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    _snapshot_zip(
+        s.patches_root / "patchhub-main_20260315.zip",
+        {relpath: before.encode("utf-8")},
+    )
+    _instructions_zip(s.patches_root / "instructions_601_v1.zip")
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Stale cache keeps monolith summary",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    remote_mapping.pop(_github_manifest_url(), None)
+
+    import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
+
+    def fake_run_validator(**kwargs):
+        del kwargs
+        return __import__("subprocess").CompletedProcess(
+            args=["pm_validator.py"],
+            returncode=1,
+            stdout="RESULT: FAIL\nRULE MONOLITH: FAIL - file_too_large\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(pm_runtime_mod, "_run_validator", fake_run_validator)
+
+    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert payload["status"] == "fail"
+    assert payload["toolkit_resolution"]["resolution_mode"] == "stale-cache"
+    assert payload["toolkit_resolution"]["error"]
+    assert payload["failure_summary"] == "monolith"
+
+
+@pytest.mark.usefixtures("monkeypatch")
+def test_patch_validation_empty_raw_output_uses_generic_failure_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolkit_v1 = _toolkit_zip(tmp_path / "toolkit-v1.zip", "sig-v1")
+    manifest = _write_manifest(tmp_path / "manifest.json", sig="sig-v1", archive_path=toolkit_v1)
+    _install_remote_bytes(monkeypatch, _remote_mapping(manifest, {"sig-v1": toolkit_v1}))
+    s = _mk_self(tmp_path, _github_manifest_url(), tmp_path / "toolkit-cache")
+
+    relpath = "scripts/sample.py"
+    before = "def value():\n    return 1\n"
+    after = "def value():\n    return 2\n"
+    _snapshot_zip(
+        s.patches_root / "patchhub-main_20260315.zip",
+        {relpath: before.encode("utf-8")},
+    )
+    _instructions_zip(s.patches_root / "instructions_601_v1.zip")
+    _patch_zip(
+        s.patches_root / "issue_601_v1.zip",
+        issue="601",
+        commit="Generic summary on empty output",
+        members={_safe_member(relpath): _git_patch(relpath, before, after)},
+        target=DEFAULT_TARGET,
+    )
+
+    import scripts.patchhub.pm_validation_runtime as pm_runtime_mod
+
+    def fake_run_validator(**kwargs):
+        del kwargs
+        return __import__("subprocess").CompletedProcess(
+            args=["pm_validator.py"],
+            returncode=1,
+            stdout="",
+            stderr="",
+        )
+
+    monkeypatch.setattr(pm_runtime_mod, "_run_validator", fake_run_validator)
+
+    payload = build_patch_zip_pm_validation(s, "issue_601_v1.zip")
+    assert payload["status"] == "fail"
+    assert payload["raw_output"] == ""
+    assert payload["failure_summary"] == "generic validator failure"
 
 
 @pytest.mark.usefixtures("monkeypatch")

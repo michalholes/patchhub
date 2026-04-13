@@ -212,13 +212,14 @@ def _classify_validator_rule_failure(raw_output: str) -> str:
 
 def _failure_summary(raw_output: str, toolkit_resolution: dict[str, Any] | None) -> str:
     resolution = dict(toolkit_resolution or {})
+    resolution_mode = str(resolution.get("resolution_mode") or "").strip().lower()
     resolution_error = str(resolution.get("error") or "").strip()
-    if resolution_error:
+    if resolution_error and resolution_mode == "fail-closed":
         return _SUMMARY_TOOLKIT
 
     raw = str(raw_output or "").strip()
     if not raw:
-        return ""
+        return _SUMMARY_GENERIC
 
     if raw.startswith("instructions_placeholder_invalid:"):
         return _SUMMARY_INSTRUCTIONS
