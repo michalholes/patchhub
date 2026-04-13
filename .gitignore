@@ -1,6 +1,7 @@
 .codex
 node_modules/
 tsc_shims.d.ts
+.am_patch/
 
 venv/
 .venv/

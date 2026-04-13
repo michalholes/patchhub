@@ -168,7 +168,7 @@ virtual_artifacts_web_jobs_enabled = true
 # Operator-configured GitHub manifest URL for the standalone governance toolkit.
 # PatchHub treats this GitHub source as the freshness authority and uses local cache
 # only as an execution substrate for the GitHub-selected version.
-github_manifest_url = ""
+github_manifest_url = "https://raw.githubusercontent.com/michalholes/governance/main/artifacts/governance_toolkit/manifest.json"
 cache_root = "patches/artifacts/governance_toolkit_cache"
 allow_stale = false
 request_timeout_s = 3
