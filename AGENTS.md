@@ -1,6 +1,7 @@
 # Codex repository guidance
 
 This file governs Codex runs started from this repository root.
+Communicate in Slovak language.
 
 ## Repository role
 
