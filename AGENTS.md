@@ -21,12 +21,16 @@ This file governs Codex runs started from this repository root.
 - If Amp succeeds, do not stop immediately. Perform a correctness review against the issue intent and the instructions pack. If you find a remaining logical defect, produce the next patch version in the same issue and run Amp again.
 - Stop only when the issue is truly complete after Amp success and correctness review, or when you hit a hard blocker that requires an explicit user decision.
 
-## CTA semantics
+## Optimization findings
 
-- `issue X` means inspect only. Find the latest issue pack, report readiness, and do not modify files.
-- `implementuj issue X` means execute the issue.
-- `daj patch issue X` means execute the issue.
-- If the user explicitly says to switch executor to the implementation chat, stop and report current state instead of continuing execution as Codex.
+- If you identify a concrete optimization that would materially reduce issue-turn count, repeated inspection, repeated Amp reruns, unnecessary patch versions, or other execution waste, you MUST report it to the user.
+- Report only material optimizations. Ignore trivial style preferences and micro-optimizations.
+- Use a short `OPTIMIZATION FINDINGS` block with:
+  - impact
+  - affected workflow step or files
+  - safety class: `instruction-only` | `runtime-only` | `requires-governance`
+  - whether it is inside or outside the current issue scope
+- Do not implement workflow or contract changes outside the current issue scope unless the authoritative issue pack explicitly permits them.
 
 ## Issue pack lookup
 
