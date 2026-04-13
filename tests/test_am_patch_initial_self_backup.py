@@ -517,3 +517,94 @@ def test_execution_context_calls_self_backup_before_ensure_workspace(
     )
 
     assert order == ["backup", "ensure"]
+
+
+def test_execution_context_skips_fetch_when_up_to_date_check_disabled(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from am_patch.execution_context import open_execution_context
+
+    workspace = SimpleNamespace(
+        root=tmp_path / "workspace",
+        repo=tmp_path / "workspace" / "repo",
+        base_sha="base-sha",
+        attempt=1,
+    )
+    workspace.repo.mkdir(parents=True)
+    fetch_calls: list[Path] = []
+
+    monkeypatch.setattr(
+        "am_patch.execution_context.git_ops.fetch",
+        lambda _logger, repo: fetch_calls.append(repo),
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.git_ops.require_branch",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.git_ops.head_sha",
+        lambda *args, **kwargs: "base-sha",
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.resolve_patch_root",
+        lambda *args, **kwargs: (tmp_path / "artifacts", tmp_path / "patches"),
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.maybe_create_initial_self_backup",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.ensure_workspace",
+        lambda *args, **kwargs: workspace,
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.load_state",
+        lambda *args, **kwargs: SimpleNamespace(allowed_union=set()),
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.create_checkpoint",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.changed_paths",
+        lambda *args, **kwargs: [],
+    )
+
+    logger = _FakeLogger()
+    policy = SimpleNamespace(
+        require_up_to_date=True,
+        skip_up_to_date=True,
+        enforce_main_branch=False,
+        allow_non_main=False,
+        update_workspace=False,
+        soft_reset_workspace=False,
+        runner_subprocess_timeout_s=0,
+        workspace_issue_dir_template="issue_{issue}",
+        workspace_repo_dir_name="repo",
+        workspace_meta_filename="meta.json",
+        workspace_history_logs_dir="logs",
+        workspace_history_oldlogs_dir="oldlogs",
+        workspace_history_patches_dir="patches",
+        workspace_history_oldpatches_dir="oldpatches",
+        target_repo_roots=[],
+        live_repo_guard=False,
+        rollback_workspace_on_fail="never",
+    )
+    paths = SimpleNamespace(workspaces_dir=tmp_path / "patches" / "workspaces")
+    cli = SimpleNamespace(issue_id="666", message="msg")
+
+    open_execution_context(
+        logger=logger,
+        cli=cli,
+        policy=policy,
+        paths=paths,
+        repo_root=tmp_path,
+        runner_root=tmp_path,
+        effective_target_repo_name="patchhub",
+        patch_script=tmp_path / "issue_666_v1.zip",
+        unified_mode=False,
+        files_declared=[],
+        preopened_workspace=None,
+    )
+
+    assert fetch_calls == []

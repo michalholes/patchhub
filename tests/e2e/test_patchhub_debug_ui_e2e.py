@@ -7,17 +7,16 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
-from playwright.async_api import Page, expect
+from playwright.async_api import Page, async_playwright, expect
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _HTML_SCRIPT_RE = re.compile(r'<script\b[^>]*\bsrc="([^"]+)"', re.IGNORECASE)
 _RESOURCE_TYPES = {"document", "script", "stylesheet"}
 
 pytestmark = [
-    pytest.mark.only_browser("chromium"),
     pytest.mark.skipif(
-        importlib.util.find_spec("pytest_playwright_asyncio") is None,
-        reason="pytest_playwright_asyncio not installed",
+        importlib.util.find_spec("playwright") is None,
+        reason="playwright not installed",
     ),
 ]
 
@@ -135,86 +134,94 @@ class BrowserProbe:
 
 @pytest.mark.asyncio(loop_scope="function")
 async def test_patchhub_debug_ui_flush_and_copy_controls(
-    page: Page,
     e2e_patchhub_base_url: str,
 ) -> None:
-    probe = BrowserProbe(page)
-    expected = active_patchhub_debug_paths()
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        page = await browser.new_page()
+        try:
+            probe = BrowserProbe(page)
+            expected = active_patchhub_debug_paths()
 
-    response = await page.goto(f"{e2e_patchhub_base_url}/debug", wait_until="domcontentloaded")
-    assert response is not None and response.ok, "GET /debug did not return success"
+            response = await page.goto(
+                f"{e2e_patchhub_base_url}/debug",
+                wait_until="domcontentloaded",
+            )
+            assert response is not None and response.ok, "GET /debug did not return success"
 
-    await expect(page).to_have_title(re.compile(r"PatchHub - Debug"))
-    await probe.wait_for_script_paths(expected)
-    assert await probe.filtered_script_paths("/static/") == expected
+            await expect(page).to_have_title(re.compile(r"PatchHub - Debug"))
+            await probe.wait_for_script_paths(expected)
+            assert await probe.filtered_script_paths("/static/") == expected
 
-    for prefix in (
-        "clientErrors",
-        "clientStatus",
-        "clientNet",
-        "serverDiag",
-        "parsed",
-        "tail",
-    ):
-        await expect(page.locator(f"#{prefix}Flush")).to_be_visible()
-        await expect(page.locator(f"#{prefix}Copy")).to_be_visible()
+            for prefix in (
+                "clientErrors",
+                "clientStatus",
+                "clientNet",
+                "serverDiag",
+                "parsed",
+                "tail",
+            ):
+                await expect(page.locator(f"#{prefix}Flush")).to_be_visible()
+                await expect(page.locator(f"#{prefix}Copy")).to_be_visible()
 
-    await page.locator("#raw").fill(
-        'python3 scripts/am_patch.py 1000 "test msg" patches/issue_1000_v1.zip'
-    )
-    await page.locator("#parse").click()
-    await expect(page.locator("#parsed")).to_contain_text("issue_id")
+            await page.locator("#raw").fill(
+                'python3 scripts/am_patch.py 1000 "test msg" patches/issue_1000_v1.zip'
+            )
+            await page.locator("#parse").click()
+            await expect(page.locator("#parsed")).to_contain_text("issue_id")
 
-    await page.evaluate(
-        """
-        () => {
-          window.__patchhubCopiedText = [];
-          const pushCopiedText = (text) => {
-            window.__patchhubCopiedText.push(String(text));
-          };
-          try {
-            Object.defineProperty(navigator, "clipboard", {
-              configurable: true,
-              value: {
-                writeText: (text) => {
-                  pushCopiedText(text);
-                  return Promise.resolve();
-                },
-              },
-            });
-          } catch (err) {
-            navigator.clipboard = {
-              writeText: (text) => {
-                pushCopiedText(text);
-                return Promise.resolve();
-              },
-            };
-          }
-          const originalExecCommand = document.execCommand
-            ? document.execCommand.bind(document)
-            : null;
-          document.execCommand = (commandId) => {
-            if (String(commandId || "").toLowerCase() === "copy") {
-              const active = document.activeElement;
-              const value = active && "value" in active ? active.value : "";
-              pushCopiedText(value);
-              return true;
-            }
-            return originalExecCommand ? originalExecCommand(commandId) : false;
-          };
-        }
-        """
-    )
+            await page.evaluate(
+                """
+                () => {
+                  window.__patchhubCopiedText = [];
+                  const pushCopiedText = (text) => {
+                    window.__patchhubCopiedText.push(String(text));
+                  };
+                  try {
+                    Object.defineProperty(navigator, "clipboard", {
+                      configurable: true,
+                      value: {
+                        writeText: (text) => {
+                          pushCopiedText(text);
+                          return Promise.resolve();
+                        },
+                      },
+                    });
+                  } catch (err) {
+                    navigator.clipboard = {
+                      writeText: (text) => {
+                        pushCopiedText(text);
+                        return Promise.resolve();
+                      },
+                    };
+                  }
+                  const originalExecCommand = document.execCommand
+                    ? document.execCommand.bind(document)
+                    : null;
+                  document.execCommand = (commandId) => {
+                    if (String(commandId || "").toLowerCase() === "copy") {
+                      const active = document.activeElement;
+                      const value = active && "value" in active ? active.value : "";
+                      pushCopiedText(value);
+                      return true;
+                    }
+                    return originalExecCommand ? originalExecCommand(commandId) : false;
+                  };
+                }
+                """
+            )
 
-    parsed_text = await page.locator("#parsed").text_content()
-    await page.locator("#parsedCopy").click()
-    await page.wait_for_function(
-        "() => (window.__patchhubCopiedText || []).length > 0",
-        timeout=5_000,
-    )
-    copied_text = await page.evaluate("() => (window.__patchhubCopiedText || []).slice()")
-    assert copied_text == [parsed_text or ""]
+            parsed_text = await page.locator("#parsed").text_content()
+            await page.locator("#parsedCopy").click()
+            await page.wait_for_function(
+                "() => (window.__patchhubCopiedText || []).length > 0",
+                timeout=5_000,
+            )
+            copied_text = await page.evaluate("() => (window.__patchhubCopiedText || []).slice()")
+            assert copied_text == [parsed_text or ""]
 
-    await page.locator("#parsedFlush").click()
-    await expect(page.locator("#parsed")).to_have_text("")
-    await probe.assert_clean()
+            await page.locator("#parsedFlush").click()
+            await expect(page.locator("#parsed")).to_have_text("")
+            await probe.assert_clean()
+        finally:
+            await browser.close()
