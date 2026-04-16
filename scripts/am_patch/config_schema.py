@@ -133,6 +133,7 @@ _SECTION_BY_KEY: dict[str, str] = {
     "patch_jail_unshare_net": "",
     "skip_up_to_date": "",
     "allow_non_main": "",
+    "auto_pull_if_behind": "",
     "allow_push_fail": "",
     "declared_untouched_fail": "",
     "allow_declared_untouched": "",
@@ -246,6 +247,7 @@ _LABEL_BY_KEY: dict[str, str] = {
     "enforce_main_branch": "Git safety: enforce main branch",
     "require_up_to_date": "Git safety: require up-to-date",
     "skip_up_to_date": "Git safety: skip up-to-date",
+    "auto_pull_if_behind": "Git safety: auto-pull if behind",
     "audit_rubric_guard": "Audit: rubric guard",
     "default_branch": "Git: default branch",
     "failure_zip_enabled": "Failure zip: enabled",
@@ -404,6 +406,11 @@ _HELP_BY_KEY: dict[str, str] = {
     ),
     "skip_up_to_date": (
         "Skip the up-to-date check. See: scripts/am_patch_policy_glossary.md## Key: skip_up_to_date"
+    ),
+    "auto_pull_if_behind": (
+        "When the live repo is behind origin/default_branch, run a fast-forward-only "
+        "update before continuing. See: scripts/am_patch_policy_glossary.md## Key: "
+        "auto_pull_if_behind"
     ),
     "audit_rubric_guard": (
         "Require audit rubric file(s) to be present and unchanged. "

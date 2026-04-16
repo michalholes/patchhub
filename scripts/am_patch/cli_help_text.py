@@ -254,14 +254,19 @@ PATCH INPUT / APPLY
       Patch strip level passed to git apply -pN.
 
   --skip-up-to-date
-      Skip patch apply if the workspace already contains the exact patch hash.
+      Skip the live-repo up-to-date preflight.
 
   --allow-non-main
-      Allow patching on non-main branches.
+      Allow running from a non-default branch.
+
+  --auto-pull-if-behind / --no-auto-pull-if-behind
+      When the live repo is behind origin/default_branch, perform or disable
+      the shared fast-forward-only live-repo preflight update.
 
 WORKSPACE
   --update-workspace
       Update the existing workspace to match live repo.
+      This remains workspace-only and is separate from live-repo preflight.
 
   --soft-reset-workspace
       Reset workspace to live repo without deleting history.

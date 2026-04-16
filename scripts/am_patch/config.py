@@ -128,6 +128,7 @@ class Policy(PolicyMonolithMixin):
 
     require_up_to_date: bool = True
     enforce_main_branch: bool = True
+    auto_pull_if_behind: bool = True
 
     update_workspace: bool = False
     soft_reset_workspace: bool = False
@@ -686,6 +687,8 @@ def build_policy(
     _mark_cfg(p, cfg, "require_up_to_date")
     p.enforce_main_branch = _as_bool(cfg, "enforce_main_branch", p.enforce_main_branch)
     _mark_cfg(p, cfg, "enforce_main_branch")
+    p.auto_pull_if_behind = _as_bool(cfg, "auto_pull_if_behind", p.auto_pull_if_behind)
+    _mark_cfg(p, cfg, "auto_pull_if_behind")
 
     p.update_workspace = _as_bool(cfg, "update_workspace", p.update_workspace)
     _mark_cfg(p, cfg, "update_workspace")

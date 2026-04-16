@@ -441,14 +441,27 @@ def test_execution_context_calls_self_backup_before_ensure_workspace(
     )
     workspace.repo.mkdir(parents=True)
 
-    monkeypatch.setattr("am_patch.execution_context.git_ops.fetch", lambda *args, **kwargs: None)
+    live_repo_preflight_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "am_patch.execution_context.git_ops.fetch",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("inline fetch forbidden")),
+    )
     monkeypatch.setattr(
         "am_patch.execution_context.git_ops.require_up_to_date",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("inline require_up_to_date forbidden")
+        ),
     )
     monkeypatch.setattr(
         "am_patch.execution_context.git_ops.require_branch",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("inline require_branch forbidden")
+        ),
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.git_ops.live_repo_preflight",
+        lambda _logger, repo, **kwargs: live_repo_preflight_calls.append({"repo": repo, **kwargs}),
     )
     monkeypatch.setattr(
         "am_patch.execution_context.git_ops.head_sha",
@@ -481,11 +494,13 @@ def test_execution_context_calls_self_backup_before_ensure_workspace(
 
     logger = _FakeLogger()
     policy = SimpleNamespace(
+        default_branch="main",
         require_up_to_date=False,
         skip_up_to_date=False,
         enforce_main_branch=False,
         allow_non_main=False,
         update_workspace=False,
+        auto_pull_if_behind=True,
         soft_reset_workspace=False,
         runner_subprocess_timeout_s=0,
         workspace_issue_dir_template="issue_{issue}",
@@ -517,6 +532,17 @@ def test_execution_context_calls_self_backup_before_ensure_workspace(
     )
 
     assert order == ["backup", "ensure"]
+    assert live_repo_preflight_calls == [
+        {
+            "repo": tmp_path,
+            "default_branch": "main",
+            "require_up_to_date_flag": False,
+            "skip_up_to_date": False,
+            "enforce_main_branch": False,
+            "allow_non_main": False,
+            "auto_pull_if_behind": True,
+        }
+    ]
 
 
 def test_execution_context_skips_fetch_when_up_to_date_check_disabled(
@@ -531,15 +557,21 @@ def test_execution_context_skips_fetch_when_up_to_date_check_disabled(
         attempt=1,
     )
     workspace.repo.mkdir(parents=True)
-    fetch_calls: list[Path] = []
+    live_repo_preflight_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
         "am_patch.execution_context.git_ops.fetch",
-        lambda _logger, repo: fetch_calls.append(repo),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("inline fetch forbidden")),
     )
     monkeypatch.setattr(
         "am_patch.execution_context.git_ops.require_branch",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("inline require_branch forbidden")
+        ),
+    )
+    monkeypatch.setattr(
+        "am_patch.execution_context.git_ops.live_repo_preflight",
+        lambda _logger, repo, **kwargs: live_repo_preflight_calls.append({"repo": repo, **kwargs}),
     )
     monkeypatch.setattr(
         "am_patch.execution_context.git_ops.head_sha",
@@ -572,11 +604,13 @@ def test_execution_context_skips_fetch_when_up_to_date_check_disabled(
 
     logger = _FakeLogger()
     policy = SimpleNamespace(
+        default_branch="main",
         require_up_to_date=True,
         skip_up_to_date=True,
         enforce_main_branch=False,
         allow_non_main=False,
         update_workspace=False,
+        auto_pull_if_behind=True,
         soft_reset_workspace=False,
         runner_subprocess_timeout_s=0,
         workspace_issue_dir_template="issue_{issue}",
@@ -607,4 +641,14 @@ def test_execution_context_skips_fetch_when_up_to_date_check_disabled(
         preopened_workspace=None,
     )
 
-    assert fetch_calls == []
+    assert live_repo_preflight_calls == [
+        {
+            "repo": tmp_path,
+            "default_branch": "main",
+            "require_up_to_date_flag": True,
+            "skip_up_to_date": True,
+            "enforce_main_branch": False,
+            "allow_non_main": False,
+            "auto_pull_if_behind": True,
+        }
+    ]

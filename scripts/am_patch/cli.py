@@ -77,6 +77,7 @@ class CliArgs:
     patch_strip: int | None
     skip_up_to_date: bool | None
     allow_non_main: bool | None
+    auto_pull_if_behind: bool | None
 
     no_rollback: bool | None
 
@@ -733,6 +734,12 @@ def parse_args(argv: list[str]) -> CliArgs:
 
     p.add_argument("--skip-up-to-date", dest="skip_up_to_date", action="store_true", default=None)
     p.add_argument("--allow-non-main", dest="allow_non_main", action="store_true", default=None)
+    p.add_argument(
+        "--auto-pull-if-behind",
+        dest="auto_pull_if_behind",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     p.add_argument("--update-workspace", dest="update_workspace", action="store_true", default=None)
     p.add_argument(
         "--soft-reset-workspace",
@@ -770,6 +777,9 @@ def parse_args(argv: list[str]) -> CliArgs:
     # Map explicit gate flags into overrides so engine.py does not need changes.
     # Precedence: CLI flags > config > defaults (apply_cli_overrides marks these as src=cli).
     apply_explicit_gate_flag_overrides(ns)
+    if getattr(ns, "auto_pull_if_behind", None) is not None:
+        value = "true" if bool(ns.auto_pull_if_behind) else "false"
+        ns.overrides = (ns.overrides or []) + [f"auto_pull_if_behind={value}"]
 
     if ns.show_config:
         return CliArgs(
@@ -790,6 +800,7 @@ def parse_args(argv: list[str]) -> CliArgs:
             patch_strip=getattr(ns, "patch_strip", None),
             skip_up_to_date=ns.skip_up_to_date,
             allow_non_main=ns.allow_non_main,
+            auto_pull_if_behind=ns.auto_pull_if_behind,
             no_rollback=ns.no_rollback,
             update_workspace=ns.update_workspace,
             soft_reset_workspace=ns.soft_reset_workspace,
@@ -886,6 +897,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         patch_strip=getattr(ns, "patch_strip", None),
         skip_up_to_date=ns.skip_up_to_date,
         allow_non_main=ns.allow_non_main,
+        auto_pull_if_behind=ns.auto_pull_if_behind,
         no_rollback=ns.no_rollback,
         update_workspace=ns.update_workspace,
         soft_reset_workspace=ns.soft_reset_workspace,

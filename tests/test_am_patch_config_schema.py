@@ -39,6 +39,8 @@ def test_policy_schema_exposes_bucketed_pytest_routing_keys() -> None:
     assert policy["success_archive_enabled"]["type"] == "bool"
     assert policy["artifact_stage_enabled"]["type"] == "bool"
     assert policy["issue_diff_bundle_enabled"]["type"] == "bool"
+    assert policy["auto_pull_if_behind"]["type"] == "bool"
+    assert policy["auto_pull_if_behind"]["default"] is True
 
 
 def test_policy_schema_exposes_root_model_keys() -> None:

@@ -63,6 +63,53 @@ def require_up_to_date(logger: Logger, repo: Path, branch: str) -> None:
         raise RunnerError("PREFLIGHT", "GIT", f"origin/{branch} is ahead by {ahead} commits")
 
 
+def fast_forward_pull(logger: Logger, repo: Path, branch: str) -> None:
+    _git(logger, repo, ["pull", "--ff-only", "origin", branch])
+
+
+def fast_forward_update_local_branch(logger: Logger, repo: Path, branch: str) -> None:
+    checked_out_branch = current_branch(logger, repo)
+    if checked_out_branch == branch:
+        fast_forward_pull(logger, repo, branch)
+        return
+    _git(logger, repo, ["fetch", "origin", f"{branch}:{branch}"])
+
+
+def live_repo_preflight(
+    logger: Logger,
+    repo: Path,
+    *,
+    default_branch: str,
+    require_up_to_date_flag: bool,
+    skip_up_to_date: bool,
+    enforce_main_branch: bool,
+    allow_non_main: bool,
+    auto_pull_if_behind: bool,
+) -> None:
+    if enforce_main_branch and not allow_non_main:
+        require_branch(logger, repo, default_branch)
+    if not require_up_to_date_flag or skip_up_to_date:
+        return
+    fetch(logger, repo)
+    ahead = origin_ahead_count(logger, repo, default_branch)
+    if ahead <= 0:
+        return
+    if not auto_pull_if_behind:
+        raise RunnerError(
+            "PREFLIGHT",
+            "GIT",
+            f"origin/{default_branch} is ahead by {ahead} commits",
+        )
+    try:
+        fast_forward_update_local_branch(logger, repo, default_branch)
+    except RunnerError as err:
+        raise RunnerError(
+            "PREFLIGHT",
+            "GIT",
+            f"fast-forward-only update from origin/{default_branch} failed",
+        ) from err
+
+
 def file_diff_since(logger: Logger, repo: Path, base_sha: str, paths: list[str]) -> list[str]:
     # return list of files that changed in repo since base_sha (repo-relative)
     r = logger.run_logged(

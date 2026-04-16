@@ -59,6 +59,7 @@ test_mode_isolate_patch_dir = true
 delete_workspace_on_success = true
 allow_no_op = false
 skip_up_to_date = false
+auto_pull_if_behind = true
 allow_non_main = false
 rollback_workspace_on_fail = "always"
 patch_jail = false

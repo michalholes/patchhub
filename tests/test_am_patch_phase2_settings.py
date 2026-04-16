@@ -367,6 +367,19 @@ def test_parse_args_finalize_from_cwd_rejects_finalize_workspace() -> None:
         raise AssertionError("expected SystemExit")
 
 
+def test_parse_args_live_repo_preflight_flags() -> None:
+    _, _, _, parse_args = _import_am_patch()
+
+    default_cli = parse_args(["-f", "msg"])
+    assert default_cli.auto_pull_if_behind is None
+
+    enabled_cli = parse_args(["-f", "msg", "--auto-pull-if-behind"])
+    assert enabled_cli.auto_pull_if_behind is True
+
+    disabled_cli = parse_args(["-f", "msg", "--no-auto-pull-if-behind"])
+    assert disabled_cli.auto_pull_if_behind is False
+
+
 def test_failure_zip_template_allows_attempt_without_ts() -> None:
     policy_cls, _, build_policy, _ = _import_am_patch()
     defaults = policy_cls()

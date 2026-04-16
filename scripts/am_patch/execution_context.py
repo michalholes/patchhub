@@ -37,11 +37,16 @@ def open_execution_context(
     preopened_workspace: Any | None = None,
 ) -> ExecutionContext:
     # Git preflight (live repo)
-    if policy.require_up_to_date and not policy.skip_up_to_date:
-        git_ops.fetch(logger, repo_root)
-        git_ops.require_up_to_date(logger, repo_root, policy.default_branch)
-    if policy.enforce_main_branch and not policy.allow_non_main:
-        git_ops.require_branch(logger, repo_root, policy.default_branch)
+    git_ops.live_repo_preflight(
+        logger,
+        repo_root,
+        default_branch=policy.default_branch,
+        require_up_to_date_flag=policy.require_up_to_date,
+        skip_up_to_date=policy.skip_up_to_date,
+        enforce_main_branch=policy.enforce_main_branch,
+        allow_non_main=policy.allow_non_main,
+        auto_pull_if_behind=policy.auto_pull_if_behind,
+    )
 
     base_sha = git_ops.head_sha(logger, repo_root)
 

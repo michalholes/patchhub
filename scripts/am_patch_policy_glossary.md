@@ -247,7 +247,9 @@ Key: require_up_to_date
 Type: bool
 Default: true
 Meaning: If true, require the local branch to be up-to-date with its upstream.
-Related: skip_up_to_date
+Notes:
+- When auto_pull_if_behind is true, the shared live-repo preflight may satisfy this by a fast-forward-only update from origin/default_branch.
+Related: skip_up_to_date, auto_pull_if_behind
 
 ## Key: skip_up_to_date
 Key: skip_up_to_date
@@ -256,7 +258,19 @@ Default: false
 Meaning: If true, skip the up-to-date check even if require_up_to_date is true.
 Notes:
 - This exists for controlled environments and is a safety bypass.
-Related: require_up_to_date
+- It also bypasses auto_pull_if_behind.
+Related: require_up_to_date, auto_pull_if_behind
+
+## Key: auto_pull_if_behind
+Key: auto_pull_if_behind
+Type: bool
+Default: true
+Meaning: If true, a behind live repository may be updated by the shared live-repo preflight using a fast-forward-only update from origin/default_branch.
+Notes:
+- Applies only to normal patching and finalize-live (-f and -s).
+- Does not change update_workspace semantics.
+- When false, a behind live repository fails closed instead of auto-updating.
+Related: require_up_to_date, skip_up_to_date, update_workspace
 
 ## Key: audit_rubric_guard
 Key: audit_rubric_guard
@@ -506,7 +520,8 @@ Default: false
 Meaning: If true, update the workspace repository (fetch/pull) before running.
 Notes:
 - This may change the base revision used for gating.
-Related: soft_reset_workspace
+- This is workspace-only behavior and is separate from live-repo preflight update semantics.
+Related: soft_reset_workspace, auto_pull_if_behind
 
 ## Key: biome_autofix
 Key: biome_autofix
