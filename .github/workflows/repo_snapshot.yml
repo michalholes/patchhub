@@ -1,0 +1,126 @@
+name: publish-repository-snapshot
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapshot-publish-${{ github.repository }}-main
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  SNAPSHOT_REPOSITORY: michalholes/repo_snapshots
+  SNAPSHOT_BRANCH: main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          path: source_repo
+
+      - name: Assert repo_snapshots token is present
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${{ secrets.PUSH_SNAPSHOT }}" ]; then
+            echo "PUSH_SNAPSHOT is empty or unavailable"
+            exit 1
+          fi
+
+      - name: Checkout repo_snapshots
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.SNAPSHOT_REPOSITORY }}
+          ref: ${{ env.SNAPSHOT_BRANCH }}
+          token: ${{ secrets.PUSH_SNAPSHOT }}
+          fetch-depth: 0
+          path: repo_snapshots
+
+      - name: Compute source identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SOURCE_ROOT="$GITHUB_WORKSPACE/source_repo"
+          SOURCE_SHA="$(git -C "$SOURCE_ROOT" rev-parse HEAD)"
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          SNAPSHOT_NAME="${REPO_NAME}-main_${SOURCE_SHA}.zip"
+          SNAPSHOT_PATTERN="${REPO_NAME}-main_*.zip"
+
+          echo "SOURCE_ROOT=$SOURCE_ROOT" >> "$GITHUB_ENV"
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
+          echo "REPO_NAME=$REPO_NAME" >> "$GITHUB_ENV"
+          echo "SNAPSHOT_NAME=$SNAPSHOT_NAME" >> "$GITHUB_ENV"
+          echo "SNAPSHOT_PATTERN=$SNAPSHOT_PATTERN" >> "$GITHUB_ENV"
+
+      - name: Build filtered repository snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          STAGE_ROOT="$RUNNER_TEMP/repo_snapshot_stage"
+          ARCHIVE_DIR="$RUNNER_TEMP/repo_snapshot"
+          ARCHIVE_PATH="$ARCHIVE_DIR/$SNAPSHOT_NAME"
+
+          rm -rf "$STAGE_ROOT" "$ARCHIVE_DIR"
+          mkdir -p "$STAGE_ROOT" "$ARCHIVE_DIR"
+
+          git -C "$SOURCE_ROOT" archive --format=tar "$SOURCE_SHA" | tar -x -C "$STAGE_ROOT"
+
+          rm -rf "$STAGE_ROOT/artifacts"
+
+          STAGE_ROOT="$STAGE_ROOT" ARCHIVE_PATH="$ARCHIVE_PATH" python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          import os
+
+          stage_root = Path(os.environ["STAGE_ROOT"]).resolve()
+          archive_path = Path(os.environ["ARCHIVE_PATH"]).resolve()
+
+          with ZipFile(archive_path, "w", compression=ZIP_DEFLATED) as zf:
+              for path in sorted(stage_root.rglob("*")):
+                  if path.is_file():
+                      zf.write(path, arcname=path.relative_to(stage_root).as_posix())
+          PY
+
+          echo "SNAPSHOT_ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
+
+      - name: Publish repository snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SNAPSHOT_REPO="$GITHUB_WORKSPACE/repo_snapshots"
+
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            rm -f -- "$SNAPSHOT_REPO/$file"
+          done < <(find "$SNAPSHOT_REPO" -maxdepth 1 -type f -name "$SNAPSHOT_PATTERN" -printf '%P\n' | sort)
+
+          cp "$SNAPSHOT_ARCHIVE_PATH" "$SNAPSHOT_REPO/$SNAPSHOT_NAME"
+
+          cd "$SNAPSHOT_REPO"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No snapshot changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Publish ${REPO_NAME} snapshot ${SOURCE_SHA}"
+          git push origin "$SNAPSHOT_BRANCH"
