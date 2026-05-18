@@ -9,7 +9,25 @@ Two authority files govern all work in this repository:
 - **`governance/governance_local.jsonl`** — cross-repo rules (anti-monolith, docs-gate, specification discipline, code quality, bug discipline). Read this before making any changes.
 - **`governance/specification.jsonl`** — authoritative specification of what this repo does, must do, and must not do. The single source of truth for this codebase.
 
-Key rules to internalize from `governance_local.jsonl`:
+## Querying the specification
+
+`governance/specification.jsonl` is the authoritative spec for this repo. Do not read it in full — query it by capability tag using `spec_navigator.py` from the governance toolkit:
+
+```bash
+# List all sections with rule counts
+python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --list-tags
+
+# Get rules for a specific section topic
+python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "gate"
+python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "timeout"
+python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "config"
+```
+
+**Workflow:** run `--list-tags` to see available sections → identify which sections are relevant to your change → query with `--section KEYWORD` → read the returned rules before making changes.
+
+This spec uses the section-contract model (one capability per spec section), so `--section` is the correct query mode.
+
+## Key rules to internalize from `governance_local.jsonl`:
 - Files ≥ 1300 LOC must not grow at all; files ≥ 900 LOC have restricted growth
 - No catchall filenames (`utils.py`, `helpers.py`, etc.) or directories
 - A single change must not touch 3+ ownership areas (`src`, `scripts`, `badguys`, `tests`, `docs`)
