@@ -17,12 +17,12 @@ Two authority files govern all work in this repository:
 
 ```bash
 # List all sections with rule counts
-python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --list-tags
+python3 governance/spec_navigator.py governance/specification.jsonl --list-tags
 
 # Query by section keyword matching what your change involves
-python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "gate"
-python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "config"
-python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "timeout"
+python3 governance/spec_navigator.py governance/specification.jsonl --section "gate"
+python3 governance/spec_navigator.py governance/specification.jsonl --section "config"
+python3 governance/spec_navigator.py governance/specification.jsonl --section "timeout"
 ```
 
 **Which section to query:** run `--list-tags` first to see all section names, then pick keywords that match what the file/area you are changing deals with.
