@@ -9,21 +9,23 @@ Two authority files govern all work in this repository:
 - **`governance/governance_local.jsonl`** — cross-repo rules (anti-monolith, docs-gate, specification discipline, code quality, bug discipline). Read this before making any changes.
 - **`governance/specification.jsonl`** — authoritative specification of what this repo does, must do, and must not do. The single source of truth for this codebase.
 
-## Querying the specification
+## What to read before making changes
 
-`governance/specification.jsonl` is the authoritative spec for this repo. Do not read it in full — query it by capability tag using `spec_navigator.py` from the governance toolkit:
+**Step 1 — always, for every task:** read `governance_local.jsonl` in full (24 rules, ~3 KB). These are the cross-repo constraints that apply unconditionally.
+
+**Step 2 — before touching any file:** query the relevant subset of `governance/specification.jsonl` using `spec_navigator.py`. Do not read the full spec — it has 988 rules.
 
 ```bash
 # List all sections with rule counts
 python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --list-tags
 
-# Get rules for a specific section topic
+# Query by section keyword matching what your change involves
 python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "gate"
-python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "timeout"
 python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "config"
+python3 /home/pi/governance/src/governance/spec_navigator.py governance/specification.jsonl --section "timeout"
 ```
 
-**Workflow:** run `--list-tags` to see available sections → identify which sections are relevant to your change → query with `--section KEYWORD` → read the returned rules before making changes.
+**Which section to query:** run `--list-tags` first to see all section names, then pick keywords that match what the file/area you are changing deals with.
 
 This spec uses the section-contract model (one capability per spec section), so `--section` is the correct query mode.
 
