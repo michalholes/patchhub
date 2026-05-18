@@ -4,16 +4,10 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import Any, TypeAlias
 
-if TYPE_CHECKING:
-    from .type_aliases import JsonDict, JsonList
-else:
-    try:
-        from .type_aliases import JsonDict, JsonList
-    except ImportError:
-        JsonDict: TypeAlias = dict[str, Any]
-        JsonList: TypeAlias = list[JsonDict]
+JsonDict: TypeAlias = dict[str, Any]
+JsonList: TypeAlias = list[JsonDict]
 
 SEPARATOR = "-" * 72
 
