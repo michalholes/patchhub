@@ -32,12 +32,17 @@ jobs:
       - name: Ruff
         run: |
           . .venv/bin/activate
-          python -m ruff check scripts tests 
+          python -m ruff check scripts badguys tests
 
       - name: Mypy
         run: |
           . .venv/bin/activate
           python -m mypy scripts
+
+      - name: Pyright
+        run: |
+          . .venv/bin/activate
+          pyright
 
       - name: Install Playwright browser
         run: |

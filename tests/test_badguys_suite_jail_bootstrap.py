@@ -4,8 +4,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from badguys import bdg_suite_jail
 from badguys.bdg_suite_jail import prepare_suite_jail, teardown_suite_jail
+
+from badguys import bdg_suite_jail
 
 ISSUE_ID = "663"
 

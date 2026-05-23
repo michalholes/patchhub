@@ -10,8 +10,9 @@ from pathlib import Path
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
-from patchhub.asgi.route_diagnostics import handle_api_debug_diagnostics
 from starlette.requests import Request
+
+from patchhub.asgi.route_diagnostics import handle_api_debug_diagnostics
 
 
 class _DummyCore:

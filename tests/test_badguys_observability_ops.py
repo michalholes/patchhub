@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from badguys import run_suite
 from badguys.bdg_evaluator import StepResult
 from badguys.bdg_executor import execute_bdg_step
 from badguys.bdg_loader import BdgStep, BdgTest
 from badguys.bdg_materializer import MaterializedAssets
 from badguys.bdg_subst import SubstCtx
+
+from badguys import run_suite
 
 
 def _write_config(

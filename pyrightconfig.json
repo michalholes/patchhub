@@ -1,0 +1,13 @@
+{
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "strict",
+  "include": ["scripts", "badguys"],
+  "exclude": [
+    "tests",
+    "patches",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache"
+  ]
+}

@@ -4,8 +4,9 @@ import argparse
 from pathlib import Path
 
 import pytest
-from badguys import run_suite
 from badguys.run_suite import _make_cfg
+
+from badguys import run_suite
 
 
 def _write_config(repo_root: Path, suite_jail: bool) -> Path:

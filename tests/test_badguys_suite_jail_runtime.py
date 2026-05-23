@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from badguys import run_suite
 from badguys.run_suite import Ctx, SuiteCfg, _cleanup_issue_artifacts, _make_cfg
+
+from badguys import run_suite
 
 ISSUE_ID = "661"
 

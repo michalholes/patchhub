@@ -32,6 +32,7 @@ dev = [
     "pytest-playwright-asyncio",
     "pytest-cov>=4.1.0",
     "mypy>=1.5.0",
+    "pyright>=1.1.0",
     "ruff>=0.0.290",
     "types-pyyaml",
     "httpx",
@@ -63,11 +64,15 @@ namespace_packages = true
 exclude = ["patches/", "tests/", "venv/", "__pycache__/"]
 python_version = "3.11"
 strict = false
-warn_return_any = false
+warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
-disallow_any_generics = false
-disallow_subclassing_any = false
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_any_unimported = true
+disallow_any_expr = true
+disallow_any_decorated = true
+disallow_any_explicit = true
 disallow_untyped_calls = false
 disallow_incomplete_defs = false
 check_untyped_defs = true
@@ -85,11 +90,16 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["tests"]
+src = ["scripts", "badguys", "tests"]
 exclude = ["patches", "audit"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM"]
+extend-select = ["ANN401", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"typing.Any".msg = "Use concrete types instead of Any."
+"typing_extensions.Any".msg = "Use concrete types instead of Any."
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -116,4 +126,3 @@ package-dir = {"" = "."}
 where = ["src", "."]
 include = ["audiomason*", "plugins*"]
 exclude = ["tests*", "scripts*", "patches*", "docs*", "badguys*"]
-
