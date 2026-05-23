@@ -26,7 +26,9 @@ def _parse_applies_to(raw: str) -> set[str]:
     return {t.strip().upper() for t in raw.split("|") if t.strip()}
 
 
-def _index(objects: JsonList) -> tuple[
+def _index(
+    objects: JsonList,
+) -> tuple[
     JsonDict | None,
     list[JsonDict],
     dict[str, JsonDict],
@@ -105,9 +107,7 @@ def cmd_list_tags(
         cap_by_id = {str(c.get("id", "")): c for c in caps}
         for tag, cap_ids in tag_map.items():
             rule_count = sum(
-                len(cap_by_id[cid].get("triggers_rules", []))
-                for cid in cap_ids
-                if cid in cap_by_id
+                len(cap_by_id[cid].get("triggers_rules", [])) for cid in cap_ids if cid in cap_by_id
             )
             out.append(f"{tag:<20}  {len(cap_ids):>4}  {rule_count:>5}  {', '.join(cap_ids)}")
         out.append("")
@@ -165,9 +165,9 @@ def cmd_query_section(
 ) -> str:
     kw = keyword.lower()
     matched = [
-        c for c in caps
-        if kw in str(c.get("name", "")).lower()
-        or kw in str(c.get("heading_path", "")).lower()
+        c
+        for c in caps
+        if kw in str(c.get("name", "")).lower() or kw in str(c.get("heading_path", "")).lower()
     ]
     if not matched:
         return f"No capabilities found matching section keyword: {keyword!r}\n"
