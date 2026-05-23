@@ -3,13 +3,25 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, cast
 
-JsonDict: TypeAlias = dict[str, Any]
-JsonList: TypeAlias = list[JsonDict]
+if TYPE_CHECKING:
+    from .type_aliases import JsonDict, JsonList, as_json_dict
+else:
+    try:
+        from .type_aliases import JsonDict, JsonList, as_json_dict
+    except ImportError:
+        from type_aliases import JsonDict, JsonList, as_json_dict
 
 SEPARATOR = "-" * 72
+
+
+def _str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in cast(list[object], value)]
 
 
 def _load_jsonl(path: Path) -> JsonList:
@@ -18,7 +30,7 @@ def _load_jsonl(path: Path) -> JsonList:
         for line in f:
             line = line.strip()
             if line:
-                objects.append(json.loads(line))
+                objects.append(as_json_dict(cast(object, json.loads(line))))
     return objects
 
 
@@ -51,13 +63,13 @@ def _all_tags(caps: list[JsonDict]) -> dict[str, list[str]]:
     """Return {tag: [cap_id, ...]} sorted."""
     tag_map: dict[str, list[str]] = {}
     for cap in caps:
-        for tag in _parse_applies_to(cap.get("applies_to", "")):
+        for tag in _parse_applies_to(str(cap.get("applies_to", ""))):
             tag_map.setdefault(tag, []).append(str(cap.get("id", "")))
     return dict(sorted(tag_map.items()))
 
 
 def _has_tag_model(caps: list[JsonDict]) -> bool:
-    return any(cap.get("applies_to") for cap in caps)
+    return any(str(cap.get("applies_to", "")).strip() for cap in caps)
 
 
 def _spec_header(meta: JsonDict | None) -> list[str]:
@@ -72,16 +84,16 @@ def _emit_cap_rules(
     out: list[str],
     seen: set[str],
 ) -> int:
-    rule_ids = [str(r) for r in cap.get("triggers_rules", [])]
+    rule_ids = _str_list(cap.get("triggers_rules", []))
     added = 0
     for rid in rule_ids:
         rule = rules.get(rid)
         if rule is None:
             continue
         stmt = str(rule.get("statement", "")).strip()
-        hp = rule.get("heading_path", "")
+        hp = str(rule.get("heading_path", ""))
         section = hp.split(" > ")[-1] if " > " in hp else hp
-        normativity = rule.get("normativity", "")
+        normativity = str(rule.get("normativity", ""))
         prefix = f"[{normativity}] " if normativity else ""
         out.append(f"  {rid}")
         if section:
@@ -107,7 +119,9 @@ def cmd_list_tags(
         cap_by_id = {str(c.get("id", "")): c for c in caps}
         for tag, cap_ids in tag_map.items():
             rule_count = sum(
-                len(cap_by_id[cid].get("triggers_rules", [])) for cid in cap_ids if cid in cap_by_id
+                len(_str_list(cap_by_id[cid].get("triggers_rules", [])))
+                for cid in cap_ids
+                if cid in cap_by_id
             )
             out.append(f"{tag:<20}  {len(cap_ids):>4}  {rule_count:>5}  {', '.join(cap_ids)}")
         out.append("")
@@ -119,7 +133,7 @@ def cmd_list_tags(
         out.append(SEPARATOR)
         for cap in caps:
             name = str(cap.get("name", cap.get("id", "")))
-            rule_count = len(cap.get("triggers_rules", []))
+            rule_count = len(_str_list(cap.get("triggers_rules", [])))
             out.append(f"{rule_count:>5}  {name}")
         out.append("")
         out.append(f"total capabilities: {len(caps)}  total rules: {len(rules)}")
@@ -138,7 +152,7 @@ def cmd_query_tags(
             "Use --section KEYWORD instead.\n"
         )
     query = {t.upper() for t in tags}
-    matched = [c for c in caps if _parse_applies_to(c.get("applies_to", "")) & query]
+    matched = [c for c in caps if _parse_applies_to(str(c.get("applies_to", ""))) & query]
     if not matched:
         return f"No capabilities found for tags: {sorted(query)}\n"
 
@@ -147,8 +161,8 @@ def cmd_query_tags(
     total = 0
     for cap in matched:
         cap_id = str(cap.get("id", ""))
-        applies = cap.get("applies_to", "")
-        rule_ids = cap.get("triggers_rules", [])
+        applies = str(cap.get("applies_to", ""))
+        rule_ids = _str_list(cap.get("triggers_rules", []))
         out.append(f"[{cap_id}]  applies_to: {applies}  rules: {len(rule_ids)}")
         out.append(SEPARATOR)
         total += _emit_cap_rules(cap, rules, out, seen)
@@ -178,7 +192,7 @@ def cmd_query_section(
     for cap in matched:
         cap_id = str(cap.get("id", ""))
         name = str(cap.get("name", cap_id))
-        rule_ids = cap.get("triggers_rules", [])
+        rule_ids = _str_list(cap.get("triggers_rules", []))
         out.append(f"[{cap_id}]")
         out.append(f"  section: {name}  rules: {len(rule_ids)}")
         out.append(SEPARATOR)
@@ -189,7 +203,15 @@ def cmd_query_section(
     return "\n".join(out)
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
+@dataclass(frozen=True)
+class NavigatorArgs:
+    spec: str
+    list_tags: bool
+    tags: list[str] | None
+    section: str | None
+
+
+def parse_args(argv: list[str]) -> NavigatorArgs:
     parser = argparse.ArgumentParser(
         description=(
             "Query a specification.jsonl by capability tags or section keyword.\n"
@@ -225,7 +247,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         metavar="KEYWORD",
         help="Return rules from capabilities whose section name/path contains keyword",
     )
-    return parser.parse_args(argv)
+    ns = parser.parse_args(argv)
+    values = cast(dict[str, object], vars(ns))
+    tags_raw = values.get("tags")
+    tags = None if tags_raw is None else _str_list(tags_raw)
+    section_raw = values.get("section")
+    section = None if section_raw is None else str(section_raw)
+    return NavigatorArgs(
+        spec=str(values["spec"]),
+        list_tags=bool(values.get("list_tags", False)),
+        tags=tags,
+        section=section,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -244,6 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.tags:
         sys.stdout.write(cmd_query_tags(args.tags, caps, rules) + "\n")
     else:
+        assert args.section is not None
         sys.stdout.write(cmd_query_section(args.section, caps, rules) + "\n")
     return 0
 
