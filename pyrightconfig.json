@@ -4,6 +4,7 @@
   "include": ["scripts", "badguys"],
   "exclude": [
     "tests",
+    "governance",
     "patches",
     "venv",
     "__pycache__",
