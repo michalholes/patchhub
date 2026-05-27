@@ -6,7 +6,7 @@ import socket
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from badguys.bdg_evaluator import StepResult
 
@@ -17,7 +17,7 @@ _PROTOCOL = "am_patch_ipc/1"
 class QueuedIpcCommand:
     step_index: int
     cmd: str
-    args: dict[str, Any]
+    args: dict[str, object]
     cmd_id: str
     delay_s: float
     connect_timeout_s: float
@@ -66,6 +66,11 @@ def execute_ipc_send_command(
     raw_args = params.get("args", {})
     if not isinstance(raw_args, dict):
         raise SystemExit("FAIL: bdg: IPC_SEND_COMMAND args must be object")
+    args: dict[str, object] = {}
+    for key, value in cast(dict[object, object], raw_args).items():
+        if not isinstance(key, str):
+            raise SystemExit("FAIL: bdg: IPC_SEND_COMMAND args keys must be strings")
+        args[key] = value
     raw_cmd_id = params.get("cmd_id")
     if raw_cmd_id is None:
         cmd_id = f"{test_id}_step_{int(step_index)}_{cmd.strip()}"
@@ -77,7 +82,7 @@ def execute_ipc_send_command(
     plan = QueuedIpcCommand(
         step_index=int(step_index),
         cmd=cmd.strip(),
-        args=dict(raw_args),
+        args=args,
         cmd_id=cmd_id,
         delay_s=_as_timeout(params.get("delay_s", 0), label="delay_s"),
         connect_timeout_s=_as_timeout(
@@ -96,10 +101,13 @@ def execute_ipc_send_command(
         wait_event_name=_as_optional_str(params.get("wait_event_name"), label="wait_event_name"),
         event_arg_map=_as_arg_map(params.get("event_arg_map", {})),
     )
-    plans_obj = step_runner_cfg.setdefault("ipc_plans", [])
-    if not isinstance(plans_obj, list):
-        raise SystemExit("FAIL: bdg: ipc_plans must be list")
-    plans_obj.append(plan)
+    raw_plans = step_runner_cfg.get("ipc_plans")
+    if raw_plans is None:
+        step_runner_cfg["ipc_plans"] = [plan]
+    else:
+        if not isinstance(raw_plans, list):
+            raise SystemExit("FAIL: bdg: ipc_plans must be list")
+        cast(list[object], raw_plans).append(plan)
     return StepResult(
         rc=0,
         stdout=None,
@@ -113,7 +121,7 @@ def pop_ipc_plans(step_runner_cfg: dict[str, object]) -> list[QueuedIpcCommand]:
     if not isinstance(raw, list):
         raise SystemExit("FAIL: bdg: ipc_plans must be list")
     out: list[QueuedIpcCommand] = []
-    for item in raw:
+    for item in cast(list[object], raw):
         if not isinstance(item, QueuedIpcCommand):
             raise SystemExit("FAIL: bdg: ipc_plans entry must be QueuedIpcCommand")
         out.append(item)
@@ -121,20 +129,24 @@ def pop_ipc_plans(step_runner_cfg: dict[str, object]) -> list[QueuedIpcCommand]:
 
 
 def has_pending_ipc_plans(step_runner_cfg: dict[str, object]) -> bool:
-    raw = step_runner_cfg.get("ipc_plans", [])
-    return isinstance(raw, list) and bool(raw)
+    raw = step_runner_cfg.get("ipc_plans")
+    if raw is None:
+        return False
+    if not isinstance(raw, list):
+        raise SystemExit("FAIL: bdg: ipc_plans must be list")
+    return bool(cast(list[object], raw))
 
 
 def send_ipc_command(
     *,
     socket_path: Path,
     cmd: str,
-    args: dict[str, Any],
+    args: dict[str, object],
     cmd_id: str,
     connect_timeout_s: float,
     reply_timeout_s: float,
-) -> dict[str, Any]:
-    req = {
+) -> dict[str, object]:
+    req: dict[str, object] = {
         "protocol": _PROTOCOL,
         "type": "cmd",
         "cmd": cmd,
@@ -164,14 +176,7 @@ def send_ipc_command(
             sock = None
             time.sleep(0.02)
 
-    if sock is None:
-        return {
-            "ok": False,
-            "error": {
-                "code": "CONNECT_TIMEOUT",
-                "message": "ipc connect timeout",
-            },
-        }
+    assert sock is not None
 
     try:
         fp = sock.makefile("rwb", buffering=0)
@@ -207,11 +212,15 @@ def send_ipc_command(
                     },
                 }
             try:
-                obj = json.loads(line.decode("utf-8", errors="strict"))
+                parsed: object = json.loads(line.decode("utf-8", errors="strict"))
             except Exception:
                 continue
-            if not isinstance(obj, dict):
+            if not isinstance(parsed, dict):
                 continue
+            obj = {
+                str(key): value
+                for key, value in cast(dict[object, object], parsed).items()
+            }
             if obj.get("type") != "reply":
                 continue
             if str(obj.get("cmd_id", "")) != cmd_id:
@@ -244,20 +253,13 @@ def _as_arg_map(value: object) -> dict[str, str]:
     if not isinstance(value, dict):
         raise SystemExit("FAIL: bdg: IPC_SEND_COMMAND event_arg_map must be object")
     out: dict[str, str] = {}
-    for key, item in value.items():
+    for key, item in cast(dict[object, object], value).items():
         if not isinstance(key, str) or not isinstance(item, str):
             raise SystemExit("FAIL: bdg: IPC_SEND_COMMAND event_arg_map must be dict[str, str]")
         out[key] = item
     return out
 
 
-def _json_line(obj: dict[str, Any]) -> bytes:
+def _json_line(obj: object) -> bytes:
     txt = json.dumps(obj, ensure_ascii=True, separators=(",", ":"))
     return (txt + "\n").encode("utf-8")
-
-
-def _write_json(path: Path, obj: dict[str, Any]) -> None:
-    path.write_text(
-        json.dumps(obj, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )

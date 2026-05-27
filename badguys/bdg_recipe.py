@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import tomllib
 from copy import deepcopy
-from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from badguys.bdg_loader import BdgTest
 
@@ -16,6 +15,7 @@ _BUILD_CFG_STEP_RECIPE_KEYS = {
     "runner_verbosity",
 }
 _RUN_RUNNER_STEP_RECIPE_KEYS = {"args"}
+_RAW_CACHE: dict[tuple[str, str], dict[str, object]] = {}
 
 
 def _config_relpath(config_path: Path | str) -> str:
@@ -23,45 +23,57 @@ def _config_relpath(config_path: Path | str) -> str:
     return path.as_posix()
 
 
-@cache
-def _load_raw(repo_root_str: str, config_relpath: str) -> dict[str, Any]:
+def _load_raw(repo_root_str: str, config_relpath: str) -> dict[str, object]:
+    cache_key = (repo_root_str, config_relpath)
+    cached = _RAW_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     repo_root = Path(repo_root_str)
     path = repo_root / Path(config_relpath)
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+    raw = cast(object, tomllib.loads(path.read_text(encoding="utf-8")))
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, object] = {}
+    for key, value in cast(dict[object, object], raw).items():
+        out[str(key)] = value
+    _RAW_CACHE[cache_key] = out
+    return out
 
 
-def _raw(*, repo_root: Path, config_path: Path | str) -> dict[str, Any]:
+def _raw(*, repo_root: Path, config_path: Path | str) -> dict[str, object]:
     return _load_raw(str(repo_root), _config_relpath(config_path))
 
 
-def _copy_dict(value: Any) -> dict[str, Any]:
+def _copy_dict(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
-    return deepcopy(value)
+    out: dict[str, object] = {}
+    for key, item in cast(dict[object, object], value).items():
+        out[str(key)] = deepcopy(item)
+    return out
 
 
-def ensure_allowed_keys(*, table: dict[str, Any], allowed: set[str], label: str) -> None:
+def ensure_allowed_keys(*, table: dict[str, object], allowed: set[str], label: str) -> None:
     extra = sorted(set(table) - allowed)
     if extra:
         joined = ", ".join(extra)
         raise SystemExit(f"FAIL: bdg recipe: {label} has unknown keys: {joined}")
 
 
-def _tests_table(raw: dict[str, Any], section_name: str) -> dict[str, Any]:
+def _tests_table(raw: dict[str, object], section_name: str) -> dict[str, object]:
     section = raw.get(section_name, {})
     if not isinstance(section, dict):
         return {}
-    tests = section.get("tests", {})
-    if not isinstance(tests, dict):
-        return {}
-    return tests
+    tests = cast(dict[object, object], section).get("tests", {})
+    return _copy_dict(tests)
 
 
-def _test_recipe(raw: dict[str, Any], test_id: str) -> dict[str, Any]:
+def _test_recipe(raw: dict[str, object], test_id: str) -> dict[str, object]:
     return _copy_dict(_tests_table(raw, "recipes").get(test_id, {}))
 
 
-def base_cfg_sections(*, repo_root: Path, config_path: Path | str) -> dict[str, Any]:
+def base_cfg_sections(*, repo_root: Path, config_path: Path | str) -> dict[str, object]:
     raw = _raw(repo_root=repo_root, config_path=config_path)
     return {key: _copy_dict(raw.get(key, {})) for key in _BASE_CFG_KEYS}
 
@@ -72,38 +84,40 @@ def step_recipe(
     config_path: Path | str,
     test_id: str,
     step_index: int,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     recipe = _test_recipe(_raw(repo_root=repo_root, config_path=config_path), test_id)
-    steps = recipe.get("steps", {})
-    if not isinstance(steps, dict):
+    steps_obj = recipe.get("steps", {})
+    if not isinstance(steps_obj, dict):
         return {}
-    item = steps.get(str(step_index)) if str(step_index) in steps else steps.get(step_index)
+    steps = cast(dict[object, object], steps_obj)
+    key_str = str(step_index)
+    item = steps.get(key_str) if key_str in steps else steps.get(step_index)
     if item is None:
         return {}
     if not isinstance(item, dict):
         raise SystemExit(
             f"FAIL: bdg recipe: recipes.tests.{test_id}.steps.{step_index} must be a table"
         )
-    return _copy_dict(item)
+    return _copy_dict(cast(dict[object, object], item))
 
 
-def _legacy_subjects(raw: dict[str, Any], test_id: str) -> dict[str, Any]:
+def _legacy_subjects(raw: dict[str, object], test_id: str) -> dict[str, object]:
     table = _tests_table(raw, "subjects").get(test_id, {})
     if table is None:
         return {}
     if not isinstance(table, dict):
         raise SystemExit(f"FAIL: bdg recipe: subjects.tests.{test_id} must be a table")
-    return _copy_dict(table)
+    return _copy_dict(cast(dict[object, object], table))
 
 
-def _legacy_assets(raw: dict[str, Any], test_id: str) -> dict[str, Any]:
+def _legacy_assets(raw: dict[str, object], test_id: str) -> dict[str, object]:
     recipe = _test_recipe(raw, test_id)
     assets = recipe.get("assets", {})
     if assets is None:
         return {}
     if not isinstance(assets, dict):
         raise SystemExit(f"FAIL: bdg recipe: recipes.tests.{test_id}.assets must be a table")
-    return _copy_dict(assets)
+    return _copy_dict(cast(dict[object, object], assets))
 
 
 def _allowed_step_recipe_keys_for_op(op: str) -> set[str]:
@@ -146,7 +160,7 @@ def validate_test_config_boundary(
     if not isinstance(steps, dict):
         raise SystemExit(f"FAIL: bdg recipe: recipes.tests.{test_id}.steps must be a table")
 
-    for key, item in steps.items():
+    for key, item in cast(dict[object, object], steps).items():
         if isinstance(key, str) and key.isdigit():
             step_index = int(key)
         elif isinstance(key, int):
@@ -163,13 +177,14 @@ def validate_test_config_boundary(
             raise SystemExit(
                 f"FAIL: bdg recipe: recipes.tests.{test_id}.steps.{step_index} must be a table"
             )
+        item_table = _copy_dict(cast(dict[object, object], item))
         allowed = _allowed_step_recipe_keys_for_op(bdg.steps[step_index].op)
         ensure_allowed_keys(
-            table=item,
+            table=item_table,
             allowed=allowed,
             label=f"recipes.tests.{test_id}.steps.{step_index}",
         )
-        if not allowed and item:
+        if not allowed and item_table:
             raise SystemExit(
                 "FAIL: bdg recipe: non-runner step recipe moved to .bdg; "
                 f"remove recipes.tests.{test_id}.steps.{step_index}"

@@ -27,6 +27,13 @@ class PostRunContext(Protocol):
     effective_target_repo_name: str | None
 
 
+def _ctx_effective_target_repo_name(ctx: PostRunContext) -> str | None:
+    try:
+        return ctx.effective_target_repo_name
+    except AttributeError:
+        return None
+
+
 def _resolve_workspace_archive_path(
     *,
     result: RunResult,
@@ -52,10 +59,15 @@ def _resolve_workspace_archive_path(
         return archived_path
 
     patch_source: Path
+    try:
+        patch_script_arg = cli.patch_script
+    except AttributeError:
+        patch_script_arg = None
+
     if result.patch_script is not None:
         patch_source = result.patch_script
-    elif cli.patch_script:
-        raw = Path(cli.patch_script)
+    elif patch_script_arg:
+        raw = Path(patch_script_arg)
         if raw.is_absolute():
             patch_source = raw
         else:
@@ -240,7 +252,7 @@ def run_post_run_pipeline(*, ctx: PostRunContext, result: RunResult) -> int:
                     ),
                     issue_diff_base_sha=result.issue_diff_base_sha,
                     issue_diff_paths=result.issue_diff_paths,
-                    effective_target_repo_name=ctx.effective_target_repo_name,
+                    effective_target_repo_name=_ctx_effective_target_repo_name(ctx),
                 )
             if (
                 result.exit_code != 0

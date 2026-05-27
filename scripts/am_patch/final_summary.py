@@ -214,10 +214,10 @@ def _emit_logger_message(
         )
     if to_log:
         with suppress(Exception):
-            logger._write_file(message)
+            logger.write_file(message)
     if to_screen:
         with suppress(Exception):
-            logger._write_screen(message)
+            logger.write_screen(message)
 
 
 def _emit_summary_line(

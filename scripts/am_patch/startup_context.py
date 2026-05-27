@@ -57,6 +57,20 @@ def _repo_cfg_subset(cfg: object) -> dict[str, object]:
     return out
 
 
+def _cli_finalize_from_cwd(cli: CliArgs) -> bool:
+    try:
+        return bool(cli.finalize_from_cwd)
+    except AttributeError:
+        return False
+
+
+def _cli_message(cli: CliArgs) -> str | None:
+    try:
+        return cli.message
+    except AttributeError:
+        return None
+
+
 @dataclass
 class RunContext:
     cli: CliArgs
@@ -129,7 +143,7 @@ def build_paths_and_logger(
             target_repo_roots=list(policy.target_repo_roots),
         )
 
-    if cli.finalize_from_cwd:
+    if _cli_finalize_from_cwd(cli):
         try:
             policy.active_target_repo_root = str(
                 resolve_repo_root_strict_from_cwd(timeout_s=policy.runner_subprocess_timeout_s)
@@ -258,7 +272,7 @@ def build_paths_and_logger(
                     base_sha=live_base_sha,
                     update=policy.update_workspace,
                     soft_reset=policy.soft_reset_workspace,
-                    message=cli.message,
+                    message=_cli_message(cli),
                     effective_target_repo_name=effective_target_repo_name,
                     runner_root=runner_root,
                     target_repo_roots=list(policy.target_repo_roots),

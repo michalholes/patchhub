@@ -87,7 +87,7 @@ def check_audit_rubric_coverage(
     domains = _parse_registry_domains(registry_py)
 
     if not rubric.exists():
-        missing = []
+        missing: list[MissingEvidence] = []
         for d, cli, caps in domains:
             expected = _expected_commands(cli, caps)
             missing.append(

@@ -203,12 +203,18 @@ class Logger:
         self._fp.write(s)
         self._fp.flush()
 
+    def write_file(self, s: str) -> None:
+        self._write_file(s)
+
     def _write_screen(self, s: str) -> None:
         if self._console_color_enabled:
             with contextlib.suppress(Exception):
                 s = colorize_console_message(s, enabled=True)
         sys.stdout.write(s)
         sys.stdout.flush()
+
+    def write_screen(self, s: str) -> None:
+        self._write_screen(s)
 
     def _now_mono_ms(self) -> int:
         return int((time.monotonic() - self._mono_start) * 1000)

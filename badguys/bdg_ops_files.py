@@ -3,15 +3,21 @@ from __future__ import annotations
 import tomllib
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from badguys.bdg_evaluator import StepResult
 
 
 def logs_dir(*, repo_root: Path, config_path: Path) -> Path:
     cfg_path = repo_root / config_path
-    raw = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-    logs_rel = raw.get("suite", {}).get("logs_dir", "patches/badguys_logs")
+    parsed = cast(object, tomllib.loads(cfg_path.read_text(encoding="utf-8")))
+    logs_rel: object = "patches/badguys_logs"
+    if isinstance(parsed, dict):
+        cfg_map = cast(dict[object, object], parsed)
+        suite_obj = cfg_map.get("suite")
+        if isinstance(suite_obj, dict):
+            suite = cast(dict[object, object], suite_obj)
+            logs_rel = suite.get("logs_dir", logs_rel)
     return repo_root / Path(str(logs_rel))
 
 
@@ -59,7 +65,7 @@ def _resolve_scope_root(
 def _resolve_step_path(
     *,
     repo_root: Path,
-    step: dict[str, Any],
+    step: dict[str, object],
     artifacts_dir: Path,
     issue_id: str,
 ) -> tuple[Path | None, str | None]:
@@ -87,7 +93,7 @@ def _resolve_step_path(
 def execute_read_text_file(
     *,
     repo_root: Path,
-    step: dict[str, Any],
+    step: dict[str, object],
     artifacts_dir: Path,
     issue_id: str,
 ) -> StepResult:
@@ -112,7 +118,7 @@ def execute_read_text_file(
 def execute_zip_list(
     *,
     repo_root: Path,
-    step: dict[str, Any],
+    step: dict[str, object],
     artifacts_dir: Path,
     issue_id: str,
 ) -> StepResult:

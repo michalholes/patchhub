@@ -79,9 +79,17 @@ def resolve_patch_plan(
     patch_script: Path | None = None
     del logger, repo_root
 
-    patch_script_arg = cli.patch_script
+    try:
+        patch_script_arg = cli.patch_script
+    except AttributeError:
+        patch_script_arg = None
 
-    if cli.load_latest_patch:
+    try:
+        load_latest_patch = bool(cli.load_latest_patch)
+    except AttributeError:
+        load_latest_patch = False
+
+    if load_latest_patch:
         hint_name = Path(patch_script_arg).name if patch_script_arg else None
         patch_script = select_latest_issue_patch(
             patch_dir=patch_root,

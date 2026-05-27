@@ -2,17 +2,66 @@ from __future__ import annotations
 
 import contextlib
 import json
-import select
 import shutil
 import socket
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
+
+JsonMap = dict[str, object]
+
+
+@dataclass
+class PreparedCommandPlan:
+    protocol: str
+    cmd: str
+    cmd_id: str
+    args: dict[str, object]
+    delay_s: float
+    wait_event_type: str | None
+    wait_event_name: str | None
+    event_arg_map: dict[str, str]
+    request_path: Path
+    reply_path: Path
+    matched_event: JsonMap | None = None
+    sent: bool = False
+    done: bool = False
+
+
+def _to_json_map(value: object) -> JsonMap | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        str(key): item
+        for key, item in cast(dict[object, object], value).items()
+    }
+
+
+def _wait_socket_readable(sock: socket.socket, timeout_s: float | None) -> bool:
+    deadline: float | None = (
+        None if timeout_s is None else time.monotonic() + max(0.0, float(timeout_s))
+    )
+
+    while True:
+        try:
+            sock.recv(1, socket.MSG_PEEK)
+            return True
+        except BlockingIOError:
+            pass
+        except InterruptedError:
+            continue
+        except OSError:
+            raise
+
+        if deadline is not None and time.monotonic() >= deadline:
+            return False
+        time.sleep(0.005)
 
 
 def _copy_result_artifact(
-    result: dict[str, Any],
+    result: JsonMap,
     *,
     result_json_copy_path: Path | None,
     runner_jsonl_copy_path: Path | None,
@@ -72,25 +121,26 @@ def _copy_result_artifact_path(
     return None
 
 
-def _result_artifact_copy_status(*, error: str | None) -> dict[str, Any]:
+def _result_artifact_copy_status(*, error: str | None) -> JsonMap:
     return {"ok": error is None, "error": error}
 
 
-def _validate_result(obj: Any) -> dict[str, Any] | None:
-    if not isinstance(obj, dict):
+def _validate_result(obj: object) -> JsonMap | None:
+    payload = _to_json_map(obj)
+    if payload is None:
         return None
-    if "ok" not in obj or "return_code" not in obj:
+    if "ok" not in payload or "return_code" not in payload:
         return None
-    ok = obj.get("ok")
-    rc = obj.get("return_code")
+    ok = payload.get("ok")
+    rc = payload.get("return_code")
     if not isinstance(ok, bool):
         return None
     if not isinstance(rc, int):
         return None
 
-    out: dict[str, Any] = {"ok": ok, "return_code": rc}
-    lp = obj.get("log_path")
-    jp = obj.get("json_path")
+    out: JsonMap = {"ok": ok, "return_code": rc}
+    lp = payload.get("log_path")
+    jp = payload.get("json_path")
     if isinstance(lp, str) and lp:
         out["log_path"] = lp
     if isinstance(jp, str) and jp:
@@ -124,12 +174,12 @@ def record_ipc_stream(
     out_path: Path,
     connect_timeout_s: float,
     total_timeout_s: float,
-    command_plans: list[dict[str, Any]] | None = None,
+    command_plans: list[dict[str, object]] | None = None,
     result_json_copy_path: Path | None = None,
     runner_jsonl_copy_path: Path | None = None,
     runner_log_copy_path: Path | None = None,
     on_log_message: Callable[[str], None] | None = None,
-) -> tuple[dict[str, Any] | None, str, dict[str, Any]]:
+) -> tuple[JsonMap | None, str, JsonMap]:
     """Record the full runner IPC NDJSON stream and compute runner value_text.
 
     Optional command_plans are executed over the same IPC connection so that
@@ -175,13 +225,13 @@ def record_ipc_stream(
         time.sleep(0.005)
 
     value_msgs: list[str] = []
-    result: dict[str, Any] | None = None
+    result: JsonMap | None = None
     plans = _prepare_command_plans(command_plans or [])
     connected_at = time.monotonic()
 
     artifact_copy_error: str | None = None
 
-    def _handle_obj(obj: dict[str, Any]) -> None:
+    def _handle_obj(obj: JsonMap) -> None:
         nonlocal artifact_copy_error, result
         if obj.get("type") == "log":
             msg = obj.get("msg")
@@ -201,28 +251,26 @@ def record_ipc_stream(
                         runner_log_copy_path=runner_log_copy_path,
                     )
         for plan in plans:
-            if plan["matched_event"] is not None:
+            if plan.matched_event is not None:
                 continue
-            evt_type = plan["wait_event_type"]
-            evt_name = plan["wait_event_name"]
+            evt_type = plan.wait_event_type
+            evt_name = plan.wait_event_name
             if evt_type is None and evt_name is None:
                 continue
             if evt_type is not None and str(obj.get("type", "")) != evt_type:
                 continue
             if evt_name is not None and str(obj.get("event", "")) != evt_name:
                 continue
-            plan["matched_event"] = obj
+            plan.matched_event = obj
         if obj.get("type") == "reply":
             cmd_id = str(obj.get("cmd_id", ""))
             for plan in plans:
-                if plan["sent"] and not plan["done"] and str(plan["cmd_id"]) == cmd_id:
-                    _write_json(plan["reply_path"], obj)
-                    plan["done"] = True
+                if plan.sent and not plan.done and plan.cmd_id == cmd_id:
+                    _write_json(plan.reply_path, obj)
+                    plan.done = True
                     break
 
-    if s is None:
-        _finalize_unresolved_plans(plans, code="CONNECT_TIMEOUT", message="ipc connect timeout")
-        return None, "", _result_artifact_copy_status(error=None)
+    assert s is not None
 
     try:
         s.setblocking(False)
@@ -238,8 +286,8 @@ def record_ipc_stream(
                         break
 
                 try:
-                    readable, _, _ = select.select([s], [], [], wait_s)
-                except (OSError, ValueError):
+                    readable = _wait_socket_readable(s, wait_s)
+                except OSError:
                     break
                 if readable:
                     try:
@@ -259,21 +307,22 @@ def record_ipc_stream(
                         pending = pending[newline_at + 1 :]
                         out_fp.write(line)
                         try:
-                            obj = json.loads(line)
+                            parsed: object = json.loads(line)
                         except Exception:
                             continue
-                        if isinstance(obj, dict):
+                        obj = _to_json_map(parsed)
+                        if obj is not None:
                             _handle_obj(obj)
 
                 _maybe_send_waiting_commands(s, plans, connected_at)
-                if result is not None and all(plan["done"] for plan in plans):
+                if result is not None and all(plan.done for plan in plans):
                     if total_deadline is None:
                         extra_deadline = time.monotonic() + 0.2
                         while time.monotonic() < extra_deadline:
                             try:
-                                readable, _, _ = select.select([s], [], [], 0.02)
-                            except (OSError, ValueError):
-                                readable = []
+                                readable = _wait_socket_readable(s, 0.02)
+                            except OSError:
+                                readable = False
                             if not readable:
                                 break
                             try:
@@ -291,50 +340,100 @@ def record_ipc_stream(
                                 pending = pending[newline_at + 1 :]
                                 out_fp.write(line)
                                 try:
-                                    obj = json.loads(line)
+                                    parsed_extra: object = json.loads(line)
                                 except Exception:
                                     continue
-                                if isinstance(obj, dict):
+                                obj = _to_json_map(parsed_extra)
+                                if obj is not None:
                                     _handle_obj(obj)
                     break
 
             if pending:
                 out_fp.write(pending)
                 try:
-                    obj = json.loads(pending)
+                    parsed_pending: object = json.loads(pending)
                 except Exception:
-                    obj = None
-                if isinstance(obj, dict):
+                    parsed_pending = None
+                obj = _to_json_map(parsed_pending)
+                if obj is not None:
                     _handle_obj(obj)
     finally:
         with contextlib.suppress(Exception):
-            if s is not None:
-                s.close()
+            s.close()
 
     _finalize_unresolved_plans(plans, code="EOF", message="ipc connection closed before reply")
     value_text = "\n".join(value_msgs)
     return result, value_text, _result_artifact_copy_status(error=artifact_copy_error)
 
 
-def _prepare_command_plans(raw_plans: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    plans: list[dict[str, Any]] = []
+def _prepare_command_plans(raw_plans: list[dict[str, object]]) -> list[PreparedCommandPlan]:
+    plans: list[PreparedCommandPlan] = []
     for item in raw_plans:
-        plan = dict(item)
-        plan.setdefault("args", {})
-        plan.setdefault("delay_s", 0.0)
-        plan.setdefault("wait_event_type", None)
-        plan.setdefault("wait_event_name", None)
-        plan.setdefault("event_arg_map", {})
-        plan["matched_event"] = None
-        plan["sent"] = False
-        plan["done"] = False
-        plans.append(plan)
+        protocol = str(item.get("protocol", "am_patch_ipc/1"))
+        cmd = str(item.get("cmd", "")).strip()
+        if not cmd:
+            continue
+        cmd_id = str(item.get("cmd_id", "")).strip()
+        if not cmd_id:
+            continue
+
+        args_obj = item.get("args", {})
+        args_map = _to_json_map(args_obj)
+        args = args_map if args_map is not None else {}
+
+        delay_raw = item.get("delay_s", 0.0)
+        if isinstance(delay_raw, bool) or not isinstance(delay_raw, int | float):
+            delay_s = 0.0
+        else:
+            delay_s = float(delay_raw)
+
+        wait_event_type_obj = item.get("wait_event_type")
+        wait_event_type = (
+            str(wait_event_type_obj).strip() if isinstance(wait_event_type_obj, str) else None
+        )
+        if wait_event_type == "":
+            wait_event_type = None
+
+        wait_event_name_obj = item.get("wait_event_name")
+        wait_event_name = (
+            str(wait_event_name_obj).strip() if isinstance(wait_event_name_obj, str) else None
+        )
+        if wait_event_name == "":
+            wait_event_name = None
+
+        raw_map = item.get("event_arg_map", {})
+        raw_map_obj = _to_json_map(raw_map)
+        event_arg_map: dict[str, str] = {}
+        if raw_map_obj is not None:
+            for key, value in raw_map_obj.items():
+                if isinstance(value, str):
+                    event_arg_map[key] = value
+
+        request_path_raw = item.get("request_path")
+        reply_path_raw = item.get("reply_path")
+        if not isinstance(request_path_raw, Path) or not isinstance(reply_path_raw, Path):
+            continue
+
+        plans.append(
+            PreparedCommandPlan(
+                protocol=protocol,
+                cmd=cmd,
+                cmd_id=cmd_id,
+                args=args,
+                delay_s=delay_s,
+                wait_event_type=wait_event_type,
+                wait_event_name=wait_event_name,
+                event_arg_map=event_arg_map,
+                request_path=request_path_raw,
+                reply_path=reply_path_raw,
+            )
+        )
     return plans
 
 
 def _maybe_send_ready_commands(
     sock: socket.socket,
-    plans: list[dict[str, Any]],
+    plans: list[PreparedCommandPlan],
     connected_at: float,
 ) -> None:
     _maybe_send_waiting_commands(sock, plans, connected_at)
@@ -342,38 +441,38 @@ def _maybe_send_ready_commands(
 
 def _maybe_send_waiting_commands(
     sock: socket.socket,
-    plans: list[dict[str, Any]],
+    plans: list[PreparedCommandPlan],
     connected_at: float,
 ) -> None:
     now = time.monotonic()
     for plan in plans:
-        if plan["sent"] or plan["done"]:
+        if plan.sent or plan.done:
             continue
-        evt_type = plan["wait_event_type"]
-        evt_name = plan["wait_event_name"]
-        matched_event = plan["matched_event"]
+        evt_type = plan.wait_event_type
+        evt_name = plan.wait_event_name
+        matched_event = plan.matched_event
         if (evt_type is not None or evt_name is not None) and matched_event is None:
             continue
-        if now < connected_at + float(plan.get("delay_s", 0.0) or 0.0):
+        if now < connected_at + max(0.0, plan.delay_s):
             continue
-        args = dict(plan.get("args", {}))
+        args = dict(plan.args)
         if matched_event is not None:
-            for arg_name, field_name in dict(plan.get("event_arg_map", {})).items():
+            for arg_name, field_name in plan.event_arg_map.items():
                 args[arg_name] = matched_event.get(field_name)
-        request = {
-            "protocol": plan["protocol"],
+        request: JsonMap = {
+            "protocol": plan.protocol,
             "type": "cmd",
-            "cmd": plan["cmd"],
-            "cmd_id": plan["cmd_id"],
+            "cmd": plan.cmd,
+            "cmd_id": plan.cmd_id,
             "args": args,
         }
-        _write_json(plan["request_path"], request)
+        _write_json(plan.request_path, request)
         try:
             sock.sendall(_json_line(request))
-            plan["sent"] = True
+            plan.sent = True
         except OSError:
             _write_json(
-                plan["reply_path"],
+                plan.reply_path,
                 {
                     "ok": False,
                     "error": {
@@ -382,18 +481,21 @@ def _maybe_send_waiting_commands(
                     },
                 },
             )
-            plan["done"] = True
+            plan.done = True
 
 
-def _finalize_unresolved_plans(plans: list[dict[str, Any]], *, code: str, message: str) -> None:
+def _finalize_unresolved_plans(
+    plans: list[PreparedCommandPlan],
+    *,
+    code: str,
+    message: str,
+) -> None:
     for plan in plans:
-        if plan.get("done"):
+        if plan.done:
             continue
-        if not plan.get("sent") and (
-            plan.get("wait_event_type") is not None or plan.get("wait_event_name") is not None
-        ):
+        if not plan.sent and (plan.wait_event_type is not None or plan.wait_event_name is not None):
             _write_json(
-                plan["reply_path"],
+                plan.reply_path,
                 {
                     "ok": False,
                     "error": {
@@ -404,7 +506,7 @@ def _finalize_unresolved_plans(plans: list[dict[str, Any]], *, code: str, messag
             )
         else:
             _write_json(
-                plan["reply_path"],
+                plan.reply_path,
                 {
                     "ok": False,
                     "error": {
@@ -413,14 +515,14 @@ def _finalize_unresolved_plans(plans: list[dict[str, Any]], *, code: str, messag
                     },
                 },
             )
-        plan["done"] = True
+        plan.done = True
 
 
-def _json_line(obj: dict[str, Any]) -> bytes:
+def _json_line(obj: object) -> bytes:
     return (json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def _write_json(path: Path, obj: dict[str, Any]) -> None:
+def _write_json(path: Path, obj: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(obj, ensure_ascii=True, indent=2, sort_keys=True) + "\n",

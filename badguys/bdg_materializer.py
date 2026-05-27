@@ -6,22 +6,26 @@ import tomllib
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from badguys.bdg_loader import BdgAsset, BdgAssetEntry, BdgTest
 from badguys.bdg_recipe import base_cfg_sections, validate_test_config_boundary
 from badguys.bdg_subst import SubstCtx, subst_text
 
 
+def _new_subjects_map() -> dict[str, str]:
+    return {}
+
+
 @dataclass(frozen=True)
 class MaterializedAssets:
     root: Path
     files: dict[str, Path]
-    subjects: dict[str, str] = field(default_factory=dict)
+    subjects: dict[str, str] = field(default_factory=_new_subjects_map)
 
 
 def _safe_name(name: str) -> str:
-    out = []
+    out: list[str] = []
     for ch in name:
         if ch.isalnum() or ch in {"_", "-", "."}:
             out.append(ch)
@@ -69,9 +73,12 @@ def _string_list(
     asset_id: str,
     field_name: str,
 ) -> list[str]:
-    if not (isinstance(value, list) and all(isinstance(item, str) for item in value)):
+    if not isinstance(value, list):
         raise SystemExit(f"FAIL: bdg: {test_id}.{asset_id}.{field_name} must be list[str]")
-    return list(value)
+    items = cast(list[object], value)
+    if not all(isinstance(item, str) for item in items):
+        raise SystemExit(f"FAIL: bdg: {test_id}.{asset_id}.{field_name} must be list[str]")
+    return [item for item in items if isinstance(item, str)]
 
 
 def _build_python_patch_script(
@@ -138,12 +145,24 @@ def _build_python_patch_script(
     )
 
 
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    out: dict[str, Any] = dict(base)
+def _as_str_object_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, object] = {}
+    for key, item in cast(dict[object, object], value).items():
+        out[str(key)] = item
+    return out
+
+
+def _deep_merge(base: dict[str, object], override: dict[str, object]) -> dict[str, object]:
+    out: dict[str, object] = dict(base)
     for key, value in override.items():
         current = out.get(key)
         if isinstance(current, dict) and isinstance(value, dict):
-            out[key] = _deep_merge(current, value)
+            out[key] = _deep_merge(
+                _as_str_object_dict(cast(dict[object, object], current)),
+                _as_str_object_dict(cast(dict[object, object], value)),
+            )
         else:
             out[key] = value
     return out
@@ -157,19 +176,28 @@ def _format_toml_value(value: object) -> str:
     if isinstance(value, str):
         return json.dumps(value)
     if isinstance(value, list):
-        return "[" + ", ".join(_format_toml_value(item) for item in value) + "]"
+        items = cast(list[object], value)
+        return "[" + ", ".join(_format_toml_value(item) for item in items) + "]"
     raise SystemExit(f"FAIL: bdg materializer: unsupported TOML value: {type(value).__name__}")
 
 
-def _dump_toml_sections(data: dict[str, Any]) -> str:
+def _parse_toml_table(text: str) -> dict[str, object]:
+    parsed = cast(object, tomllib.loads(text))
+    if not isinstance(parsed, dict):
+        raise SystemExit("FAIL: bdg materializer: toml_text delta must decode to a table")
+    return _as_str_object_dict(cast(dict[object, object], parsed))
+
+
+def _dump_toml_sections(data: dict[str, object]) -> str:
     parts: list[str] = []
     for section in ("suite", "lock", "guard", "filters", "runner"):
-        table = data.get(section, {})
-        if not isinstance(table, dict):
+        table_obj = data.get(section, {})
+        if not isinstance(table_obj, dict):
             raise SystemExit(f"FAIL: bdg materializer: section '{section}' must be a table")
+        table = _as_str_object_dict(cast(dict[object, object], table_obj))
         parts.append(f"[{section}]")
-        for key in sorted(table.keys()):
-            parts.append(f"{key} = {_format_toml_value(table[key])}")
+        for key, item in sorted(table.items()):
+            parts.append(f"{key} = {_format_toml_value(item)}")
         parts.append("")
     return "\n".join(parts).rstrip() + "\n"
 
@@ -350,9 +378,7 @@ def _materialize_one(
         path = root / f"{safe_id}.toml"
         base = base_cfg_sections(repo_root=repo_root, config_path=config_path)
         delta_raw = subst_text(asset.content or "", ctx=subst)
-        delta = tomllib.loads(delta_raw) if delta_raw.strip() else {}
-        if not isinstance(delta, dict):
-            raise SystemExit("FAIL: bdg materializer: toml_text delta must decode to a table")
+        delta = _parse_toml_table(delta_raw) if delta_raw.strip() else {}
         merged = _deep_merge(base, delta)
         path.write_text(_dump_toml_sections(merged), encoding="utf-8")
         return path

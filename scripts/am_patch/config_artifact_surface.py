@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from .config import Policy
 
 ConfigBool = Callable[[dict[str, object], str, bool], bool]
-MarkCfg = Callable[[Policy, dict[str, object], str], None]
+MarkCfg = Callable[["Policy", dict[str, object], str], None]
 ValidateBasename = Callable[[str, str], str]
 
 

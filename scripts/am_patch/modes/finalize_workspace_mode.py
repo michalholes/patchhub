@@ -5,15 +5,15 @@ from typing import TYPE_CHECKING
 
 from am_patch.errors import RunnerError
 from am_patch.gates_policy_wiring import run_policy_gates
-from am_patch.run_result import RunResult, _normalize_failure_summary, build_run_result
+from am_patch.run_result import RunResult, build_run_result, normalize_failure_summary
 from am_patch.runner_failure_detail import (
     render_runner_error_detail,
     render_runner_error_fingerprint,
 )
 from am_patch.runtime import (
-    _gate_progress,
-    _parse_gate_list,
-    _stage_rank,
+    gate_progress,
+    parse_gate_list,
+    stage_rank,
 )
 from am_patch.scope import changed_paths
 from am_patch.workspace import bump_existing_workspace_attempt, open_existing_workspace
@@ -105,7 +105,7 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
             repo_root=repo_root,
             policy=policy,
             decision_paths=decision_paths_ws,
-            progress=_gate_progress,
+            progress=gate_progress,
             workspaces_dir=paths.workspaces_dir,
             cli_mode=cli.mode,
             issue_id=cli.issue_id,
@@ -142,7 +142,7 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
                 repo_root=repo_root,
                 policy=policy,
                 decision_paths=decision_paths,
-                progress=_gate_progress,
+                progress=gate_progress,
                 workspaces_dir=paths.workspaces_dir,
                 cli_mode=cli.mode,
                 issue_id=cli.issue_id,
@@ -168,12 +168,12 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
         logger.line(str(e))
         final_fail_detail = render_runner_error_detail(e)
         final_fail_fingerprint = render_runner_error_fingerprint(e)
-        final_fail_stage, final_fail_reason = _normalize_failure_summary(
+        final_fail_stage, final_fail_reason = normalize_failure_summary(
             error=e,
             primary_fail_stage=primary_fail_stage,
             secondary_failures=secondary_failures,
-            parse_gate_list=_parse_gate_list,
-            stage_rank=_stage_rank,
+            parse_gate_list=parse_gate_list,
+            stage_rank=stage_rank,
         )
         exit_code = 1
 

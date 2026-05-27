@@ -16,6 +16,10 @@ _CANCEL_GRACE_S = 1.0
 StreamCallback = Callable[[str], None]
 
 
+def _new_str_chunks() -> list[str]:
+    return []
+
+
 @dataclass(frozen=True)
 class CompletedManagedProcess:
     returncode: int
@@ -30,8 +34,8 @@ class ManagedSubprocess:
     process: subprocess.Popen[str]
     stdout_callback: StreamCallback | None = None
     stderr_callback: StreamCallback | None = None
-    _stdout_chunks: list[str] = field(default_factory=list)
-    _stderr_chunks: list[str] = field(default_factory=list)
+    _stdout_chunks: list[str] = field(default_factory=_new_str_chunks)
+    _stderr_chunks: list[str] = field(default_factory=_new_str_chunks)
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _cancel_requested: bool = False
     _stdout_thread: threading.Thread = field(init=False)

@@ -6,6 +6,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol, cast
 
 
 @dataclass
@@ -147,7 +148,15 @@ class StatusReporter:
             self._stop.wait(0.2)
 
 
+class _StderrLike(Protocol):
+    def isatty(self) -> bool: ...
+
+
 def _stderr_isatty() -> bool:
+    try:
+        return bool(cast(_StderrLike, sys.stderr).isatty())
+    except Exception:
+        pass
     try:
         return bool(os.isatty(2))
     except Exception:

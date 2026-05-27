@@ -5,15 +5,31 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .pytest_namespace_config import (
-    _matches_prefix,
-    _namespace_stem,
-    _normalize_dependencies,
-    _normalize_full_suite_prefixes,
-    _normalize_namespace_modules,
-    _normalize_path,
-    _normalize_roots,
-    _normalize_tree,
-    _root_for_namespace,
+    matches_prefix as _matches_prefix,
+)
+from .pytest_namespace_config import (
+    namespace_stem as _namespace_stem,
+)
+from .pytest_namespace_config import (
+    normalize_dependencies as _normalize_dependencies,
+)
+from .pytest_namespace_config import (
+    normalize_full_suite_prefixes as _normalize_full_suite_prefixes,
+)
+from .pytest_namespace_config import (
+    normalize_namespace_modules as _normalize_namespace_modules,
+)
+from .pytest_namespace_config import (
+    normalize_path as _normalize_path,
+)
+from .pytest_namespace_config import (
+    normalize_roots as _normalize_roots,
+)
+from .pytest_namespace_config import (
+    normalize_tree as _normalize_tree,
+)
+from .pytest_namespace_config import (
+    root_for_namespace as _root_for_namespace,
 )
 from .pytest_namespace_discovery import (
     default_repo_root,

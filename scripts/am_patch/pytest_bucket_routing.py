@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import cast
 
 from .errors import RunnerError
 from .pytest_namespace_config import (
@@ -11,8 +12,8 @@ from .pytest_namespace_config import (
     PYTEST_NAMESPACE_MODULES_DEFAULT,
     PYTEST_ROOTS_DEFAULT,
     PYTEST_TREE_DEFAULT,
-    _normalize_dependencies,
-    _normalize_namespace_modules,
+    normalize_dependencies,
+    normalize_namespace_modules,
 )
 from .pytest_namespace_routing import select_namespace_pytest_targets
 
@@ -21,8 +22,9 @@ def _mapping_dict_str(mapping: Mapping[str, object], key: str) -> dict[str, str]
     raw = mapping.get(key, {})
     if not isinstance(raw, Mapping):
         return {}
+    raw_map = cast(Mapping[object, object], raw)
     out: dict[str, str] = {}
-    for item_key, item_value in raw.items():
+    for item_key, item_value in raw_map.items():
         skey = str(item_key).strip()
         sval = str(item_value).strip()
         if skey and sval:
@@ -34,12 +36,15 @@ def _mapping_dict_list(mapping: Mapping[str, object], key: str) -> dict[str, lis
     raw = mapping.get(key, {})
     if not isinstance(raw, Mapping):
         return {}
+    raw_map = cast(Mapping[object, object], raw)
     out: dict[str, list[str]] = {}
-    for item_key, item_value in raw.items():
+    for item_key, item_value in raw_map.items():
         skey = str(item_key).strip()
         if not skey or not isinstance(item_value, list):
             continue
-        values = [str(item).strip() for item in item_value if str(item).strip()]
+        values = [
+            str(item).strip() for item in cast(list[object], item_value) if str(item).strip()
+        ]
         out[skey] = values
     return out
 
@@ -48,7 +53,8 @@ def _mapping_list(mapping: Mapping[str, object], key: str) -> list[str]:
     raw = mapping.get(key, [])
     if not isinstance(raw, list):
         return []
-    return [str(item).strip() for item in raw if str(item).strip()]
+    raw_items = cast(list[object], raw)
+    return [str(item).strip() for item in raw_items if str(item).strip()]
 
 
 def select_pytest_targets(
@@ -73,13 +79,13 @@ def select_pytest_targets(
 
     pytest_roots = _mapping_dict_str(routing_policy, "pytest_roots")
     pytest_tree = _mapping_dict_str(routing_policy, "pytest_tree")
-    pytest_namespace_modules = _normalize_namespace_modules(
+    pytest_namespace_modules = normalize_namespace_modules(
         _mapping_dict_list(routing_policy, "pytest_namespace_modules")
     )
-    pytest_dependencies = _normalize_dependencies(
+    pytest_dependencies = normalize_dependencies(
         _mapping_dict_list(routing_policy, "pytest_dependencies")
     )
-    pytest_external_dependencies = _normalize_dependencies(
+    pytest_external_dependencies = normalize_dependencies(
         _mapping_dict_list(routing_policy, "pytest_external_dependencies")
     )
     pytest_full_suite_prefixes = _mapping_list(routing_policy, "pytest_full_suite_prefixes")

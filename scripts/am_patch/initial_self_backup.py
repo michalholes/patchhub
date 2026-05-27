@@ -254,7 +254,11 @@ def maybe_create_initial_self_backup(
     logger.line(f"self_backup_mode={mode}")
     logger.line(f"self_backup_workspace_repo_dir={workspace_repo_dir}")
 
-    if bool(policy.test_mode):
+    try:
+        test_mode = bool(policy.test_mode)
+    except AttributeError:
+        test_mode = False
+    if test_mode:
         logger.line("self_backup_skip_reason=test_mode")
         logger.info_core("self_backup=SKIP reason=test_mode")
         return InitialSelfBackupResult(

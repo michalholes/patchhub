@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import cast
 
 
 @dataclass(frozen=True)
@@ -10,10 +10,10 @@ class StepResult:
     rc: int | None
     stdout: str | None
     stderr: str | None
-    value: Any
+    value: object
 
 
-def _value_as_str(v: Any) -> str:
+def _value_as_str(v: object) -> str:
     if v is None:
         return ""
     if isinstance(v, str):
@@ -21,29 +21,33 @@ def _value_as_str(v: Any) -> str:
     return str(v)
 
 
-def _value_as_list(v: Any) -> list[str]:
+def _value_as_list(v: object) -> list[str]:
     if v is None:
         return []
-    if isinstance(v, list) and all(isinstance(x, str) for x in v):
-        return list(v)
+    if isinstance(v, list):
+        items = cast(list[object], v)
+        if all(isinstance(item, str) for item in items):
+            return [item for item in items if isinstance(item, str)]
     if isinstance(v, str):
         return [v]
     raise SystemExit("FAIL: value must be list[str] or string")
 
 
-def _as_list(v: Any) -> list[str]:
+def _as_list(v: object) -> list[str]:
     if v is None:
         return []
     if isinstance(v, str):
         return [v]
-    if isinstance(v, list) and all(isinstance(x, str) for x in v):
-        return list(v)
+    if isinstance(v, list):
+        items = cast(list[object], v)
+        if all(isinstance(item, str) for item in items):
+            return [item for item in items if isinstance(item, str)]
     raise SystemExit("FAIL: evaluation rule must be string or list[str]")
 
 
 def evaluate_step(
     *,
-    rules: dict[str, Any],
+    rules: dict[str, object],
     result: StepResult,
     prior: dict[int, StepResult],
     test_id: str,
@@ -114,10 +118,14 @@ def evaluate_step(
 
     list_eq = rules.get("list_eq")
     if list_eq is not None:
-        if not (isinstance(list_eq, list) and all(isinstance(x, str) for x in list_eq)):
+        if not isinstance(list_eq, list):
             raise SystemExit("FAIL: list_eq must be list[str]")
+        list_eq_items = cast(list[object], list_eq)
+        if not all(isinstance(item, str) for item in list_eq_items):
+            raise SystemExit("FAIL: list_eq must be list[str]")
+        expected_list_eq = [item for item in list_eq_items if isinstance(item, str)]
         vlist = _value_as_list(result.value)
-        if vlist != list_eq:
+        if vlist != expected_list_eq:
             return False, "list != list_eq"
 
     list_contains = _as_list(rules.get("list_contains"))

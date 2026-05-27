@@ -62,6 +62,9 @@ def _flatten_sections(cfg: object) -> dict[str, object]:
     return out
 
 
+flatten_sections = _flatten_sections
+
+
 def load_config(path: Path) -> tuple[dict[str, object], bool]:
     if not path.exists():
         return {}, False

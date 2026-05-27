@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from fastapi.responses import Response
 
@@ -16,7 +15,7 @@ def json_headers(headers: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def json_response(
-    data: Any,
+    data: object,
     *,
     status: int = 200,
     headers: dict[str, str] | None = None,

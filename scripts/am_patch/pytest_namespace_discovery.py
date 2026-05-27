@@ -5,11 +5,19 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 
 from .pytest_namespace_config import (
-    _matches_prefix,
-    _namespace_contains,
-    _namespace_stem,
-    _normalize_path,
-    _root_namespaces,
+    matches_prefix as _matches_prefix,
+)
+from .pytest_namespace_config import (
+    namespace_contains as _namespace_contains,
+)
+from .pytest_namespace_config import (
+    namespace_stem as _namespace_stem,
+)
+from .pytest_namespace_config import (
+    normalize_path as _normalize_path,
+)
+from .pytest_namespace_config import (
+    root_namespaces as _root_namespaces,
 )
 
 

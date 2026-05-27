@@ -21,7 +21,7 @@ from .monolith_gate import run_monolith_gate
 from .pytest_bucket_routing import select_pytest_targets
 from .python_gate_runtime import build_python_gate_env, resolve_python_gate_interpreter
 
-_RUN_GATES_WIRING_CHECKED = False
+_run_gates_wiring_checked = False
 
 
 def _norm_targets(targets: list[str], fallback: list[str]) -> list[str]:
@@ -588,10 +588,10 @@ def run_gates(
     progress: Callable[[str], None] | None = None,
     gate_step_callback: GateStepCallback | None = None,
 ) -> None:
-    global _RUN_GATES_WIRING_CHECKED
-    if not _RUN_GATES_WIRING_CHECKED:
+    global _run_gates_wiring_checked
+    if not _run_gates_wiring_checked:
         assert_single_run_gates_callsite()
-        _RUN_GATES_WIRING_CHECKED = True
+        _run_gates_wiring_checked = True
 
     failures: list[str] = []
     skipped: list[str] = []

@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+def _new_empty_str_list() -> list[str]:
+    return []
+
+
 @dataclass
 class PolicyMonolithMixin:
     gates_skip_monolith: bool = False
@@ -12,9 +16,9 @@ class PolicyMonolithMixin:
     gate_monolith_extensions: list[str] = field(default_factory=lambda: [".py", ".js"])
     gate_monolith_compute_fanin: bool = True
     gate_monolith_on_parse_error: str = "fail"  # fail|warn
-    gate_monolith_areas_prefixes: list[str] = field(default_factory=list)
-    gate_monolith_areas_names: list[str] = field(default_factory=list)
-    gate_monolith_areas_dynamic: list[str] = field(default_factory=list)
+    gate_monolith_areas_prefixes: list[str] = field(default_factory=_new_empty_str_list)
+    gate_monolith_areas_names: list[str] = field(default_factory=_new_empty_str_list)
+    gate_monolith_areas_dynamic: list[str] = field(default_factory=_new_empty_str_list)
 
     gate_monolith_large_loc: int = 900
     gate_monolith_huge_loc: int = 1300
@@ -43,4 +47,4 @@ class PolicyMonolithMixin:
     gate_monolith_catchall_dirs: list[str] = field(
         default_factory=lambda: ["utils", "common", "helpers", "misc"]
     )
-    gate_monolith_catchall_allowlist: list[str] = field(default_factory=list)
+    gate_monolith_catchall_allowlist: list[str] = field(default_factory=_new_empty_str_list)

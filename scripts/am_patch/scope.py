@@ -5,19 +5,6 @@ from pathlib import Path
 from .errors import RunnerError
 from .log import Logger
 
-
-def _is_under_prefix(p: str, prefix: str) -> bool:
-    p = _normalize_path(p)
-    prefix = _normalize_path(prefix)
-    if not prefix:
-        return False
-    if p == prefix.rstrip("/"):
-        return True
-    if not prefix.endswith("/"):
-        prefix = prefix + "/"
-    return p.startswith(prefix)
-
-
 # Blessed outputs produced by gates (ruff/pytest/mypy) that should not
 # disqualify a patch and should be promotable without using -a.
 # Keep this list deterministic and explicit.

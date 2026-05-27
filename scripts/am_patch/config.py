@@ -6,7 +6,7 @@ from dataclasses import Field, dataclass, field
 from typing import cast
 
 from .config_artifact_surface import apply_artifact_cfg_surface, validate_artifact_cfg_surface
-from .config_file import _flatten_sections, load_config
+from .config_file import flatten_sections, load_config
 from .config_gate_execution import apply_gate_execution_cfg
 from .config_ipc_surface import apply_ipc_cfg_surface
 from .errors import RunnerError
@@ -32,11 +32,20 @@ __all__ = [
 ]
 
 DEFAULT_BADGUYS_COMMAND = ["badguys/badguys.py", "-q"]
+_flatten_sections = flatten_sections
+
+
+def _empty_str_map() -> dict[str, str]:
+    return {}
+
+
+def _empty_str_list() -> list[str]:
+    return []
 
 
 @dataclass
 class Policy(PolicyMonolithMixin):
-    _src: dict[str, str] = field(default_factory=dict, init=False, repr=False)
+    _src: dict[str, str] = field(default_factory=_empty_str_map, init=False, repr=False)
 
     def __post_init__(self) -> None:
         from dataclasses import fields
@@ -48,9 +57,13 @@ class Policy(PolicyMonolithMixin):
                 continue
             self._src.setdefault(field_name, "default")
 
+    @property
+    def src(self) -> dict[str, str]:
+        return self._src
+
     repo_root: str | None = None
     artifacts_root: str | None = None
-    target_repo_roots: list[str] = field(default_factory=list)
+    target_repo_roots: list[str] = field(default_factory=_empty_str_list)
     active_target_repo_root: str | None = None
     patch_dir: str | None = None
     target_repo_name: str = ""
@@ -177,7 +190,7 @@ class Policy(PolicyMonolithMixin):
     run_all_tests: bool = True
     compile_check: bool = True
     compile_targets: list[str] = field(default_factory=lambda: ["."])
-    compile_exclude: list[str] = field(default_factory=list)
+    compile_exclude: list[str] = field(default_factory=_empty_str_list)
     ruff_autofix: bool = True
     ruff_autofix_legalize_outside: bool = True
 
@@ -230,7 +243,7 @@ class Policy(PolicyMonolithMixin):
     )
 
     gate_typescript_mode: str = "auto"
-    typescript_targets: list[str] = field(default_factory=list)
+    typescript_targets: list[str] = field(default_factory=_empty_str_list)
     gate_typescript_base_tsconfig: str = "tsconfig.json"
     apply_failure_partial_gates_policy: str = "repair_only"
     apply_failure_zero_gates_policy: str = "never"
@@ -254,8 +267,8 @@ class Policy(PolicyMonolithMixin):
     )
     gates_skip_badguys: bool = False
     gate_badguys_mode: str = "auto"
-    gate_badguys_trigger_prefixes: list[str] = field(default_factory=list)
-    gate_badguys_trigger_files: list[str] = field(default_factory=list)
+    gate_badguys_trigger_prefixes: list[str] = field(default_factory=_empty_str_list)
+    gate_badguys_trigger_files: list[str] = field(default_factory=_empty_str_list)
     gate_badguys_command: list[str] = field(default_factory=lambda: list(DEFAULT_BADGUYS_COMMAND))
     ruff_targets: list[str] = field(default_factory=lambda: ["src", "tests"])
     pytest_targets: list[str] = field(default_factory=lambda: ["tests"])
@@ -267,7 +280,7 @@ class Policy(PolicyMonolithMixin):
     gate_pytest_py_prefixes: list[str] = field(
         default_factory=lambda: ["tests", "src", "plugins", "scripts"]
     )
-    gate_pytest_js_prefixes: list[str] = field(default_factory=list)
+    gate_pytest_js_prefixes: list[str] = field(default_factory=_empty_str_list)
     pytest_routing_mode: str = "bucketed"
     pytest_roots: dict[str, str] = field(default_factory=lambda: deepcopy(PYTEST_ROOTS_DEFAULT))
     pytest_tree: dict[str, str] = field(default_factory=lambda: deepcopy(PYTEST_TREE_DEFAULT))
@@ -416,7 +429,8 @@ def _as_dict_list_str(
         if not skey:
             continue
         if isinstance(raw_value, list):
-            out[skey] = [str(item).strip() for item in raw_value if str(item).strip()]
+            items = cast(list[object], raw_value)
+            out[skey] = [s for item in items if (s := str(item).strip())]
             continue
         if isinstance(raw_value, str):
             sval = raw_value.strip()
@@ -532,7 +546,7 @@ def _coerce_override_value(cur: object, raw: object) -> object:
 
     if isinstance(cur, list):
         if isinstance(raw, list):
-            return raw
+            return [item for item in cast(list[object], raw)]
         if isinstance(raw, str):
             parts = [p for p in (x.strip() for x in raw.split(",")) if p]
             return parts
@@ -548,7 +562,7 @@ def _mark_cfg(
     source_name: str = "config",
 ) -> None:
     if key in cfg:
-        p._src[key] = source_name
+        p.src[key] = source_name
 
 
 def build_policy(
@@ -558,13 +572,14 @@ def build_policy(
     source_name: str = "config",
 ) -> Policy:
     p = deepcopy(defaults)
-    p._src = dict(defaults._src)
+    p.src.clear()
+    p.src.update(defaults.src)
 
     def _mark_cfg_surface(policy_obj: object, cfg_map: dict[str, object], key: str) -> None:
         _mark_cfg(cast(Policy, policy_obj), cfg_map, key)
 
     for field_name in _policy_field_names():
-        p._src.setdefault(field_name, "default")
+        p.src.setdefault(field_name, "default")
 
     p.repo_root = _as_str(cfg, "repo_root", p.repo_root)
     _mark_cfg(p, cfg, "repo_root")
@@ -940,8 +955,8 @@ def build_policy(
 
     if source_name != "config":
         for key in cfg:
-            if key in p._src and p._src.get(key) == "config":
-                p._src[key] = source_name
+            if key in p.src and p.src.get(key) == "config":
+                p.src[key] = source_name
 
     return p
 
@@ -955,16 +970,19 @@ def apply_cli_overrides(p: Policy, mapping: dict[str, object | None]) -> None:
         if k == "target_repo_name":
             v = _validate_repo_token(str(v), field="target_repo_name")
         setattr(p, k, v)
-        p._src[k] = "cli"
+        p.src[k] = "cli"
 
-    ovs = mapping.get("overrides")
-    if not ovs:
+    overrides = mapping.get("overrides")
+    if not overrides:
         return
-    if isinstance(ovs, str):
-        ovs = [ovs]
-    if not isinstance(ovs, list):
+    if isinstance(overrides, str):
+        override_items: list[object] = [overrides]
+    elif isinstance(overrides, list):
+        override_items = cast(list[object], overrides)
+    else:
         return
-    for item in ovs:
+    for raw_item in override_items:
+        item = str(raw_item).strip()
         if not item:
             continue
         k, v = _parse_override_kv(str(item))
@@ -989,7 +1007,7 @@ def apply_cli_overrides(p: Policy, mapping: dict[str, object | None]) -> None:
             if k == "target_repo_name":
                 coerced = _validate_repo_token(str(coerced), field="target_repo_name")
             setattr(p, k, coerced)
-        p._src[k] = "cli"
+        p.src[k] = "cli"
 
 
 def policy_for_log(p: Policy) -> str:
@@ -997,6 +1015,6 @@ def policy_for_log(p: Policy) -> str:
     lines: list[str] = []
     for k in keys:
         v = cast(object, getattr(p, k))
-        src = p._src.get(k, "unknown")
+        src = p.src.get(k, "unknown")
         lines.append(f"{k}={v!r} (src={src})")
     return "\n".join(lines)

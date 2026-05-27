@@ -24,10 +24,6 @@ class _LoggerLike(Protocol):
     ) -> None: ...
 
 
-class _PolicyLike(Protocol):
-    ruff_targets: list[str] | tuple[str, ...]
-
-
 status: object | None = None
 logger: object | None = None
 policy: object | None = None
@@ -50,12 +46,6 @@ def _logger_runtime() -> _LoggerLike:
     return cast(_LoggerLike, logger)
 
 
-def _policy_runtime() -> _PolicyLike:
-    if policy is None:
-        raise RuntimeError("runtime.policy is not initialized")
-    return cast(_PolicyLike, policy)
-
-
 def _emit_core(*, severity: str, line: str, kind: str | None = None) -> None:
     st = _status_runtime()
     lg = _logger_runtime()
@@ -63,20 +53,20 @@ def _emit_core(*, severity: str, line: str, kind: str | None = None) -> None:
     lg.emit(severity=severity, channel="CORE", message=line + "\n", kind=kind)
 
 
-def _stage_do(stage: str) -> None:
+def stage_do(stage: str) -> None:
     _status_runtime().set_stage(stage)
     _emit_core(severity="INFO", line=f"DO: {stage}", kind="DO")
 
 
-def _stage_ok(stage: str) -> None:
+def stage_ok(stage: str) -> None:
     _emit_core(severity="INFO", line=f"OK: {stage}", kind="OK")
 
 
-def _stage_fail(stage: str) -> None:
+def stage_fail(stage: str) -> None:
     _emit_core(severity="ERROR", line=f"FAIL: {stage}", kind="FAIL")
 
 
-def _gate_progress(token: str) -> None:
+def gate_progress(token: str) -> None:
     kind, _, stage = token.partition(":")
     if not stage or kind not in ("DO", "OK", "FAIL"):
         return
@@ -89,17 +79,7 @@ def _gate_progress(token: str) -> None:
         _emit_core(severity="ERROR", line=f"FAIL: {stage}", kind="FAIL")
 
 
-def _under_targets(rel: str) -> bool:
-    for t in _policy_runtime().ruff_targets:
-        t = (t or "").strip().rstrip("/")
-        if not t:
-            continue
-        if rel == t or rel.startswith(t + "/"):
-            return True
-    return False
-
-
-def _parse_gate_list(msg: str) -> list[str]:
+def parse_gate_list(msg: str) -> list[str]:
     if "gates failed:" in msg:
         tail = msg.split("gates failed:", 1)[1]
         parts = [p.strip() for p in tail.split(",")]
@@ -111,7 +91,7 @@ def _parse_gate_list(msg: str) -> list[str]:
     return []
 
 
-def _stage_rank(stage: str) -> int:
+def stage_rank(stage: str) -> int:
     order = [
         "PATCH_APPLY",
         "SCOPE",
@@ -133,5 +113,9 @@ def _stage_rank(stage: str) -> int:
         return 10_000
 
 
-parse_gate_list = _parse_gate_list
-stage_rank = _stage_rank
+_stage_do = stage_do
+_stage_ok = stage_ok
+_stage_fail = stage_fail
+_gate_progress = gate_progress
+_parse_gate_list = parse_gate_list
+_stage_rank = stage_rank

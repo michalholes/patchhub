@@ -34,24 +34,22 @@ from am_patch.errors import (
 from am_patch.execution_context import open_execution_context
 from am_patch.final_summary import build_terminal_summary, emit_final_summary
 from am_patch.lock import FileLock
-from am_patch.patch_archive_select import select_latest_issue_patch
 from am_patch.patch_exec import run_patch, run_unified_patch_bundle
 from am_patch.patch_input import resolve_patch_plan
 from am_patch.paths import _workspace_store_current_patch
 from am_patch.post_run_pipeline import run_post_run_pipeline
-from am_patch.repo_root import is_under
-from am_patch.run_result import RunResult, _normalize_failure_summary, build_run_result
+from am_patch.run_result import RunResult, build_run_result, normalize_failure_summary
 from am_patch.runner_failure_detail import (
     render_runner_error_detail,
     render_runner_error_fingerprint,
 )
 from am_patch.runtime import (
-    _gate_progress,
-    _parse_gate_list,
-    _stage_do,
-    _stage_fail,
-    _stage_ok,
-    _stage_rank,
+    gate_progress,
+    parse_gate_list,
+    stage_do,
+    stage_fail,
+    stage_ok,
+    stage_rank,
 )
 from am_patch.scope import changed_paths, enforce_scope_delta
 from am_patch.startup_context import RunContext, build_paths_and_logger
@@ -63,6 +61,15 @@ from am_patch.workspace_promotion_pipeline import (
     build_allowed_union_promotion_plan,
     complete_workspace_promotion_pipeline,
 )
+
+# Backward-compatible aliases for test monkeypatch surfaces.
+_stage_do = stage_do
+_stage_ok = stage_ok
+_stage_fail = stage_fail
+_gate_progress = gate_progress
+_parse_gate_list = parse_gate_list
+_stage_rank = stage_rank
+_normalize_failure_summary = normalize_failure_summary
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
@@ -175,14 +182,6 @@ __all__ = [
     "run_mode",
     "finalize_and_report",
 ]
-
-
-def _is_under(child: Path, parent: Path) -> bool:
-    return is_under(child, parent)
-
-
-def _select_latest_issue_patch(*, patch_dir: Path, issue_id: str, hint_name: str | None) -> Path:
-    return select_latest_issue_patch(patch_dir=patch_dir, issue_id=issue_id, hint_name=hint_name)
 
 
 def build_effective_policy(argv: list[str]) -> int | tuple[CliArgs, Policy, Path, str]:
@@ -740,9 +739,17 @@ def finalize_and_report(ctx: RunContext, result: RunResult) -> int:
     exit_code = run_post_run_pipeline(ctx=ctx, result=result)
     final_fail_detail = result.final_fail_detail
     final_fail_fingerprint = result.final_fail_fingerprint
+    try:
+        commit_and_push = bool(policy.commit_and_push)
+    except AttributeError:
+        commit_and_push = False
+    try:
+        effective_target_repo_name = ctx.effective_target_repo_name
+    except AttributeError:
+        effective_target_repo_name = None
     summary = build_terminal_summary(
         exit_code=exit_code,
-        commit_and_push=bool(policy.commit_and_push),
+        commit_and_push=commit_and_push,
         final_commit_sha=result.final_commit_sha,
         final_pushed_files=result.final_pushed_files,
         push_ok_for_posthook=result.push_ok_for_posthook,
@@ -750,7 +757,7 @@ def finalize_and_report(ctx: RunContext, result: RunResult) -> int:
         final_fail_reason=result.final_fail_reason,
         log_path=log_path,
         json_path=json_path,
-        effective_target_repo_name=ctx.effective_target_repo_name,
+        effective_target_repo_name=effective_target_repo_name,
     )
 
     with suppress(Exception):

@@ -6,12 +6,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .pytest_namespace_config import (
-    _namespace_stem,
-    _normalize_dependencies,
-    _normalize_namespace_modules,
-    _normalize_roots,
-    _normalize_tree,
-    _root_namespaces,
+    namespace_stem as _namespace_stem,
+)
+from .pytest_namespace_config import (
+    normalize_dependencies as _normalize_dependencies,
+)
+from .pytest_namespace_config import (
+    normalize_namespace_modules as _normalize_namespace_modules,
+)
+from .pytest_namespace_config import (
+    normalize_roots as _normalize_roots,
+)
+from .pytest_namespace_config import (
+    normalize_tree as _normalize_tree,
+)
+from .pytest_namespace_config import (
+    root_namespaces as _root_namespaces,
 )
 
 
