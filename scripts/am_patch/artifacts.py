@@ -3,10 +3,11 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from am_patch import git_ops
 from am_patch.archive import make_failure_zip
+from am_patch.cli import CliArgs
+from am_patch.config import Policy
 from am_patch.errors import RunnerError
 from am_patch.failure_zip import (
     cleanup_for_issue as cleanup_failure_zips_for_issue,
@@ -22,6 +23,8 @@ from am_patch.issue_diff import (
     derive_finalize_pseudo_issue_id,
     make_issue_diff_zip,
 )
+from am_patch.log import Logger
+from am_patch.paths import Paths
 
 
 @dataclass(frozen=True)
@@ -31,12 +34,25 @@ class ArtifactSummary:
     issue_diff_zip: Path | None
 
 
+def _path_name(path: Path) -> str:
+    return path.name
+
+
+def _cli_issue_id_int(cli: CliArgs) -> int | None:
+    if cli.issue_id is None:
+        return None
+    try:
+        return int(cli.issue_id)
+    except ValueError as exc:
+        raise RunnerError("POSTHOOK", "CONFIG", f"invalid cli.issue_id: {cli.issue_id!r}") from exc
+
+
 def build_artifacts(
     *,
-    logger: Any,
-    cli: Any,
-    policy: Any,
-    paths: Any,
+    logger: Logger,
+    cli: CliArgs,
+    policy: Policy,
+    paths: Paths,
     repo_root: Path,
     log_path: Path,
     exit_code: int,
@@ -56,7 +72,7 @@ def build_artifacts(
     issue_diff_zip: Path | None = None
 
     if exit_code == 0:
-        if bool(getattr(policy, "success_archive_enabled", True)):
+        if policy.success_archive_enabled:
             repo_name = repo_root.name
             branch_name = git_ops.current_branch(logger, repo_root).strip()
             if branch_name == "HEAD":
@@ -86,27 +102,25 @@ def build_artifacts(
                 name = f"{name}.zip"
 
             target_dir = paths.patch_dir
-            if getattr(policy, "success_archive_dir", "patch_dir") == "successful_dir":
+            if policy.success_archive_dir == "successful_dir":
                 target_dir = paths.successful_dir
 
             success_zip_path = target_dir / name
             success_zip = success_zip_path
             git_ops.git_archive(logger, repo_root, success_zip_path, treeish="HEAD")
 
-            keep_count = int(getattr(policy, "success_archive_keep_count", 0))
-            glob_template = str(
-                getattr(policy, "success_archive_cleanup_glob_template", "")
-            ).strip()
+            keep_count = int(policy.success_archive_keep_count)
+            glob_template = str(policy.success_archive_cleanup_glob_template).strip()
             if glob_template:
                 candidates = [p for p in target_dir.glob(glob_template) if p.is_file()]
-                candidates = sorted(candidates, key=lambda p: p.name)
+                candidates = sorted(candidates, key=_path_name)
                 candidates = [p for p in candidates if p.resolve() != success_zip_path.resolve()]
                 while len(candidates) > keep_count:
                     doomed = candidates.pop(0)
                     with contextlib.suppress(FileNotFoundError):
                         doomed.unlink()
 
-        issue_diff_enabled = bool(getattr(policy, "issue_diff_bundle_enabled", True))
+        issue_diff_enabled = bool(policy.issue_diff_bundle_enabled)
         logger.line(f"issue_diff_base_sha={issue_diff_base_sha}")
         logger.line(f"issue_diff_paths_count={len(issue_diff_paths)}")
         logger.line(f"issue_diff_bundle_enabled={issue_diff_enabled}")
@@ -148,17 +162,17 @@ def build_artifacts(
             )
 
         issue = effective_failure_zip_issue_id(
-            issue_id=cli.issue_id,
+            issue_id=_cli_issue_id_int(cli),
             pseudo_issue_id=pseudo_issue_id,
         )
-        if bool(getattr(policy, "failure_zip_enabled", True)):
+        if policy.failure_zip_enabled:
             cleanup_failure_zips_for_issue(
                 patch_dir=paths.patch_dir,
                 policy=policy,
                 issue=issue,
             )
 
-        if not bool(getattr(policy, "failure_zip_enabled", True)):
+        if not policy.failure_zip_enabled:
             return ArtifactSummary(
                 success_zip=success_zip,
                 failure_zip=failure_zip,

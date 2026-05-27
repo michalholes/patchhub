@@ -79,10 +79,14 @@ def _count_exports(tree: ast.AST) -> int:
     n = 0
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            name = getattr(node, "name", "")
+            name = node.name
             if name and not name.startswith("_"):
                 n += 1
     return n
+
+
+def _violation_sort_key(item: Violation) -> tuple[str, str]:
+    return (item.rule_id, item.relpath)
 
 
 def _iter_import_modules(tree: ast.AST, *, current_module: str | None) -> list[str]:
@@ -859,7 +863,7 @@ def run_monolith_gate(
     fail = [v for v in mapped if v.severity == "FAIL"]
     warn = [v for v in mapped if v.severity in ("WARN", "REPORT")]
 
-    for v in sorted(mapped, key=lambda x: (x.rule_id, x.relpath)):
+    for v in sorted(mapped, key=_violation_sort_key):
         line = f"{v.rule_id} {v.relpath} {v.severity} {v.message}"
         if v.severity == "FAIL":
             logger.error_core(line)
@@ -875,7 +879,7 @@ def run_monolith_gate(
                 "MONOLITH FAIL REASONS:",
                 "count=" + str(len(fail)),
             ]
-            for v in sorted(fail, key=lambda x: (x.rule_id, x.relpath)):
+            for v in sorted(fail, key=_violation_sort_key):
                 line = f"{v.rule_id} {v.relpath} {v.severity} {v.message}"
                 detail_lines.append(line)
             logger.emit_error_detail("\n".join(detail_lines) + "\n")

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from zipfile import BadZipFile, ZipFile
 
+from am_patch.cli import CliArgs
+from am_patch.config import Policy
 from am_patch.errors import RunnerError
+from am_patch.log import Logger
 from am_patch.manifest import load_files
 from am_patch.patch_archive_select import select_latest_issue_patch
 from am_patch.patch_exec import precheck_patch_script
@@ -67,18 +69,19 @@ def _read_zip_target_repo_name(zip_path: Path) -> str | None:
 
 def resolve_patch_plan(
     *,
-    logger: Any,
-    cli: Any,
-    policy: Any,
+    logger: Logger | None,
+    cli: CliArgs,
+    policy: Policy,
     issue_id: int,
     repo_root: Path,
     patch_root: Path,
 ) -> PatchPlan:
     patch_script: Path | None = None
+    del logger, repo_root
 
-    patch_script_arg = getattr(cli, "patch_script", None)
+    patch_script_arg = cli.patch_script
 
-    if getattr(cli, "load_latest_patch", None):
+    if cli.load_latest_patch:
         hint_name = Path(patch_script_arg).name if patch_script_arg else None
         patch_script = select_latest_issue_patch(
             patch_dir=patch_root,
@@ -123,7 +126,7 @@ def resolve_patch_plan(
     try:
         unified_mode = decide_unified_mode(
             patch_script,
-            explicit_unified=bool(getattr(policy, "unified_patch", False)),
+            explicit_unified=bool(policy.unified_patch),
         )
     except PatchSelectError as e:
         raise RunnerError("PREFLIGHT", "PATCH_PATH", str(e)) from e

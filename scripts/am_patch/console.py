@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
-import sys
 
 _ANSI_RESET = "\x1b[0m"
 
@@ -40,7 +38,7 @@ def stdout_color_enabled(mode: str) -> bool:
         return True
     # auto
     try:
-        return bool(sys.stdout.isatty())
+        return bool(os.isatty(1))
     except Exception:
         return False
 
@@ -78,12 +76,6 @@ def wrap_bright_red(text: str, enabled: bool) -> str:
     return _wrap(_ANSI_BRIGHT_RED, text, enabled)
 
 
-_TOKEN_PREFIX_RE = re.compile(
-    r"^(?P<prefix>(RUN|DO|STATUS|OK|FAIL|RESULT|WARNING|ERROR|PUSH|COMMIT):)"
-)
-_RESULT_WORD_RE = re.compile(r"^(RESULT:\s+)(?P<word>SUCCESS|FAIL|CANCELED)\b")
-
-
 def colorize_console_message(message: str, enabled: bool) -> str:
     """Colorize selected leading tokens in console output.
 
@@ -111,27 +103,33 @@ def colorize_console_message(message: str, enabled: bool) -> str:
             out_lines.append(wrap_yellow(raw, True) + nl)
             continue
 
-        # RESULT line: color SUCCESS/FAIL word
-        m_res = _RESULT_WORD_RE.match(raw)
-        if m_res:
-            lead = m_res.group(1)
-            word = m_res.group("word")
-            rest = raw[len(lead) + len(word) :]
-            if word == "SUCCESS":
+        # RESULT line: color SUCCESS/FAIL/CANCELED word only.
+        if raw.startswith("RESULT: "):
+            lead = "RESULT: "
+            tail = raw[len(lead) :]
+            if tail.startswith("SUCCESS"):
+                word = "SUCCESS"
+                rest = tail[len(word) :]
                 out_lines.append(lead + wrap_green(word, True) + rest + nl)
-            elif word == "FAIL":
+                continue
+            if tail.startswith("FAIL"):
+                word = "FAIL"
+                rest = tail[len(word) :]
                 out_lines.append(lead + wrap_red(word, True) + rest + nl)
-            else:
+                continue
+            if tail.startswith("CANCELED"):
+                word = "CANCELED"
+                rest = tail[len(word) :]
                 out_lines.append(lead + wrap_yellow(word, True) + rest + nl)
-            continue
+                continue
 
-        m = _TOKEN_PREFIX_RE.match(raw)
-        if not m:
+        sep_index = raw.find(":")
+        if sep_index <= 0:
             out_lines.append(raw + nl)
             continue
 
-        prefix = m.group("prefix")
-        rest = raw[len(prefix) :]
+        prefix = raw[: sep_index + 1]
+        rest = raw[sep_index + 1 :]
 
         if prefix == "OK:":
             out_lines.append(wrap_green(prefix, True) + rest + nl)

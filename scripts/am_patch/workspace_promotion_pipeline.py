@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from am_patch import git_ops
+from am_patch.config import Policy
 from am_patch.errors import RunnerError
 from am_patch.failure_zip import (
     cleanup_on_success_commit as cleanup_failure_zips_on_success,
 )
-from am_patch.paths import _fs_junk_ignore_partition
+from am_patch.fs_junk import fs_junk_ignore_partition
+from am_patch.log import Logger
+from am_patch.paths import Paths
 from am_patch.promote import promote_files
 from am_patch.scope import blessed_gate_outputs_in
 
@@ -35,7 +38,7 @@ class WorkspacePromotionSummary:
 
 def build_allowed_union_promotion_plan(
     *,
-    logger: Any,
+    logger: Logger,
     workspace_base_sha: str,
     dirty_all: list[str],
     allowed_union: set[str],
@@ -69,7 +72,7 @@ def build_allowed_union_promotion_plan(
 
 def build_workspace_delta_promotion_plan(
     *,
-    logger: Any,
+    logger: Logger,
     workspace_base_sha: str,
     changed_all: list[str],
     files_for_fail_zip: list[str],
@@ -77,7 +80,7 @@ def build_workspace_delta_promotion_plan(
     ignore_suffixes: list[str] | tuple[str, ...],
     ignore_contains: list[str] | tuple[str, ...],
 ) -> WorkspacePromotionPlan:
-    files_to_promote, ignored_paths = _fs_junk_ignore_partition(
+    files_to_promote, ignored_paths = fs_junk_ignore_partition(
         changed_all,
         ignore_prefixes=ignore_prefixes,
         ignore_suffixes=ignore_suffixes,
@@ -101,16 +104,16 @@ def build_workspace_delta_promotion_plan(
 
 def complete_workspace_promotion_pipeline(
     *,
-    logger: Any,
+    logger: Logger,
     repo_root: Path,
     workspace_repo: Path,
     workspace_base_sha: str,
     workspace_message: str,
-    paths: Any,
-    policy: Any,
+    paths: Paths,
+    policy: Policy,
     issue_id: str | None,
     promotion_plan: WorkspacePromotionPlan,
-    live_gates_runner: Any | None,
+    live_gates_runner: Callable[[list[str]], None] | None,
     delete_workspace_after_archive: bool,
 ) -> WorkspacePromotionSummary:
     promote_files(

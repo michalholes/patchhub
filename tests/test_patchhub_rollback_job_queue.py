@@ -9,7 +9,7 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, cast
+from typing import cast
 
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
@@ -123,7 +123,7 @@ def _persist_rollback_request(
     db: WebJobsDatabase,
     *,
     job_id: str,
-    payload: dict[str, Any],
+    payload: dict[str, object],
 ) -> None:
     db.upsert_request_authority(
         job_id=job_id,

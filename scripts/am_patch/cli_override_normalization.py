@@ -1,146 +1,193 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Protocol, cast
 
 
-def apply_explicit_gate_flag_overrides(ns: Any) -> None:
+class _OverridesLike(Protocol):
+    overrides: list[str] | None
+
+
+class _PolicyCliSymmetryLike(Protocol):
+    allow_push_fail: bool
+    commit_and_push: bool
+    fail_if_live_files_changed: bool
+    live_changed_resolution: str
+    delete_workspace_on_success: bool
+    allow_outside_files: bool
+    allow_declared_untouched: bool
+
+
+def _get_attr(obj: object, name: str) -> object | None:
+    return cast(object | None, getattr(obj, name, None))
+
+
+def _append_override(ns: object, entry: str) -> None:
+    ns_obj = cast(_OverridesLike, ns)
+    raw_overrides = _get_attr(ns, "overrides")
+    if raw_overrides is None:
+        overrides: list[str] = []
+    elif isinstance(raw_overrides, list):
+        overrides = [str(item) for item in cast(list[object], raw_overrides)]
+    else:
+        overrides = [str(raw_overrides)]
+    overrides.append(entry)
+    ns_obj.overrides = overrides
+
+
+def _flag_enabled(obj: object, name: str) -> bool:
+    return bool(_get_attr(obj, name))
+
+
+def _csv_values(raw: object | None, *, lower: bool = False) -> list[str] | None:
+    if raw is None:
+        return None
+    text = str(raw)
+    if text.strip() == "":
+        return []
+    out = [chunk.strip() for chunk in text.split(",") if chunk.strip()]
+    if lower:
+        return [item.lower() for item in out]
+    return out
+
+
+def _set_policy_src(policy: object, key: str) -> None:
+    raw_src = _get_attr(policy, "_src")
+    if not isinstance(raw_src, dict):
+        return
+    src_map = cast(dict[object, object], raw_src)
+    src_map[key] = "cli"
+
+
+def apply_explicit_gate_flag_overrides(ns: object) -> None:
     """Map explicit gate CLI flags into override entries in argv order."""
 
-    if getattr(ns, "skip_dont_touch", None):
-        ns.overrides = (ns.overrides or []) + ["gates_skip_dont_touch=true"]
-    if getattr(ns, "skip_biome", None):
-        ns.overrides = (ns.overrides or []) + ["gates_skip_biome=true"]
-    if getattr(ns, "skip_typescript", None):
-        ns.overrides = (ns.overrides or []) + ["gates_skip_typescript=true"]
+    if _flag_enabled(ns, "skip_dont_touch"):
+        _append_override(ns, "gates_skip_dont_touch=true")
+    if _flag_enabled(ns, "skip_biome"):
+        _append_override(ns, "gates_skip_biome=true")
+    if _flag_enabled(ns, "skip_typescript"):
+        _append_override(ns, "gates_skip_typescript=true")
 
-    if getattr(ns, "gate_biome_extensions", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_biome_extensions={str(ns.gate_biome_extensions).strip()}"
-        ]
-    if getattr(ns, "biome_autofix", None) is not None:
-        value = "true" if bool(ns.biome_autofix) else "false"
-        ns.overrides = (ns.overrides or []) + [f"biome_autofix={value}"]
-    if getattr(ns, "biome_format", None) is not None:
-        value = "true" if bool(ns.biome_format) else "false"
-        ns.overrides = (ns.overrides or []) + [f"biome_format={value}"]
-    if getattr(ns, "biome_autofix_legalize_outside", None) is not None:
-        value = "true" if bool(ns.biome_autofix_legalize_outside) else "false"
-        ns.overrides = (ns.overrides or []) + [f"biome_autofix_legalize_outside={value}"]
-    if getattr(ns, "biome_format_legalize_outside", None) is not None:
-        value = "true" if bool(ns.biome_format_legalize_outside) else "false"
-        ns.overrides = (ns.overrides or []) + [f"biome_format_legalize_outside={value}"]
-    if getattr(ns, "gate_biome_command", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_biome_command={str(ns.gate_biome_command).strip()}"
-        ]
-    if getattr(ns, "gate_biome_fix_command", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_biome_fix_command={str(ns.gate_biome_fix_command).strip()}"
-        ]
-    if getattr(ns, "gate_biome_format_command", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_biome_format_command={str(ns.gate_biome_format_command).strip()}"
-        ]
-    if getattr(ns, "gate_typescript_extensions", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_typescript_extensions={str(ns.gate_typescript_extensions).strip()}"
-        ]
-    if getattr(ns, "gate_typescript_command", None) is not None:
-        ns.overrides = (ns.overrides or []) + [
-            f"gate_typescript_command={str(ns.gate_typescript_command).strip()}"
-        ]
+    raw = _get_attr(ns, "gate_biome_extensions")
+    if raw is not None:
+        _append_override(ns, f"gate_biome_extensions={str(raw).strip()}")
+
+    raw = _get_attr(ns, "biome_autofix")
+    if raw is not None:
+        value = "true" if bool(raw) else "false"
+        _append_override(ns, f"biome_autofix={value}")
+
+    raw = _get_attr(ns, "biome_format")
+    if raw is not None:
+        value = "true" if bool(raw) else "false"
+        _append_override(ns, f"biome_format={value}")
+
+    raw = _get_attr(ns, "biome_autofix_legalize_outside")
+    if raw is not None:
+        value = "true" if bool(raw) else "false"
+        _append_override(ns, f"biome_autofix_legalize_outside={value}")
+
+    raw = _get_attr(ns, "biome_format_legalize_outside")
+    if raw is not None:
+        value = "true" if bool(raw) else "false"
+        _append_override(ns, f"biome_format_legalize_outside={value}")
+
+    raw = _get_attr(ns, "gate_biome_command")
+    if raw is not None:
+        _append_override(ns, f"gate_biome_command={str(raw).strip()}")
+
+    raw = _get_attr(ns, "gate_biome_fix_command")
+    if raw is not None:
+        _append_override(ns, f"gate_biome_fix_command={str(raw).strip()}")
+
+    raw = _get_attr(ns, "gate_biome_format_command")
+    if raw is not None:
+        _append_override(ns, f"gate_biome_format_command={str(raw).strip()}")
+
+    raw = _get_attr(ns, "gate_typescript_extensions")
+    if raw is not None:
+        _append_override(ns, f"gate_typescript_extensions={str(raw).strip()}")
+
+    raw = _get_attr(ns, "gate_typescript_command")
+    if raw is not None:
+        _append_override(ns, f"gate_typescript_command={str(raw).strip()}")
 
 
-def build_cli_override_mapping(cli: Any) -> dict[str, object | None]:
+def build_cli_override_mapping(cli: object) -> dict[str, object | None]:
+    gates_order = _csv_values(_get_attr(cli, "gates_order"), lower=True)
+    docs_include = _csv_values(_get_attr(cli, "docs_include"))
+    docs_exclude = _csv_values(_get_attr(cli, "docs_exclude"))
     return {
-        "run_all_tests": getattr(cli, "run_all_tests", None),
-        "verbosity": getattr(cli, "verbosity", None),
-        "log_level": getattr(cli, "log_level", None),
-        "json_out": getattr(cli, "json_out", None),
-        "console_color": getattr(cli, "console_color", None),
-        "allow_no_op": getattr(cli, "allow_no_op", None),
-        "skip_up_to_date": getattr(cli, "skip_up_to_date", None),
-        "allow_non_main": getattr(cli, "allow_non_main", None),
-        "no_rollback": getattr(cli, "no_rollback", None),
-        "success_archive_name": getattr(cli, "success_archive_name", None),
-        "update_workspace": getattr(cli, "update_workspace", None),
-        "gates_allow_fail": getattr(cli, "allow_gates_fail", None),
-        "gates_skip_ruff": getattr(cli, "skip_ruff", None),
-        "gates_skip_pytest": getattr(cli, "skip_pytest", None),
-        "gates_skip_mypy": getattr(cli, "skip_mypy", None),
-        "gates_skip_js": getattr(cli, "skip_js", None),
-        "gates_skip_docs": getattr(cli, "skip_docs", None),
-        "gates_skip_monolith": getattr(cli, "skip_monolith", None),
-        "apply_failure_partial_gates_policy": getattr(
-            cli, "apply_failure_partial_gates_policy", None
+        "run_all_tests": _get_attr(cli, "run_all_tests"),
+        "verbosity": _get_attr(cli, "verbosity"),
+        "log_level": _get_attr(cli, "log_level"),
+        "json_out": _get_attr(cli, "json_out"),
+        "console_color": _get_attr(cli, "console_color"),
+        "allow_no_op": _get_attr(cli, "allow_no_op"),
+        "skip_up_to_date": _get_attr(cli, "skip_up_to_date"),
+        "allow_non_main": _get_attr(cli, "allow_non_main"),
+        "no_rollback": _get_attr(cli, "no_rollback"),
+        "success_archive_name": _get_attr(cli, "success_archive_name"),
+        "update_workspace": _get_attr(cli, "update_workspace"),
+        "gates_allow_fail": _get_attr(cli, "allow_gates_fail"),
+        "gates_skip_ruff": _get_attr(cli, "skip_ruff"),
+        "gates_skip_pytest": _get_attr(cli, "skip_pytest"),
+        "gates_skip_mypy": _get_attr(cli, "skip_mypy"),
+        "gates_skip_js": _get_attr(cli, "skip_js"),
+        "gates_skip_docs": _get_attr(cli, "skip_docs"),
+        "gates_skip_monolith": _get_attr(cli, "skip_monolith"),
+        "apply_failure_partial_gates_policy": _get_attr(
+            cli,
+            "apply_failure_partial_gates_policy",
         ),
-        "apply_failure_zero_gates_policy": getattr(cli, "apply_failure_zero_gates_policy", None),
-        "gates_order": (
-            []
-            if (
-                getattr(cli, "gates_order", None) is not None and str(cli.gates_order).strip() == ""
-            )
-            else [s.strip().lower() for s in str(cli.gates_order).split(",") if s.strip()]
-            if getattr(cli, "gates_order", None) is not None
-            else None
+        "apply_failure_zero_gates_policy": _get_attr(
+            cli,
+            "apply_failure_zero_gates_policy",
         ),
-        "gate_docs_include": (
-            []
-            if (
-                getattr(cli, "docs_include", None) is not None
-                and str(cli.docs_include).strip() == ""
-            )
-            else [s.strip() for s in str(cli.docs_include).split(",") if s.strip()]
-            if getattr(cli, "docs_include", None) is not None
-            else None
+        "gates_order": gates_order,
+        "gate_docs_include": docs_include,
+        "gate_docs_exclude": docs_exclude,
+        "ruff_autofix_legalize_outside": _get_attr(
+            cli,
+            "ruff_autofix_legalize_outside",
         ),
-        "gate_docs_exclude": (
-            []
-            if (
-                getattr(cli, "docs_exclude", None) is not None
-                and str(cli.docs_exclude).strip() == ""
-            )
-            else [s.strip() for s in str(cli.docs_exclude).split(",") if s.strip()]
-            if getattr(cli, "docs_exclude", None) is not None
-            else None
-        ),
-        "ruff_autofix_legalize_outside": getattr(cli, "ruff_autofix_legalize_outside", None),
-        "soft_reset_workspace": getattr(cli, "soft_reset_workspace", None),
-        "enforce_allowed_files": getattr(cli, "enforce_allowed_files", None),
-        "rollback_workspace_on_fail": getattr(cli, "rollback_workspace_on_fail", None),
-        "live_repo_guard": getattr(cli, "live_repo_guard", None),
-        "live_repo_guard_scope": getattr(cli, "live_repo_guard_scope", None),
-        "patch_jail": getattr(cli, "patch_jail", None),
-        "patch_jail_unshare_net": getattr(cli, "patch_jail_unshare_net", None),
-        "ruff_format": getattr(cli, "ruff_format", None),
-        "pytest_use_venv": getattr(cli, "pytest_use_venv", None),
-        "compile_check": getattr(cli, "compile_check", None),
-        "post_success_audit": getattr(cli, "post_success_audit", None),
-        "test_mode": getattr(cli, "test_mode", None),
-        "unified_patch": getattr(cli, "unified_patch", None),
-        "unified_patch_strip": getattr(cli, "patch_strip", None),
-        "overrides": getattr(cli, "overrides", None),
+        "soft_reset_workspace": _get_attr(cli, "soft_reset_workspace"),
+        "enforce_allowed_files": _get_attr(cli, "enforce_allowed_files"),
+        "rollback_workspace_on_fail": _get_attr(cli, "rollback_workspace_on_fail"),
+        "live_repo_guard": _get_attr(cli, "live_repo_guard"),
+        "live_repo_guard_scope": _get_attr(cli, "live_repo_guard_scope"),
+        "patch_jail": _get_attr(cli, "patch_jail"),
+        "patch_jail_unshare_net": _get_attr(cli, "patch_jail_unshare_net"),
+        "ruff_format": _get_attr(cli, "ruff_format"),
+        "pytest_use_venv": _get_attr(cli, "pytest_use_venv"),
+        "compile_check": _get_attr(cli, "compile_check"),
+        "post_success_audit": _get_attr(cli, "post_success_audit"),
+        "test_mode": _get_attr(cli, "test_mode"),
+        "unified_patch": _get_attr(cli, "unified_patch"),
+        "unified_patch_strip": _get_attr(cli, "patch_strip"),
+        "overrides": _get_attr(cli, "overrides"),
     }
 
 
-def apply_cli_symmetry_helpers(policy: Any, cli: Any) -> None:
-    if getattr(cli, "require_push_success", None):
-        policy.allow_push_fail = False
-        policy._src["allow_push_fail"] = "cli"
-    if getattr(cli, "disable_promotion", None):
-        policy.commit_and_push = False
-        policy._src["commit_and_push"] = "cli"
-    if getattr(cli, "allow_live_changed", None):
-        policy.fail_if_live_files_changed = False
-        policy._src["fail_if_live_files_changed"] = "cli"
-        policy.live_changed_resolution = "overwrite_live"
-        policy._src["live_changed_resolution"] = "cli"
-    if getattr(cli, "keep_workspace", None):
-        policy.delete_workspace_on_success = False
-        policy._src["delete_workspace_on_success"] = "cli"
-    if getattr(cli, "allow_outside_files", None):
-        policy.allow_outside_files = True
-        policy._src["allow_outside_files"] = "cli"
-    if getattr(cli, "allow_declared_untouched", None):
-        policy.allow_declared_untouched = True
-        policy._src["allow_declared_untouched"] = "cli"
+def apply_cli_symmetry_helpers(policy: object, cli: object) -> None:
+    policy_obj = cast(_PolicyCliSymmetryLike, policy)
+    if _flag_enabled(cli, "require_push_success"):
+        policy_obj.allow_push_fail = False
+        _set_policy_src(policy, "allow_push_fail")
+    if _flag_enabled(cli, "disable_promotion"):
+        policy_obj.commit_and_push = False
+        _set_policy_src(policy, "commit_and_push")
+    if _flag_enabled(cli, "allow_live_changed"):
+        policy_obj.fail_if_live_files_changed = False
+        _set_policy_src(policy, "fail_if_live_files_changed")
+        policy_obj.live_changed_resolution = "overwrite_live"
+        _set_policy_src(policy, "live_changed_resolution")
+    if _flag_enabled(cli, "keep_workspace"):
+        policy_obj.delete_workspace_on_success = False
+        _set_policy_src(policy, "delete_workspace_on_success")
+    if _flag_enabled(cli, "allow_outside_files"):
+        policy_obj.allow_outside_files = True
+        _set_policy_src(policy, "allow_outside_files")
+    if _flag_enabled(cli, "allow_declared_untouched"):
+        policy_obj.allow_declared_untouched = True
+        _set_policy_src(policy, "allow_declared_untouched")

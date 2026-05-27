@@ -5,7 +5,7 @@ import datetime
 import os
 from pathlib import Path
 
-from .archive import _fsync_dir, _fsync_file, _tmp_path_for_atomic_write
+from .archive import fsync_dir, fsync_file, tmp_path_for_atomic_write
 from .errors import RunnerError
 from .log import Logger
 
@@ -255,7 +255,7 @@ def files_changed_since(logger: Logger, repo: Path, base_sha: str, files: list[s
 def git_archive(logger: Logger, repo: Path, out_zip: Path, treeish: str = "HEAD") -> None:
     out_zip.parent.mkdir(parents=True, exist_ok=True)
 
-    tmp_path = _tmp_path_for_atomic_write(out_zip)
+    tmp_path = tmp_path_for_atomic_write(out_zip)
     with contextlib.suppress(FileNotFoundError):
         tmp_path.unlink()
 
@@ -268,9 +268,9 @@ def git_archive(logger: Logger, repo: Path, out_zip: Path, treeish: str = "HEAD"
         if r.returncode != 0:
             raise RunnerError("ARCHIVE", "GIT", f"git archive failed (rc={r.returncode})")
 
-        _fsync_file(tmp_path)
+        fsync_file(tmp_path)
         os.replace(tmp_path, out_zip)
-        _fsync_dir(out_zip.parent)
+        fsync_dir(out_zip.parent)
     finally:
         with contextlib.suppress(FileNotFoundError):
             tmp_path.unlink()

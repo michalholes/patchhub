@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Protocol
 
 from .errors import RunnerError
 
@@ -13,12 +13,20 @@ IPC_NONNEGATIVE_IPC_INT_KEYS = (
 )
 
 
+class PolicyIpcSurfaceLike(Protocol):
+    ipc_socket_enabled: bool
+    ipc_socket_mode: str
+    ipc_socket_name_template: str
+    ipc_socket_on_startup_exists: str
+    ipc_handshake_enabled: bool
+
+
 def apply_ipc_cfg_surface(
-    p: Any,
-    cfg: dict[str, Any],
+    p: PolicyIpcSurfaceLike,
+    cfg: dict[str, object],
     *,
-    as_bool: Callable[[dict[str, Any], str, bool], bool],
-    mark_cfg: Callable[[Any, dict[str, Any], str], None],
+    as_bool: Callable[[dict[str, object], str, bool], bool],
+    mark_cfg: Callable[[PolicyIpcSurfaceLike, dict[str, object], str], None],
 ) -> None:
     p.ipc_socket_enabled = as_bool(cfg, "ipc_socket_enabled", p.ipc_socket_enabled)
     mark_cfg(p, cfg, "ipc_socket_enabled")

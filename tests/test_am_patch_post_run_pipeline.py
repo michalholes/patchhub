@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 
 class _FakeLogger:
@@ -28,7 +27,7 @@ def _import_am_patch():
     return RunnerError, build_run_result, run_post_run_pipeline
 
 
-def _ctx(tmp_path: Path, *, mode: str, logger: _FakeLogger) -> Any:
+def _ctx(tmp_path: Path, *, mode: str, logger: _FakeLogger) -> object:
     paths = SimpleNamespace(
         patch_dir=tmp_path / "patches",
         successful_dir=tmp_path / "patches" / "successful",
@@ -65,7 +64,7 @@ def _ctx(tmp_path: Path, *, mode: str, logger: _FakeLogger) -> Any:
     )
 
 
-def _success_result(build_run_result, *, tmp_path: Path) -> Any:
+def _success_result(build_run_result, *, tmp_path: Path) -> object:
     ws_root = tmp_path / "patches" / "workspaces" / "issue_999"
     ws_repo = ws_root / "repo"
     ws_repo.mkdir(parents=True, exist_ok=True)
@@ -113,7 +112,7 @@ def test_workspace_success_skips_patch_script_archive_when_disabled(
     result.patch_script = patch_script
 
     post_run_mod = sys.modules[post_run_pipeline.__module__]
-    captured: dict[str, Any] = {}
+    captured: dict[str, object] = {}
 
     def _unexpected_archive(*_args, **_kwargs):
         raise AssertionError("archive_patch should not run")
@@ -173,7 +172,7 @@ def test_workspace_failure_skips_patch_script_archive_when_disabled(
     )
 
     post_run_mod = sys.modules[post_run_pipeline.__module__]
-    captured: dict[str, Any] = {}
+    captured: dict[str, object] = {}
 
     def _unexpected_archive(*_args, **_kwargs):
         raise AssertionError("archive_patch should not run")
@@ -338,7 +337,7 @@ def test_audit_failure_switches_result_to_fail(tmp_path: Path) -> None:
         runner_error_cls("AUDIT", "AUDIT_REPORT_FAILED", "audit/audit_report.py failed")
     )
 
-    captured: dict[str, Any] = {}
+    captured: dict[str, object] = {}
 
     def _build_artifacts(**kwargs):
         captured.update(kwargs)
@@ -387,7 +386,7 @@ def test_finalize_failure_uses_live_repo_union_for_failure_zip(tmp_path: Path) -
     post_run_mod = sys.modules[post_run_pipeline.__module__]
     post_run_mod.changed_paths = lambda logger, repo_root: ["beta.py", "gamma.py"]
 
-    captured: dict[str, Any] = {}
+    captured: dict[str, object] = {}
 
     def _build_artifacts(**kwargs):
         captured.update(kwargs)

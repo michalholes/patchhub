@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import Field, dataclass, field
+from typing import cast
 
 from .config_artifact_surface import apply_artifact_cfg_surface, validate_artifact_cfg_surface
 from .config_file import _flatten_sections, load_config
@@ -41,10 +41,12 @@ class Policy(PolicyMonolithMixin):
     def __post_init__(self) -> None:
         from dataclasses import fields
 
-        for f in fields(self):
-            if f.name == "_src":
+        field_defs = cast(tuple[Field[object], ...], fields(self))
+        for field_obj in field_defs:
+            field_name = field_obj.name
+            if field_name == "_src":
                 continue
-            self._src.setdefault(f.name, "default")
+            self._src.setdefault(field_name, "default")
 
     repo_root: str | None = None
     artifacts_root: str | None = None
@@ -358,35 +360,36 @@ REPO_OWNED_KEYS: set[str] = {key for group in REPO_OWNED_KEY_GROUPS for key in g
 
 
 def _policy_field_names() -> set[str]:
-    return {name for name in Policy.__dataclass_fields__ if name != "_src"}
+    raw_fields = cast(dict[object, object], Policy.__dataclass_fields__)
+    return {name for name in raw_fields if isinstance(name, str) and name != "_src"}
 
 
 BOOTSTRAP_OWNED_KEYS: set[str] = _policy_field_names() - REPO_OWNED_KEYS
 
 
 def filter_policy_layer_cfg(
-    cfg: dict[str, Any],
+    cfg: dict[str, object],
     allowed_keys: set[str],
-) -> dict[str, Any]:
+) -> dict[str, object]:
     return {key: value for key, value in cfg.items() if key in allowed_keys}
 
 
-def _as_bool(d: dict[str, Any], k: str, default: bool) -> bool:
+def _as_bool(d: dict[str, object], k: str, default: bool) -> bool:
     return bool(d.get(k, default))
 
 
-def _as_str(d: dict[str, Any], k: str, default: str | None) -> str | None:
+def _as_str(d: dict[str, object], k: str, default: str | None) -> str | None:
     v = d.get(k, default)
     return None if v is None else str(v)
 
 
-def _as_str_required(d: dict[str, Any], k: str, default: str) -> str:
+def _as_str_required(d: dict[str, object], k: str, default: str) -> str:
     v = _as_str(d, k, default)
     assert v is not None
     return v
 
 
-def _as_rollback_mode(d: dict[str, Any], k: str, default: str) -> str:
+def _as_rollback_mode(d: dict[str, object], k: str, default: str) -> str:
     v = d.get(k, default)
     if isinstance(v, bool):
         return "none-applied" if v else "never"
@@ -398,7 +401,7 @@ def _as_rollback_mode(d: dict[str, Any], k: str, default: str) -> str:
 
 
 def _as_dict_list_str(
-    d: dict[str, Any],
+    d: dict[str, object],
     k: str,
     default: dict[str, list[str]],
 ) -> dict[str, list[str]]:
@@ -408,7 +411,7 @@ def _as_dict_list_str(
     if not isinstance(v, dict):
         return deepcopy(default)
     out: dict[str, list[str]] = {}
-    for key, raw_value in v.items():
+    for key, raw_value in cast(dict[object, object], v).items():
         skey = str(key).strip()
         if not skey:
             continue
@@ -422,14 +425,18 @@ def _as_dict_list_str(
 
 
 def _as_list_str(
-    d: dict[str, Any], k: str, default: list[str], *, preserve_empty: bool = False
+    d: dict[str, object],
+    k: str,
+    default: list[str],
+    *,
+    preserve_empty: bool = False,
 ) -> list[str]:
     v = d.get(k)
     if v is None:
         return list(default)
     if isinstance(v, list):
         out: list[str] = []
-        for x in v:
+        for x in cast(list[object], v):
             if not isinstance(x, str):
                 continue
             s = x.strip()
@@ -536,7 +543,7 @@ def _coerce_override_value(cur: object, raw: object) -> object:
 
 def _mark_cfg(
     p: Policy,
-    cfg: dict[str, Any],
+    cfg: dict[str, object],
     key: str,
     source_name: str = "config",
 ) -> None:
@@ -546,18 +553,16 @@ def _mark_cfg(
 
 def build_policy(
     defaults: Policy,
-    cfg: dict[str, Any],
+    cfg: dict[str, object],
     *,
     source_name: str = "config",
 ) -> Policy:
-    _fields = getattr(Policy, "__dataclass_fields__", {})
-    _kwargs = {
-        k: v
-        for k, v in defaults.__dict__.items()
-        if k in _fields and getattr(_fields[k], "init", True)
-    }
-    p = Policy(**_kwargs)
-    p._src = dict(getattr(defaults, "_src", {}))
+    p = deepcopy(defaults)
+    p._src = dict(defaults._src)
+
+    def _mark_cfg_surface(policy_obj: object, cfg_map: dict[str, object], key: str) -> None:
+        _mark_cfg(cast(Policy, policy_obj), cfg_map, key)
+
     for field_name in _policy_field_names():
         p._src.setdefault(field_name, "default")
 
@@ -623,7 +628,12 @@ def build_policy(
     )
 
     for key in ("self_backup_mode", "self_backup_dir", "self_backup_template"):
-        setattr(p, key, _as_str_required(cfg, key, getattr(p, key)))
+        if key == "self_backup_mode":
+            p.self_backup_mode = _as_str_required(cfg, key, p.self_backup_mode)
+        elif key == "self_backup_dir":
+            p.self_backup_dir = _as_str_required(cfg, key, p.self_backup_dir)
+        else:
+            p.self_backup_template = _as_str_required(cfg, key, p.self_backup_template)
         _mark_cfg(p, cfg, key)
     p.self_backup_include_relpaths = _as_list_str(
         cfg, "self_backup_include_relpaths", p.self_backup_include_relpaths, preserve_empty=True
@@ -728,7 +738,27 @@ def build_policy(
         )
 
     if "runner_subprocess_timeout_s" in cfg:
-        p.runner_subprocess_timeout_s = int(cfg["runner_subprocess_timeout_s"])
+        raw_timeout = cfg["runner_subprocess_timeout_s"]
+        if isinstance(raw_timeout, bool):
+            raise RunnerError("CONFIG", "INVALID", "runner_subprocess_timeout_s must be >= 0")
+        if isinstance(raw_timeout, int):
+            p.runner_subprocess_timeout_s = raw_timeout
+        elif isinstance(raw_timeout, str):
+            text = raw_timeout.strip()
+            try:
+                p.runner_subprocess_timeout_s = int(text)
+            except ValueError as exc:
+                raise RunnerError(
+                    "CONFIG",
+                    "INVALID",
+                    "runner_subprocess_timeout_s must be >= 0",
+                ) from exc
+        else:
+            raise RunnerError(
+                "CONFIG",
+                "INVALID",
+                "runner_subprocess_timeout_s must be >= 0",
+            )
         _mark_cfg(p, cfg, "runner_subprocess_timeout_s")
     if p.runner_subprocess_timeout_s < 0:
         raise RunnerError("CONFIG", "INVALID", "runner_subprocess_timeout_s must be >= 0")
@@ -746,7 +776,7 @@ def build_policy(
         p,
         cfg,
         as_bool=_as_bool,
-        mark_cfg=_mark_cfg,
+        mark_cfg=_mark_cfg_surface,
     )
 
     p.target_repo_name = str(p.target_repo_name or "").strip()
@@ -836,7 +866,7 @@ def build_policy(
         as_str_required=_as_str_required,
         as_list_str=_as_list_str,
         as_dict_list_str=_as_dict_list_str,
-        mark_cfg=_mark_cfg,
+        mark_cfg=_mark_cfg_surface,
     )
 
     p.fail_if_live_files_changed = _as_bool(
@@ -940,19 +970,21 @@ def apply_cli_overrides(p: Policy, mapping: dict[str, object | None]) -> None:
         k, v = _parse_override_kv(str(item))
         if not hasattr(p, k):
             continue
-        cur = getattr(p, k)
+        cur = cast(object, getattr(p, k))
         coerced = _coerce_override_value(cur, v)
         if isinstance(cur, list):
             if not isinstance(coerced, list):
                 raise RunnerError("CONFIG", "INVALID", f"invalid list override: {coerced!r}")
+            coerced_list = cast(list[object], coerced)
             should_replace = k in REPO_OWNED_KEYS or k in (
                 "self_backup_include_relpaths",
                 "target_repo_roots",
             )
             if should_replace:
-                setattr(p, k, list(coerced))
+                replacement = [entry for entry in coerced_list]
+                setattr(p, k, replacement)
             else:
-                cur.extend(coerced)
+                cast(list[object], cur).extend(coerced_list)
         else:
             if k == "target_repo_name":
                 coerced = _validate_repo_token(str(coerced), field="target_repo_name")
@@ -961,10 +993,10 @@ def apply_cli_overrides(p: Policy, mapping: dict[str, object | None]) -> None:
 
 
 def policy_for_log(p: Policy) -> str:
-    keys = sorted([k for k in p.__dict__ if k != "_src"])
+    keys = sorted([k for k in cast(dict[str, object], p.__dict__) if k != "_src"])
     lines: list[str] = []
     for k in keys:
-        v = getattr(p, k)
+        v = cast(object, getattr(p, k))
         src = p._src.get(k, "unknown")
         lines.append(f"{k}={v!r} (src={src})")
     return "\n".join(lines)

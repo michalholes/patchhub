@@ -8,9 +8,10 @@ import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from .errors import RunnerError
+from .log import Logger
 from .scope import ChangedPathEntry
 
 DEFAULT_BADGUYS_COMMAND = ["badguys/badguys.py", "-q"]
@@ -86,7 +87,7 @@ def resolve_badguys_workspaces_dir(*, repo_root: Path, workspaces_dir: Path | No
 
 
 def run_amp_owned_badguys_gate(
-    logger: Any,
+    logger: Logger,
     cwd: Path,
     *,
     repo_root: Path,
@@ -183,7 +184,7 @@ def _build_bwrap_cmd(
     return cmd
 
 
-def _bootstrap_jail_repo(*, logger: Any, source_repo: Path, jail_repo: Path) -> None:
+def _bootstrap_jail_repo(*, logger: Logger, source_repo: Path, jail_repo: Path) -> None:
     base_sha = _git_stdout(
         logger=logger,
         cwd=source_repo,
@@ -220,7 +221,7 @@ def _bootstrap_jail_repo(*, logger: Any, source_repo: Path, jail_repo: Path) -> 
     _sync_git_identity(logger=logger, source_repo=source_repo, jail_repo=jail_repo)
 
 
-def _git_stdout(*, logger: Any, cwd: Path, argv: list[str], label: str) -> str:
+def _git_stdout(*, logger: Logger, cwd: Path, argv: list[str], label: str) -> str:
     r = logger.run_logged(argv, cwd=cwd)
     if r.returncode == 0:
         return (r.stdout or "").strip()
@@ -228,7 +229,7 @@ def _git_stdout(*, logger: Any, cwd: Path, argv: list[str], label: str) -> str:
     raise RunnerError("GATES", "GATES", f"{label}: {detail}")
 
 
-def _sync_git_identity(*, logger: Any, source_repo: Path, jail_repo: Path) -> None:
+def _sync_git_identity(*, logger: Logger, source_repo: Path, jail_repo: Path) -> None:
     identity = _resolve_git_identity(logger=logger, source_repo=source_repo)
     for key, value in identity.items():
         _git_stdout(
@@ -239,7 +240,7 @@ def _sync_git_identity(*, logger: Any, source_repo: Path, jail_repo: Path) -> No
         )
 
 
-def _resolve_git_identity(*, logger: Any, source_repo: Path) -> dict[str, str]:
+def _resolve_git_identity(*, logger: Logger, source_repo: Path) -> dict[str, str]:
     name = _git_local_config(logger=logger, cwd=source_repo, key="user.name")
     email = _git_local_config(logger=logger, cwd=source_repo, key="user.email")
     if name and email:
@@ -247,7 +248,7 @@ def _resolve_git_identity(*, logger: Any, source_repo: Path) -> dict[str, str]:
     return {"user.name": _FALLBACK_GIT_USER_NAME, "user.email": _FALLBACK_GIT_USER_EMAIL}
 
 
-def _git_local_config(*, logger: Any, cwd: Path, key: str) -> str | None:
+def _git_local_config(*, logger: Logger, cwd: Path, key: str) -> str | None:
     r = logger.run_logged(["git", "config", "--local", "--get", key], cwd=cwd)
     if r.returncode == 0:
         value = (r.stdout or "").strip()
@@ -309,13 +310,18 @@ def _resolve_badguys_config_path(*, source_repo: Path, command: list[str]) -> Pa
     return source_repo / "badguys" / "config.toml"
 
 
-def _load_badguys_suite_config(config_path: Path) -> dict[str, Any]:
+def _load_badguys_suite_config(config_path: Path) -> dict[str, object]:
     if not config_path.is_file():
         return {}
     with config_path.open("rb") as fh:
-        data = tomllib.load(fh)
+        loaded = cast(object, tomllib.load(fh))
+    if not isinstance(loaded, dict):
+        return {}
+    data = cast(dict[object, object], loaded)
     suite = data.get("suite")
-    return suite if isinstance(suite, dict) else {}
+    if not isinstance(suite, dict):
+        return {}
+    return cast(dict[str, object], suite)
 
 
 def _config_path_to_host_path(*, source_repo: Path, value: str, category: str) -> Path:
@@ -415,8 +421,14 @@ def _external_bind_paths(*, repo_root: Path) -> list[Path]:
     resolved_root = repo_root.resolve()
     if python_path.is_absolute() and _path_is_under_root(python_path.resolve(), resolved_root):
         return []
-    candidates = site.getusersitepackages()
-    values = [candidates] if isinstance(candidates, str) else list(candidates)
+    candidates_obj = cast(object, site.getusersitepackages())
+    values: list[str]
+    if isinstance(candidates_obj, str):
+        values = [candidates_obj]
+    elif isinstance(candidates_obj, list):
+        values = [str(item) for item in cast(list[object], candidates_obj)]
+    else:
+        values = []
     seen: set[Path] = set()
     out: list[Path] = []
     for value in values:

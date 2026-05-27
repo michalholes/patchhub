@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
+from am_patch.cli import CliArgs
 from am_patch.config import Policy
 from am_patch.errors import RunnerCancelledError, RunnerError
 from am_patch.ipc_socket import IpcController, resolve_socket_path
@@ -19,7 +19,7 @@ class StartupLoggerIpc:
 
 def build_startup_logger_and_ipc(
     *,
-    cli: Any,
+    cli: CliArgs,
     policy: Policy,
     patch_dir: Path,
     log_path: Path,
@@ -35,10 +35,10 @@ def build_startup_logger_and_ipc(
         symlink_path=symlink_path,
         screen_level=verbosity,
         log_level=log_level,
-        console_color=getattr(policy, "console_color", "auto"),
+        console_color=policy.console_color,
         symlink_enabled=policy.current_log_symlink_enabled,
         symlink_target_rel=Path(policy.patch_layout_logs_dir) / log_path.name,
-        json_enabled=getattr(policy, "json_out", False),
+        json_enabled=policy.json_out,
         json_path=json_path,
         stage_provider=status.get_stage,
         run_timeout_s=policy.runner_subprocess_timeout_s,
@@ -58,7 +58,7 @@ def build_startup_logger_and_ipc(
     logger.set_screen_break_hook(status.break_line)
 
     ipc: IpcController | None = None
-    startup_handshake_enabled = bool(getattr(policy, "ipc_handshake_enabled", False))
+    startup_handshake_enabled = bool(policy.ipc_handshake_enabled)
     startup_ready = False
     sock_path = resolve_socket_path(policy=policy, patch_dir=patch_dir, issue_id=cli.issue_id)
     if sock_path is not None:
@@ -69,7 +69,7 @@ def build_startup_logger_and_ipc(
             status_provider=status,
             logger=logger,
             handshake_enabled=startup_handshake_enabled,
-            handshake_wait_s=int(getattr(policy, "ipc_handshake_wait_s", 0) or 0),
+            handshake_wait_s=int(policy.ipc_handshake_wait_s or 0),
         )
         ipc.start()
         if startup_handshake_enabled:

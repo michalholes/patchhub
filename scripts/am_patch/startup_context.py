@@ -3,18 +3,19 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from am_patch import git_ops, runtime
+from am_patch.cli import CliArgs
 from am_patch.cli_override_normalization import (
     apply_cli_symmetry_helpers,
     build_cli_override_mapping,
 )
 from am_patch.config import (
     REPO_OWNED_KEYS,
+    Policy,
     apply_cli_overrides,
     build_policy,
-    filter_policy_layer_cfg,
 )
 from am_patch.config_file import load_repo_local_config
 from am_patch.engine_startup_runtime import build_startup_logger_and_ipc
@@ -24,28 +25,49 @@ from am_patch.ipc_socket import IpcController
 from am_patch.lock import FileLock
 from am_patch.log import Logger, new_log_file
 from am_patch.patch_input import PatchPlan, resolve_patch_plan
-from am_patch.paths import default_paths, ensure_dirs
+from am_patch.paths import Paths, default_paths, ensure_dirs
 from am_patch.repo_root import resolve_repo_root_strict_from_cwd
 from am_patch.root_model import resolve_patch_root, resolve_root_model
 from am_patch.status import StatusReporter
 from am_patch.workspace import (
+    Workspace,
     ensure_workspace,
     load_or_migrate_workspace_target_repo_name,
     open_existing_workspace,
 )
 
 
+def _policy_sources(policy: Policy) -> dict[str, str]:
+    data = cast(dict[str, object], policy.__dict__)
+    src = data.get("_src")
+    if isinstance(src, dict):
+        return cast(dict[str, str], src)
+    return {}
+
+
+def _repo_cfg_subset(cfg: object) -> dict[str, object]:
+    if not isinstance(cfg, dict):
+        return {}
+    raw = cast(dict[object, object], cfg)
+    out: dict[str, object] = {}
+    for key, value in raw.items():
+        skey = str(key)
+        if skey in REPO_OWNED_KEYS:
+            out[skey] = value
+    return out
+
+
 @dataclass
 class RunContext:
-    cli: Any
-    policy: Any
+    cli: CliArgs
+    policy: Policy
     config_path: Path
     used_cfg: str
     repo_root: Path
     patch_root: Path
     patch_dir: Path
     isolated_work_patch_dir: Path | None
-    paths: Any
+    paths: Paths
     log_path: Path
     json_path: Path | None
     logger: Logger
@@ -60,7 +82,7 @@ class RunContext:
     artifacts_root: Path | None = None
     effective_target_repo_name: str | None = None
     patch_plan: PatchPlan | None = None
-    preopened_workspace: Any | None = None
+    preopened_workspace: Workspace | None = None
     startup_failure: Exception | None = None
 
     def __post_init__(self) -> None:
@@ -70,7 +92,12 @@ class RunContext:
             self.active_repository_tree_root = self.repo_root
 
 
-def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: str) -> RunContext:
+def build_paths_and_logger(
+    cli: CliArgs,
+    policy: Policy,
+    config_path: Path,
+    used_cfg: str,
+) -> RunContext:
     runner_root = Path(__file__).resolve().parents[2]
     _, patch_root = resolve_patch_root(policy, runner_root=runner_root)
     patch_plan: PatchPlan | None = None
@@ -96,22 +123,20 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
             issue_dir_template=policy.workspace_issue_dir_template,
             repo_dir_name=policy.workspace_repo_dir_name,
             meta_filename=policy.workspace_meta_filename,
-            timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
+            timeout_s=policy.runner_subprocess_timeout_s,
             write_back=False,
             runner_root=runner_root,
-            target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
+            target_repo_roots=list(policy.target_repo_roots),
         )
 
-    if getattr(cli, "finalize_from_cwd", False):
+    if cli.finalize_from_cwd:
         try:
             policy.active_target_repo_root = str(
-                resolve_repo_root_strict_from_cwd(
-                    timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0)
-                )
+                resolve_repo_root_strict_from_cwd(timeout_s=policy.runner_subprocess_timeout_s)
             )
         except RuntimeError as exc:
             raise RunnerError("CONFIG", "INVALID", str(exc)) from exc
-        policy._src["active_target_repo_root"] = "cli"
+        _policy_sources(policy)["active_target_repo_root"] = "cli"
 
     root_model = resolve_root_model(
         policy,
@@ -131,7 +156,7 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
     patch_dir = patch_root
     if (
         policy.test_mode
-        and getattr(policy, "test_mode_isolate_patch_dir", True)
+        and policy.test_mode_isolate_patch_dir
         and policy.patch_dir is None
         and cli.issue_id is not None
     ):
@@ -160,11 +185,11 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
         issue_template=policy.log_template_issue,
         finalize_template=policy.log_template_finalize,
     )
-    verbosity = getattr(policy, "verbosity", "verbose")
-    log_level = getattr(policy, "log_level", "verbose")
+    verbosity = policy.verbosity
+    log_level = policy.log_level
     status = StatusReporter(enabled=(verbosity != "quiet"))
     json_path: Path | None = None
-    if getattr(policy, "json_out", False):
+    if policy.json_out:
         if cli.issue_id is not None:
             json_name = f"am_patch_issue_{cli.issue_id}.jsonl"
         else:
@@ -233,11 +258,11 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
                     base_sha=live_base_sha,
                     update=policy.update_workspace,
                     soft_reset=policy.soft_reset_workspace,
-                    message=getattr(cli, "message", None),
+                    message=cli.message,
                     effective_target_repo_name=effective_target_repo_name,
                     runner_root=runner_root,
-                    target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
-                    timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
+                    target_repo_roots=list(policy.target_repo_roots),
+                    timeout_s=policy.runner_subprocess_timeout_s,
                     issue_dir_template=policy.workspace_issue_dir_template,
                     repo_dir_name=policy.workspace_repo_dir_name,
                     meta_filename=policy.workspace_meta_filename,
@@ -249,9 +274,9 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
             except (FileNotFoundError, NotADirectoryError):
                 preopened_workspace = None
             else:
-                if preopened_workspace is not None:
-                    ctx.preopened_workspace = preopened_workspace
-                    ctx.active_repository_tree_root = preopened_workspace.repo
+                assert preopened_workspace is not None
+                ctx.preopened_workspace = preopened_workspace
+                ctx.active_repository_tree_root = preopened_workspace.repo
         elif cli.mode == "finalize_workspace" and cli.issue_id is not None:
             preopened_workspace = open_existing_workspace(
                 logger,
@@ -260,9 +285,9 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
                 issue_dir_template=policy.workspace_issue_dir_template,
                 repo_dir_name=policy.workspace_repo_dir_name,
                 meta_filename=policy.workspace_meta_filename,
-                timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
+                timeout_s=policy.runner_subprocess_timeout_s,
                 runner_root=runner_root,
-                target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
+                target_repo_roots=list(policy.target_repo_roots),
             )
             ctx.preopened_workspace = preopened_workspace
             ctx.active_repository_tree_root = preopened_workspace.repo
@@ -272,11 +297,14 @@ def build_paths_and_logger(cli: Any, policy: Any, config_path: Path, used_cfg: s
             active_repository_tree_root = ctx.repo_root
             ctx.active_repository_tree_root = active_repository_tree_root
 
-        repo_cfg, _, _ = load_repo_local_config(
-            active_repository_tree_root=active_repository_tree_root,
-            target_repo_config_relpath=policy.target_repo_config_relpath,
+        repo_cfg_raw, _, _ = cast(
+            tuple[object, bool, Path],
+            load_repo_local_config(
+                active_repository_tree_root=active_repository_tree_root,
+                target_repo_config_relpath=policy.target_repo_config_relpath,
+            ),
         )
-        repo_cfg = filter_policy_layer_cfg(repo_cfg, REPO_OWNED_KEYS)
+        repo_cfg = _repo_cfg_subset(repo_cfg_raw)
         if repo_cfg:
             policy = build_policy(policy, repo_cfg, source_name="repo_config")
             apply_cli_overrides(policy, build_cli_override_mapping(cli))

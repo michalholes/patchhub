@@ -4,7 +4,6 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -38,7 +37,7 @@ def _import_am_patch():
     return PolicyCls, engine_mod
 
 
-def _mk_ctx(engine_mod: Any, tmp_path: Path, policy: Any, patch_script: Path) -> Any:
+def _mk_ctx(engine_mod: object, tmp_path: Path, policy: object, patch_script: Path) -> object:
     patch_root = tmp_path / "patches"
     patch_dir = patch_root / "incoming"
     patch_dir.mkdir(parents=True, exist_ok=True)
@@ -84,8 +83,8 @@ def _mk_ctx(engine_mod: Any, tmp_path: Path, policy: Any, patch_script: Path) ->
 
 def _prepare_common(
     monkeypatch: pytest.MonkeyPatch,
-    engine_mod: Any,
-    ctx: Any,
+    engine_mod: object,
+    ctx: object,
     tmp_path: Path,
 ) -> tuple[Path, Path]:
     patch_script = ctx.patch_dir / "issue_361_v1.zip"
@@ -176,7 +175,7 @@ def test_run_mode_persists_gate_step_capture_before_gate_failure(
         lambda *args, **kwargs: list(next(changed_returns)),
     )
 
-    def _fail_validation(**kwargs: Any) -> None:
+    def _fail_validation(**kwargs: object) -> None:
         kwargs["gate_step_callback"](
             step_key="ruff_format",
             pre_dirty=["declared.py"],
@@ -216,7 +215,7 @@ def test_run_mode_persists_gate_step_capture_before_deferred_patch_apply_failure
     ctx = _mk_ctx(engine_mod, tmp_path, policy, patch_script)
     _, ws_root = _prepare_common(monkeypatch, engine_mod, ctx, tmp_path)
 
-    def _fail_patch(*args: Any, **kwargs: Any) -> None:
+    def _fail_patch(*args: object, **kwargs: object) -> None:
         raise engine_mod.RunnerError("PATCH", "PATCH_APPLY", "patch apply failed")
 
     monkeypatch.setattr(engine_mod, "run_patch", _fail_patch)
@@ -227,7 +226,7 @@ def test_run_mode_persists_gate_step_capture_before_deferred_patch_apply_failure
         lambda *args, **kwargs: list(next(changed_returns)),
     )
 
-    def _validation(**kwargs: Any) -> None:
+    def _validation(**kwargs: object) -> None:
         kwargs["gate_step_callback"](
             step_key="ruff_format",
             pre_dirty=["declared.py"],
@@ -272,7 +271,7 @@ def test_run_mode_keeps_gate_step_capture_on_cancel_without_post_hoc_reconcile(
         lambda *args, **kwargs: list(next(changed_returns)),
     )
 
-    def _cancel_validation(**kwargs: Any) -> None:
+    def _cancel_validation(**kwargs: object) -> None:
         kwargs["gate_step_callback"](
             step_key="ruff_format",
             pre_dirty=["declared.py"],
@@ -309,7 +308,7 @@ def test_run_mode_skips_success_archive_when_patch_script_archive_disabled(
 
     archive_calls: list[tuple[Path, Path]] = []
 
-    def _archive_patch(_logger: Any, source: Path, dest_dir: Path) -> Path:
+    def _archive_patch(_logger: object, source: Path, dest_dir: Path) -> Path:
         archive_calls.append((source, dest_dir))
         return dest_dir / source.name
 
@@ -345,7 +344,7 @@ def test_gate_step_capture_sink_skips_redundant_state_write_for_already_legalize
     state = IssueState(base_sha="abc123", allowed_union={"declared.py", "tests/formatted.py"})
     save_calls: list[list[str]] = []
 
-    def _record_save(_workspace_root: Path, current_state: Any) -> None:
+    def _record_save(_workspace_root: Path, current_state: object) -> None:
         save_calls.append(sorted(current_state.allowed_union))
 
     monkeypatch.setattr(engine_mod, "save_state", _record_save)
@@ -383,7 +382,7 @@ def test_gate_step_capture_sink_does_not_emit_legalized_logs_before_state_persis
     logger = _FakeLogger()
     state = IssueState(base_sha="abc123", allowed_union={"declared.py"})
 
-    def _fail_save(_workspace_root: Path, _current_state: Any) -> None:
+    def _fail_save(_workspace_root: Path, _current_state: object) -> None:
         raise OSError("diskfull")
 
     monkeypatch.setattr(engine_mod, "save_state", _fail_save)

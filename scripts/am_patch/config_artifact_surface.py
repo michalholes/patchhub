@@ -1,19 +1,34 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING
 
 from .errors import RunnerError
 from .success_archive_retention import validate_success_archive_retention
 
-ConfigBool = Callable[[dict[str, Any], str, bool], bool]
-MarkCfg = Callable[[Any, dict[str, Any], str], None]
+if TYPE_CHECKING:
+    from .config import Policy
+
+ConfigBool = Callable[[dict[str, object], str, bool], bool]
+MarkCfg = Callable[[Policy, dict[str, object], str], None]
 ValidateBasename = Callable[[str, str], str]
 
 
+def _cfg_int(cfg: dict[str, object], key: str) -> int:
+    raw = cfg[key]
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return int(raw)
+        except ValueError as exc:
+            raise RunnerError("CONFIG", "INVALID", f"{key} must be an integer") from exc
+    raise RunnerError("CONFIG", "INVALID", f"{key} must be an integer")
+
+
 def apply_artifact_cfg_surface(
-    cfg: dict[str, Any],
-    p: Any,
+    cfg: dict[str, object],
+    p: Policy,
     *,
     as_bool: ConfigBool,
     mark_cfg: MarkCfg,
@@ -35,7 +50,7 @@ def apply_artifact_cfg_surface(
     )
     mark_cfg(p, cfg, "failure_zip_cleanup_glob_template")
     if "failure_zip_keep_per_issue" in cfg:
-        p.failure_zip_keep_per_issue = int(cfg["failure_zip_keep_per_issue"])
+        p.failure_zip_keep_per_issue = _cfg_int(cfg, "failure_zip_keep_per_issue")
         mark_cfg(p, cfg, "failure_zip_keep_per_issue")
     p.failure_zip_delete_on_success_commit = as_bool(
         cfg,
@@ -72,7 +87,7 @@ def apply_artifact_cfg_surface(
     )
     mark_cfg(p, cfg, "success_archive_cleanup_glob_template")
     if "success_archive_keep_count" in cfg:
-        p.success_archive_keep_count = int(cfg["success_archive_keep_count"])
+        p.success_archive_keep_count = _cfg_int(cfg, "success_archive_keep_count")
         mark_cfg(p, cfg, "success_archive_keep_count")
 
     p.issue_diff_bundle_enabled = as_bool(
@@ -84,7 +99,7 @@ def apply_artifact_cfg_surface(
 
 
 def validate_artifact_cfg_surface(
-    p: Any,
+    p: Policy,
     *,
     validate_basename: ValidateBasename,
 ) -> None:

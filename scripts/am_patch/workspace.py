@@ -5,12 +5,12 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
 from urllib.parse import unquote, urlparse
 
 from .errors import RunnerError
 from .log import Logger
-from .root_model import resolve_target_bindings, target_binding_for_root
+from .root_model import TargetBinding, resolve_target_bindings, target_binding_for_root
 
 
 @dataclass
@@ -32,22 +32,20 @@ class WorkspaceCheckpoint:
     stash_ref: str | None = None
 
 
-def _read_meta(meta_path: Path) -> dict[str, Any]:
-    if not meta_path.exists():
-        return {}
-    try:
-        obj = json.loads(meta_path.read_text(encoding="utf-8"))
-        if not isinstance(obj, dict):
-            return {}
-        out: dict[str, Any] = {}
-        for k, v in obj.items():
-            out[str(k)] = v
-        return out
-    except Exception:
-        return {}
+WorkspaceMeta = dict[str, object]
 
 
-def _write_meta(meta_path: Path, meta: dict[str, Any]) -> None:
+def _coerce_workspace_meta(obj: object) -> WorkspaceMeta | None:
+    if not isinstance(obj, dict):
+        return None
+    raw = cast(dict[object, object], obj)
+    out: WorkspaceMeta = {}
+    for key, value in raw.items():
+        out[str(key)] = value
+    return out
+
+
+def _write_meta(meta_path: Path, meta: WorkspaceMeta) -> None:
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -66,7 +64,7 @@ def _workspace_paths(
     return ws_root, repo_dir, meta_path
 
 
-def _read_workspace_meta_strict(meta_path: Path) -> dict[str, Any]:
+def _read_workspace_meta_strict(meta_path: Path) -> WorkspaceMeta:
     if not meta_path.exists():
         raise RunnerError(
             "PREFLIGHT",
@@ -74,38 +72,44 @@ def _read_workspace_meta_strict(meta_path: Path) -> dict[str, Any]:
             f"workspace meta.json not found: {meta_path}",
         )
     try:
-        obj = json.loads(meta_path.read_text(encoding="utf-8"))
+        obj = cast(object, json.loads(meta_path.read_text(encoding="utf-8")))
     except Exception as exc:
         raise RunnerError(
             "PREFLIGHT",
             "WORKSPACE",
             f"workspace meta.json is invalid: {meta_path}",
         ) from exc
-    if not isinstance(obj, dict):
+    meta = _coerce_workspace_meta(obj)
+    if meta is None:
         raise RunnerError(
             "PREFLIGHT",
             "WORKSPACE",
             f"workspace meta.json must contain a JSON object: {meta_path}",
         )
-    out: dict[str, Any] = {}
-    for key, value in obj.items():
-        out[str(key)] = value
-    return out
+    return meta
 
 
-def _meta_attempt(meta: dict[str, Any]) -> int:
+def _meta_attempt(meta: WorkspaceMeta) -> int:
     value = meta.get("attempt", 0)
-    try:
-        return int(value)
-    except Exception as exc:
-        raise RunnerError(
-            "PREFLIGHT",
-            "WORKSPACE",
-            "workspace meta.json has invalid attempt",
-        ) from exc
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise RunnerError(
+                "PREFLIGHT",
+                "WORKSPACE",
+                "workspace meta.json has invalid attempt",
+            ) from exc
+    raise RunnerError(
+        "PREFLIGHT",
+        "WORKSPACE",
+        "workspace meta.json has invalid attempt",
+    )
 
 
-def _meta_base_sha(meta: dict[str, Any]) -> str:
+def _meta_base_sha(meta: WorkspaceMeta) -> str:
     value = meta.get("base_sha", "")
     if not isinstance(value, str) or not value.strip():
         raise RunnerError(
@@ -116,7 +120,7 @@ def _meta_base_sha(meta: dict[str, Any]) -> str:
     return value
 
 
-def _meta_message(meta: dict[str, Any]) -> str | None:
+def _meta_message(meta: WorkspaceMeta) -> str | None:
     value = meta.get("message")
     if value is None:
         return None
@@ -129,7 +133,7 @@ def _meta_message(meta: dict[str, Any]) -> str | None:
     return value
 
 
-def _require_workspace_meta_field(meta: dict[str, Any], field: str) -> None:
+def _require_workspace_meta_field(meta: WorkspaceMeta, field: str) -> None:
     if field not in meta:
         raise RunnerError(
             "PREFLIGHT",
@@ -139,7 +143,7 @@ def _require_workspace_meta_field(meta: dict[str, Any], field: str) -> None:
 
 
 def _validate_workspace_meta_contract(
-    meta: dict[str, Any],
+    meta: WorkspaceMeta,
     *,
     require_target_repo_name: bool,
 ) -> tuple[str, int, str | None, str | None]:
@@ -156,7 +160,7 @@ def _validate_workspace_meta_contract(
     return base_sha, attempt, message, target_repo_name
 
 
-def _validate_target_repo_name(value: Any) -> str:
+def _validate_target_repo_name(value: object) -> str:
     if not isinstance(value, str):
         raise RunnerError(
             "PREFLIGHT",
@@ -193,7 +197,11 @@ def _validate_target_repo_name(value: Any) -> str:
     return token
 
 
-def _binding_registry(*, runner_root: Path | None, target_repo_roots: list[str] | None):
+def _binding_registry(
+    *,
+    runner_root: Path | None,
+    target_repo_roots: list[str] | None,
+) -> tuple[TargetBinding, ...]:
     if runner_root is None or target_repo_roots is None:
         raise RunnerError(
             "PREFLIGHT",
@@ -324,7 +332,7 @@ def load_or_migrate_workspace_target_repo_name(
     runner_root: Path | None = None,
     target_repo_roots: list[str] | None = None,
 ) -> str:
-    ws_root, repo_dir, meta_path = _workspace_paths(
+    _ws_root, repo_dir, meta_path = _workspace_paths(
         workspaces_dir,
         issue_id,
         issue_dir_template=issue_dir_template,
@@ -438,7 +446,7 @@ def ensure_workspace(
 
     repo_exists = repo_dir.exists()
     expected_target_repo_name = _validate_target_repo_name(effective_target_repo_name)
-    meta: dict[str, Any] = {}
+    meta: WorkspaceMeta = {}
     if repo_exists:
         meta = _read_workspace_meta_strict(meta_path)
         _, existing_attempt, _, _ = _validate_workspace_meta_contract(

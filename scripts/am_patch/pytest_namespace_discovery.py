@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Mapping, Sequence
-from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
 from .pytest_namespace_config import (
@@ -162,6 +161,32 @@ def _collect_module_references(node: ast.AST) -> set[str]:
     return collector.refs
 
 
+def _module_body(tree: ast.AST) -> tuple[ast.stmt, ...]:
+    if isinstance(tree, ast.Module):
+        return tuple(tree.body)
+    return ()
+
+
+def _namespace_rank(item: str) -> tuple[int, str]:
+    return (-len(item), item)
+
+
+def _matcher_rank(item: NamespaceMatcher) -> tuple[int, str]:
+    return _namespace_rank(item.namespace)
+
+
+def _dedupe_names(names: Sequence[str]) -> tuple[str, ...]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        text = str(name).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return tuple(out)
+
+
 def _path_candidate_from_expr(node: ast.AST) -> str | None:
     parts: list[str] = []
 
@@ -301,7 +326,7 @@ def _collect_script_targets(tree: ast.AST, known_paths: set[str]) -> tuple[str, 
 
 def _fixture_defs(tree: ast.AST) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
     out: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
-    for node in getattr(tree, "body", []):
+    for node in _module_body(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for decorator in node.decorator_list:
@@ -322,7 +347,7 @@ def _fixture_arg_names(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[st
 
 def _test_requested_fixtures(tree: ast.AST) -> tuple[str, ...]:
     out: list[str] = []
-    for node in getattr(tree, "body", []):
+    for node in _module_body(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         if not node.name.startswith("test_"):
@@ -346,7 +371,6 @@ def _conftest_candidates(rel_path: str, known_paths: set[str]) -> tuple[str, ...
     return tuple(candidates)
 
 
-@lru_cache(maxsize=512)
 def _module_details(
     repo_root_str: str,
     rel_path: str,
@@ -399,13 +423,12 @@ def _local_called_names(node: ast.AST) -> tuple[str, ...]:
 
 def _top_level_defs(tree: ast.AST) -> dict[str, ast.stmt]:
     out: dict[str, ast.stmt] = {}
-    for node in getattr(tree, "body", []):
+    for node in _module_body(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             out[node.name] = node
     return out
 
 
-@lru_cache(maxsize=512)
 def _selected_module_details(
     repo_root_str: str,
     rel_path: str,
@@ -586,13 +609,13 @@ def _matcher_defs(
             path_prefix=prefix,
             module_prefixes=namespace_modules.get(stem, ()),
         )
-    ordered = sorted(matchers.values(), key=lambda item: (-len(item.namespace), item.namespace))
+    ordered = sorted(matchers.values(), key=_matcher_rank)
     return tuple(ordered)
 
 
 def _reduce_candidates(candidates: set[str]) -> tuple[str, ...]:
     reduced: list[str] = []
-    for candidate in sorted(candidates, key=lambda item: (-len(item), item)):
+    for candidate in sorted(candidates, key=_namespace_rank):
         if any(_namespace_contains(existing, candidate) for existing in reduced):
             continue
         reduced.append(candidate)
@@ -636,7 +659,6 @@ def _collect_candidates(
     return candidates
 
 
-@lru_cache(maxsize=32)
 def discover_namespace_ownership(
     repo_root_str: str,
     roots_items: tuple[tuple[str, str], ...],
@@ -695,7 +717,7 @@ def discover_namespace_ownership(
                     continue
                 seen_full.add(support_path)
             else:
-                names_key = tuple(dict.fromkeys(selected_names))
+                names_key = _dedupe_names(selected_names)
                 if support_path in seen_full or (support_path, names_key) in seen_selected:
                     continue
                 seen_selected.add((support_path, names_key))
@@ -733,7 +755,6 @@ def discover_namespace_ownership(
     return tuple(ownership)
 
 
-@lru_cache(maxsize=32)
 def discover_catchall_path_ownership(
     repo_root_str: str,
     roots_items: tuple[tuple[str, str], ...],
@@ -791,7 +812,7 @@ def discover_catchall_path_ownership(
                     continue
                 seen_full.add(support_path)
             else:
-                names_key = tuple(dict.fromkeys(selected_names))
+                names_key = _dedupe_names(selected_names)
                 if support_path in seen_full or (support_path, names_key) in seen_selected:
                     continue
                 seen_selected.add((support_path, names_key))

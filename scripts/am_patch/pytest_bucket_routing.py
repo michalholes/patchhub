@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 from .errors import RunnerError
 from .pytest_namespace_config import (
@@ -55,7 +56,7 @@ def select_pytest_targets(
     decision_paths: Sequence[str],
     pytest_targets: Sequence[str],
     routing_policy: Mapping[str, object] | None,
-    repo_root=None,
+    repo_root: Path | None = None,
 ) -> list[str]:
     if not routing_policy:
         return list(pytest_targets)

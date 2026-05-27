@@ -51,6 +51,18 @@ def _fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
+def tmp_path_for_atomic_write(target: Path) -> Path:
+    return _tmp_path_for_atomic_write(target)
+
+
+def fsync_file(path: Path) -> None:
+    _fsync_file(path)
+
+
+def fsync_dir(path: Path) -> None:
+    _fsync_dir(path)
+
+
 def pick_versioned_dest(dest: Path) -> Path:
     """Return a non-existing path by adding _vN suffix when needed.
 

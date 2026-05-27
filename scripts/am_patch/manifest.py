@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
+from typing import cast
 
 from .errors import RunnerError
 
@@ -13,8 +14,6 @@ def _validate_paths(files: list[str]) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for f in files:
-        if not isinstance(f, str):
-            raise RunnerError("PREFLIGHT", "MANIFEST", "FILES entries must be strings")
         f = f.strip()
         if not f:
             continue
@@ -41,10 +40,19 @@ def load_files(patch_script: Path) -> list[str]:
             if isinstance(node, ast.Assign):
                 for t in node.targets:
                     if isinstance(t, ast.Name) and t.id == "FILES":
-                        value = ast.literal_eval(node.value)
-                        if not isinstance(value, list):
+                        value_obj = cast(object, ast.literal_eval(node.value))
+                        if not isinstance(value_obj, list):
                             raise RunnerError("PREFLIGHT", "MANIFEST", "FILES must be a list")
-                        return _validate_paths(list(value))
+                        parsed_files: list[str] = []
+                        for item in cast(list[object], value_obj):
+                            if not isinstance(item, str):
+                                raise RunnerError(
+                                    "PREFLIGHT",
+                                    "MANIFEST",
+                                    "FILES entries must be strings",
+                                )
+                            parsed_files.append(item)
+                        return _validate_paths(parsed_files)
     except RunnerError:
         raise
     except Exception:

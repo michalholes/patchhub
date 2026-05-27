@@ -2,40 +2,48 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from am_patch import git_ops
+from am_patch.cli import CliArgs
+from am_patch.config import Policy
+from am_patch.errors import RunnerError
 from am_patch.initial_self_backup import maybe_create_initial_self_backup
+from am_patch.log import Logger
+from am_patch.paths import Paths
 from am_patch.root_model import resolve_patch_root
 from am_patch.scope import changed_paths
-from am_patch.state import load_state
-from am_patch.workspace import create_checkpoint, ensure_workspace
+from am_patch.state import IssueState, load_state
+from am_patch.workspace import Workspace, WorkspaceCheckpoint, create_checkpoint, ensure_workspace
 
 
 @dataclass
 class ExecutionContext:
-    ws: Any
+    ws: Workspace
     base_sha: str
-    state_before: Any
+    state_before: IssueState
     live_guard_before: str | None
-    checkpoint: Any
+    checkpoint: WorkspaceCheckpoint | None
     changed_before: list[str]
 
 
 def open_execution_context(
     *,
-    logger: Any,
-    cli: Any,
-    policy: Any,
-    paths: Any,
+    logger: Logger,
+    cli: CliArgs,
+    policy: Policy,
+    paths: Paths,
     repo_root: Path,
     runner_root: Path,
     effective_target_repo_name: str,
     patch_script: Path,
     unified_mode: bool,
     files_declared: list[str],
-    preopened_workspace: Any | None = None,
+    preopened_workspace: Workspace | None = None,
 ) -> ExecutionContext:
+    issue_id = cli.issue_id
+    if issue_id is None:
+        raise RunnerError("PREFLIGHT", "WORKSPACE", "issue_id is required")
+
     # Git preflight (live repo)
     git_ops.live_repo_preflight(
         logger,
@@ -60,7 +68,7 @@ def open_execution_context(
         maybe_create_initial_self_backup(
             logger=logger,
             policy=policy,
-            issue_id=str(cli.issue_id),
+            issue_id=issue_id,
             runner_root=runner_root,
             live_target_root=repo_root,
             artifacts_root=artifacts_root,
@@ -71,7 +79,7 @@ def open_execution_context(
         ws = ensure_workspace(
             logger=logger,
             workspaces_dir=paths.workspaces_dir,
-            issue_id=cli.issue_id,
+            issue_id=issue_id,
             live_repo=repo_root,
             base_sha=base_sha,
             update=policy.update_workspace,
@@ -79,8 +87,8 @@ def open_execution_context(
             message=cli.message,
             effective_target_repo_name=effective_target_repo_name,
             runner_root=runner_root,
-            target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
-            timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
+            target_repo_roots=list(policy.target_repo_roots),
+            timeout_s=policy.runner_subprocess_timeout_s,
             issue_dir_template=policy.workspace_issue_dir_template,
             repo_dir_name=policy.workspace_repo_dir_name,
             meta_filename=policy.workspace_meta_filename,

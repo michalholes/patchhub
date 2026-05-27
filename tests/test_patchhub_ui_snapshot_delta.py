@@ -6,7 +6,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from starlette.requests import Request
 
@@ -141,8 +141,8 @@ class TestPatchhubUiSnapshotDelta(unittest.TestCase):
         store.record_snapshot(self._snap(seq=1))
         store.record_snapshot(self._snap(seq=2, job_status="running"))
 
-        async def _call() -> dict[str, Any]:
-            async def _recv() -> dict[str, Any]:
+        async def _call() -> dict[str, object]:
+            async def _recv() -> dict[str, object]:
                 return {"type": "http.request", "body": b"", "more_body": False}
 
             request = Request(
@@ -161,8 +161,8 @@ class TestPatchhubUiSnapshotDelta(unittest.TestCase):
         payload = asyncio.run(_call())
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["seq"], 2)
-        jobs = cast(dict[str, Any], payload["jobs"])
-        updated = cast(list[dict[str, Any]], jobs["updated"])
+        jobs = cast(dict[str, object], payload["jobs"])
+        updated = cast(list[dict[str, object]], jobs["updated"])
         self.assertEqual(updated[0]["status"], "running")
 
     def test_delta_store_omits_header_when_header_is_unchanged(self) -> None:

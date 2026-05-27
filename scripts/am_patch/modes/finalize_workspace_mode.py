@@ -33,7 +33,7 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
     paths = ctx.paths
     logger = ctx.logger
 
-    lock = getattr(ctx, "lock", None)
+    lock = ctx.lock
 
     unified_mode: bool = False
     patch_script: Path | None = None
@@ -70,9 +70,9 @@ def run_finalize_workspace_mode(ctx: RunContext) -> RunResult:
             issue_dir_template=policy.workspace_issue_dir_template,
             repo_dir_name=policy.workspace_repo_dir_name,
             meta_filename=policy.workspace_meta_filename,
-            timeout_s=getattr(policy, "runner_subprocess_timeout_s", 0),
-            runner_root=getattr(ctx, "runner_root", None),
-            target_repo_roots=list(getattr(policy, "target_repo_roots", []) or []),
+            timeout_s=policy.runner_subprocess_timeout_s,
+            runner_root=ctx.runner_root,
+            target_repo_roots=list(policy.target_repo_roots or []),
         )
         ws_for_posthook = ws
 

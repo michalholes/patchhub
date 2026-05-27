@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping, Sequence
-from functools import lru_cache
 from pathlib import Path
 
 from .pytest_namespace_config import (
@@ -25,8 +24,18 @@ from .pytest_namespace_discovery import (
 )
 from .pytest_namespace_validator import validate_namespace_policy
 
+_PolicyValidationCacheKey = tuple[
+    str,
+    tuple[tuple[str, str], ...],
+    tuple[tuple[str, str], ...],
+    tuple[tuple[str, tuple[str, ...]], ...],
+    tuple[tuple[str, tuple[str, ...]], ...],
+    tuple[tuple[str, tuple[str, ...]], ...],
+]
 
-@lru_cache(maxsize=32)
+_POLICY_VALIDATION_CACHE: set[_PolicyValidationCacheKey] = set()
+
+
 def _validate_policy_once(
     repo_root_str: str,
     roots_items: tuple[tuple[str, str], ...],
@@ -35,6 +44,17 @@ def _validate_policy_once(
     dependency_items: tuple[tuple[str, tuple[str, ...]], ...],
     external_dependency_items: tuple[tuple[str, tuple[str, ...]], ...],
 ) -> None:
+    cache_key: _PolicyValidationCacheKey = (
+        repo_root_str,
+        roots_items,
+        tree_items,
+        namespace_module_items,
+        dependency_items,
+        external_dependency_items,
+    )
+    if cache_key in _POLICY_VALIDATION_CACHE:
+        return
+
     repo_root = Path(repo_root_str)
     if not (repo_root / "plugins").exists():
         return
@@ -50,6 +70,7 @@ def _validate_policy_once(
             key: list(values) for key, values in external_dependency_items
         },
     )
+    _POLICY_VALIDATION_CACHE.add(cache_key)
 
 
 def dedupe_keep_first(items: Sequence[str]) -> list[str]:
@@ -210,7 +231,7 @@ def select_namespace_pytest_targets(
     pytest_dependencies: Mapping[str, Sequence[str]],
     pytest_external_dependencies: Mapping[str, Sequence[str]],
     pytest_full_suite_prefixes: Sequence[str],
-    repo_root=None,
+    repo_root: Path | None = None,
 ) -> list[str]:
     roots = _normalize_roots(pytest_roots)
     tree = _normalize_tree(pytest_tree)
@@ -219,9 +240,9 @@ def select_namespace_pytest_targets(
     external_dependencies = _normalize_dependencies(pytest_external_dependencies)
     merged_dependencies = _merge_dependency_layers(dependencies, external_dependencies)
     full_suite_prefixes = _normalize_full_suite_prefixes(pytest_full_suite_prefixes)
-    repo_root = default_repo_root() if repo_root is None else repo_root
+    repo_root_path = default_repo_root() if repo_root is None else repo_root
     _validate_policy_once(
-        str(repo_root),
+        str(repo_root_path),
         tuple(sorted(roots.items())),
         tuple(sorted(tree.items())),
         tuple(sorted((key, tuple(values)) for key, values in namespace_modules.items())),
@@ -229,13 +250,13 @@ def select_namespace_pytest_targets(
         tuple(sorted((key, tuple(values)) for key, values in external_dependencies.items())),
     )
     ownership = discover_namespace_ownership(
-        str(repo_root),
+        str(repo_root_path),
         tuple(sorted(roots.items())),
         tuple(sorted(tree.items())),
         tuple(sorted((key, tuple(values)) for key, values in namespace_modules.items())),
     )
     catchall_ownership = discover_catchall_path_ownership(
-        str(repo_root),
+        str(repo_root_path),
         tuple(sorted(roots.items())),
         tuple(sorted(tree.items())),
         tuple(sorted((key, tuple(values)) for key, values in namespace_modules.items())),

@@ -1,31 +1,45 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
+from typing import Protocol
 
 from am_patch.archive import archive_patch
 from am_patch.artifacts import build_artifacts
+from am_patch.cli import CliArgs
+from am_patch.config import Policy
 from am_patch.errors import RunnerError
+from am_patch.log import Logger
+from am_patch.paths import Paths
 from am_patch.post_success_audit import run_post_success_audit
-from am_patch.run_result import RunResult, _normalize_failure_summary
-from am_patch.runtime import _parse_gate_list, _stage_rank
+from am_patch.run_result import RunResult, normalize_failure_summary
+from am_patch.runtime import parse_gate_list, stage_rank
 from am_patch.scope import changed_paths
-from am_patch.workspace import Workspace, delete_workspace, rollback_to_checkpoint
+from am_patch.workspace import delete_workspace, rollback_to_checkpoint
+
+
+class PostRunContext(Protocol):
+    cli: CliArgs
+    policy: Policy
+    repo_root: Path
+    paths: Paths
+    log_path: Path
+    logger: Logger
+    effective_target_repo_name: str | None
 
 
 def _resolve_workspace_archive_path(
     *,
     result: RunResult,
-    cli: Any,
+    cli: CliArgs,
     repo_root: Path,
-    paths: Any,
+    paths: Paths,
     issue_id: str,
-    logger: Any,
-    policy: Any,
+    logger: Logger,
+    policy: Policy,
 ) -> Path | None:
     archived_path = result.used_patch_for_zip
 
-    if not getattr(policy, "patch_script_archive_enabled", True):
+    if not policy.patch_script_archive_enabled:
         return archived_path
 
     if result.exit_code == 0:
@@ -37,7 +51,7 @@ def _resolve_workspace_archive_path(
             archived_path = archive_patch(logger, result.patch_script, paths.successful_dir)
         return archived_path
 
-    patch_source: Path | None = None
+    patch_source: Path
     if result.patch_script is not None:
         patch_source = result.patch_script
     elif cli.patch_script:
@@ -51,10 +65,7 @@ def _resolve_workspace_archive_path(
     else:
         patch_source = (paths.patch_dir / f"issue_{issue_id}.py").resolve()
 
-    candidates: list[Path] = []
-    if patch_source is not None:
-        candidates.append(patch_source)
-        candidates.append((paths.patch_dir / patch_source.name).resolve())
+    candidates: list[Path] = [patch_source, (paths.patch_dir / patch_source.name).resolve()]
 
     unique_candidates: list[Path] = []
     seen: set[str] = set()
@@ -89,10 +100,10 @@ def _sorted_unique_paths(*groups: list[str]) -> list[str]:
 
 def _resolve_failure_zip_inputs(
     *,
-    cli: Any,
+    cli: CliArgs,
     repo_root: Path,
-    paths: Any,
-    logger: Any,
+    paths: Paths,
+    logger: Logger,
     result: RunResult,
     issue_id: str,
     workspace_deleted_before_audit: bool,
@@ -122,9 +133,9 @@ def _resolve_failure_zip_inputs(
 
 def _maybe_run_success_audit(
     *,
-    logger: Any,
+    logger: Logger,
     repo_root: Path,
-    policy: Any,
+    policy: Policy,
     result: RunResult,
 ) -> int:
     if result.exit_code != 0 or result.push_ok_for_posthook is not True:
@@ -138,12 +149,12 @@ def _maybe_run_success_audit(
         logger.section("AUDIT")
         logger.line(f"post_success_audit_failed={audit_error!r}")
         if isinstance(audit_error, RunnerError):
-            stage, reason = _normalize_failure_summary(
+            stage, reason = normalize_failure_summary(
                 error=audit_error,
                 primary_fail_stage=result.primary_fail_stage,
                 secondary_failures=result.secondary_failures,
-                parse_gate_list=_parse_gate_list,
-                stage_rank=_stage_rank,
+                parse_gate_list=parse_gate_list,
+                stage_rank=stage_rank,
             )
             result.final_fail_stage = stage
             result.final_fail_reason = reason
@@ -153,7 +164,7 @@ def _maybe_run_success_audit(
         return result.exit_code
 
 
-def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
+def run_post_run_pipeline(*, ctx: PostRunContext, result: RunResult) -> int:
     cli = ctx.cli
     policy = ctx.policy
     repo_root = ctx.repo_root
@@ -185,7 +196,8 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
             )
             workspace_deleted_before_audit = False
             if run_audit_after_workspace_delete:
-                workspace_for_delete = cast(Workspace, result.ws_for_posthook)
+                workspace_for_delete = result.ws_for_posthook
+                assert workspace_for_delete is not None
                 delete_workspace(logger, workspace_for_delete)
                 workspace_deleted_before_audit = True
 
@@ -206,7 +218,7 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
                 workspace_deleted_before_audit=workspace_deleted_before_audit,
             )
 
-            if getattr(policy, "artifact_stage_enabled", True):
+            if policy.artifact_stage_enabled:
                 build_artifacts(
                     logger=logger,
                     cli=cli,
@@ -228,18 +240,14 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
                     ),
                     issue_diff_base_sha=result.issue_diff_base_sha,
                     issue_diff_paths=result.issue_diff_paths,
-                    effective_target_repo_name=getattr(
-                        ctx,
-                        "effective_target_repo_name",
-                        None,
-                    ),
+                    effective_target_repo_name=ctx.effective_target_repo_name,
                 )
             if (
                 result.exit_code != 0
                 and result.rollback_ws_for_posthook is not None
                 and result.rollback_ckpt_for_posthook is not None
             ):
-                mode = getattr(policy, "rollback_workspace_on_fail", "none-applied")
+                mode = policy.rollback_workspace_on_fail
                 do_rollback = False
                 skip_reason = "non-patch-failure"
                 is_patch_failure = result.primary_fail_stage == "PATCH"
@@ -276,7 +284,7 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
                 and result.ws_for_posthook is not None
                 and not workspace_deleted_before_audit
             ):
-                delete_workspace(logger, cast(Workspace, result.ws_for_posthook))
+                delete_workspace(logger, result.ws_for_posthook)
     except Exception as posthook_error:
         try:
             logger.section("POSTHOOK-ERROR")
@@ -293,7 +301,7 @@ def run_post_run_pipeline(*, ctx: Any, result: RunResult) -> int:
                 logger.line("workspace_present=1")
                 logger.line(f"workspace_root={result.ws_for_posthook.root}")
                 logger.line("workspace_delete=1")
-                delete_workspace(logger, cast(Workspace, result.ws_for_posthook))
+                delete_workspace(logger, result.ws_for_posthook)
         except Exception as cleanup_error:
             try:
                 logger.section("TEST_MODE_CLEANUP_ERROR")

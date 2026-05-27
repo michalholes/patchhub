@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from .repo_snapshot_cleanup import (
     RepoSnapshotCleanupConfig,
@@ -140,33 +141,78 @@ class AppConfig:
     )
 
 
-def _must_get(d: dict[str, Any], key: str) -> Any:
+TomlTable = dict[str, object]
+
+
+def _as_toml_table(raw: object, *, key: str) -> TomlTable:
+    if not isinstance(raw, dict):
+        raise ValueError(f"{key} must be a table")
+    raw_dict = cast(dict[object, object], raw)
+    out: TomlTable = {}
+    for raw_key, raw_value in raw_dict.items():
+        if not isinstance(raw_key, str):
+            raise ValueError(f"{key} has non-string key")
+        out[raw_key] = raw_value
+    return out
+
+
+def _list_of_objects(value: object, *, key: str) -> list[object]:
+    if isinstance(value, list):
+        return [item for item in cast(list[object], value)]
+    if isinstance(value, tuple):
+        return [item for item in cast(tuple[object, ...], value)]
+    raise ValueError(f"{key} must be an array")
+
+
+def _list_of_strings(value: object, *, key: str) -> list[str]:
+    out: list[str] = []
+    for index, item in enumerate(_list_of_objects(value, key=key)):
+        if not isinstance(item, str):
+            raise ValueError(f"{key}[{index}] must be a string")
+        out.append(item)
+    return out
+
+
+def _list_of_ints(value: object, *, key: str) -> list[int]:
+    out: list[int] = []
+    for index, item in enumerate(_list_of_objects(value, key=key)):
+        out.append(_must_int_at_least(item, key=f"{key}[{index}]", minimum=0))
+    return out
+
+
+def _must_get(d: Mapping[str, object], key: str) -> object:
     if key not in d:
         raise KeyError(f"Missing required config key: {key}")
     return d[key]
 
 
-def _must_int_at_least(value: Any, *, key: str, minimum: int) -> int:
-    parsed = int(value)
+def _must_int_at_least(value: object, *, key: str, minimum: int) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"Config key {key} must be an integer")
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, (float, str)):
+        parsed = int(value)
+    else:
+        raise ValueError(f"Config key {key} must be an integer")
     if parsed < minimum:
         raise ValueError(f"Config key {key} must be >= {minimum}; got {parsed}")
     return parsed
 
 
 def _parse_repo_snapshot_cleanup_rule(
-    raw: Any,
+    raw: object,
     *,
     index: int,
 ) -> RepoSnapshotCleanupRule:
     prefix = f"repo_snapshot_cleanup.rules[{index}]"
-    if not isinstance(raw, dict):
-        raise ValueError(f"{prefix} must be a table")
+    rule = _as_toml_table(raw, key=prefix)
     allowed = {"filename_pattern", "keep_count"}
-    extra = sorted(str(key) for key in raw if str(key) not in allowed)
+    extra = sorted(key for key in rule if key not in allowed)
     if extra:
         raise ValueError(f"{prefix} contains unsupported keys: {', '.join(extra)}")
 
-    pattern = raw.get("filename_pattern")
+    pattern = rule.get("filename_pattern")
     if not isinstance(pattern, str):
         raise ValueError(f"{prefix}.filename_pattern must be a string")
     if not pattern:
@@ -178,7 +224,7 @@ def _parse_repo_snapshot_cleanup_rule(
     if "/" in pattern or "\\" in pattern:
         raise ValueError(f"{prefix}.filename_pattern must not contain separators")
 
-    keep_count = raw.get("keep_count")
+    keep_count = rule.get("keep_count")
     if isinstance(keep_count, bool) or not isinstance(keep_count, int):
         raise ValueError(f"{prefix}.keep_count must be an integer")
     if keep_count < 0:
@@ -189,25 +235,22 @@ def _parse_repo_snapshot_cleanup_rule(
     )
 
 
-def _parse_repo_snapshot_cleanup(raw: Any) -> RepoSnapshotCleanupConfig:
+def _parse_repo_snapshot_cleanup(raw: object) -> RepoSnapshotCleanupConfig:
     if raw is None:
         return RepoSnapshotCleanupConfig()
-    if not isinstance(raw, dict):
-        raise ValueError("repo_snapshot_cleanup must be a table")
+    config = _as_toml_table(raw, key="repo_snapshot_cleanup")
     allowed = {"rules", "age_max_days", "age_directories"}
-    extra = sorted(str(key) for key in raw if str(key) not in allowed)
+    extra = sorted(key for key in config if key not in allowed)
     if extra:
         raise ValueError("repo_snapshot_cleanup contains unsupported keys: " + ", ".join(extra))
 
-    raw_rules = raw.get("rules", [])
-    if not isinstance(raw_rules, list):
-        raise ValueError("repo_snapshot_cleanup.rules must be an array of tables")
+    raw_rules = _list_of_objects(config.get("rules", []), key="repo_snapshot_cleanup.rules")
     rules = tuple(
         _parse_repo_snapshot_cleanup_rule(item, index=index) for index, item in enumerate(raw_rules)
     )
 
-    has_age_max_days = "age_max_days" in raw
-    has_age_directories = "age_directories" in raw
+    has_age_max_days = "age_max_days" in config
+    has_age_directories = "age_directories" in config
     if has_age_max_days != has_age_directories:
         raise ValueError(
             "repo_snapshot_cleanup.age_max_days and "
@@ -217,15 +260,16 @@ def _parse_repo_snapshot_cleanup(raw: Any) -> RepoSnapshotCleanupConfig:
     if not has_age_max_days:
         return RepoSnapshotCleanupConfig(rules=rules)
 
-    age_max_days = raw.get("age_max_days")
+    age_max_days = config.get("age_max_days")
     if isinstance(age_max_days, bool) or not isinstance(age_max_days, int):
         raise ValueError("repo_snapshot_cleanup.age_max_days must be an integer")
     if age_max_days < 1:
         raise ValueError("repo_snapshot_cleanup.age_max_days must be >= 1")
 
-    raw_age_directories = raw.get("age_directories")
-    if not isinstance(raw_age_directories, list):
-        raise ValueError("repo_snapshot_cleanup.age_directories must be an array")
+    raw_age_directories = _list_of_objects(
+        config.get("age_directories"),
+        key="repo_snapshot_cleanup.age_directories",
+    )
     if not raw_age_directories:
         raise ValueError("repo_snapshot_cleanup.age_directories must be non-empty")
 
@@ -255,33 +299,45 @@ def _parse_repo_snapshot_cleanup(raw: Any) -> RepoSnapshotCleanupConfig:
 
 
 def load_config(path: Path) -> AppConfig:
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
+    raw = _as_toml_table(parsed, key="config")
 
-    server = raw.get("server", {})
-    meta = raw.get("meta", {})
-    runner = raw.get("runner", {})
-    paths = raw.get("paths", {})
-    upload = raw.get("upload", {})
-    issue = raw.get("issue", {})
-    indexing = raw.get("indexing", {})
-    ui = raw.get("ui", {})
-    autofill = raw.get("autofill", {})
-    targeting = raw.get("targeting", {})
-    governance_toolkit = raw.get("governance_toolkit", {})
+    server = _as_toml_table(raw.get("server", {}), key="server")
+    meta = _as_toml_table(raw.get("meta", {}), key="meta")
+    runner = _as_toml_table(raw.get("runner", {}), key="runner")
+    paths = _as_toml_table(raw.get("paths", {}), key="paths")
+    upload = _as_toml_table(raw.get("upload", {}), key="upload")
+    issue = _as_toml_table(raw.get("issue", {}), key="issue")
+    indexing = _as_toml_table(raw.get("indexing", {}), key="indexing")
+    ui = _as_toml_table(raw.get("ui", {}), key="ui")
+    autofill = _as_toml_table(raw.get("autofill", {}), key="autofill")
+    targeting = _as_toml_table(raw.get("targeting", {}), key="targeting")
+    governance_toolkit = _as_toml_table(
+        raw.get("governance_toolkit", {}),
+        key="governance_toolkit",
+    )
     repo_snapshot_cleanup = _parse_repo_snapshot_cleanup(raw.get("repo_snapshot_cleanup"))
 
     return AppConfig(
         server=ServerConfig(
             host=str(_must_get(server, "host")),
-            port=int(_must_get(server, "port")),
-            tail_max_bytes=int(server.get("tail_max_bytes", 8_388_608)),
-            tail_cache_max_entries=int(server.get("tail_cache_max_entries", 32)),
+            port=_must_int_at_least(_must_get(server, "port"), key="server.port", minimum=1),
+            tail_max_bytes=_must_int_at_least(
+                server.get("tail_max_bytes", 8_388_608),
+                key="server.tail_max_bytes",
+                minimum=1,
+            ),
+            tail_cache_max_entries=_must_int_at_least(
+                server.get("tail_cache_max_entries", 32),
+                key="server.tail_cache_max_entries",
+                minimum=1,
+            ),
         ),
         meta=MetaConfig(
             version=str(meta.get("version", "0.0.0")),
         ),
         runner=RunnerConfig(
-            command=list(_must_get(runner, "command")),
+            command=_list_of_strings(_must_get(runner, "command"), key="runner.command"),
             default_verbosity=str(_must_get(runner, "default_verbosity")),
             queue_enabled=bool(_must_get(runner, "queue_enabled")),
             runner_config_toml=str(_must_get(runner, "runner_config_toml")),
@@ -305,25 +361,54 @@ def load_config(path: Path) -> AppConfig:
             patches_root=str(_must_get(paths, "patches_root")),
             upload_dir=str(_must_get(paths, "upload_dir")),
             allow_crud=bool(_must_get(paths, "allow_crud")),
-            crud_allowlist=list(_must_get(paths, "crud_allowlist")),
+            crud_allowlist=_list_of_strings(
+                _must_get(paths, "crud_allowlist"),
+                key="paths.crud_allowlist",
+            ),
         ),
         upload=UploadConfig(
-            max_bytes=int(_must_get(upload, "max_bytes")),
-            allowed_extensions=list(_must_get(upload, "allowed_extensions")),
+            max_bytes=_must_int_at_least(
+                _must_get(upload, "max_bytes"),
+                key="upload.max_bytes",
+                minimum=1,
+            ),
+            allowed_extensions=_list_of_strings(
+                _must_get(upload, "allowed_extensions"),
+                key="upload.allowed_extensions",
+            ),
             ascii_only_names=bool(_must_get(upload, "ascii_only_names")),
         ),
         issue=IssueConfig(
             default_regex=str(_must_get(issue, "default_regex")),
-            allocation_start=int(_must_get(issue, "allocation_start")),
-            allocation_max=int(_must_get(issue, "allocation_max")),
+            allocation_start=_must_int_at_least(
+                _must_get(issue, "allocation_start"),
+                key="issue.allocation_start",
+                minimum=0,
+            ),
+            allocation_max=_must_int_at_least(
+                _must_get(issue, "allocation_max"),
+                key="issue.allocation_max",
+                minimum=1,
+            ),
         ),
         indexing=IndexingConfig(
             log_filename_regex=str(_must_get(indexing, "log_filename_regex")),
-            stats_windows_days=list(_must_get(indexing, "stats_windows_days")),
-            poll_interval_seconds=int(indexing.get("poll_interval_seconds", 2)),
+            stats_windows_days=_list_of_ints(
+                _must_get(indexing, "stats_windows_days"),
+                key="indexing.stats_windows_days",
+            ),
+            poll_interval_seconds=_must_int_at_least(
+                indexing.get("poll_interval_seconds", 2),
+                key="indexing.poll_interval_seconds",
+                minimum=1,
+            ),
         ),
         ui=UiConfig(
-            base_font_px=int(ui.get("base_font_px", 24)),
+            base_font_px=_must_int_at_least(
+                ui.get("base_font_px", 24),
+                key="ui.base_font_px",
+                minimum=1,
+            ),
             drop_overlay_enabled=bool(ui.get("drop_overlay_enabled", True)),
             clear_output_on_autofill=bool(ui.get("clear_output_on_autofill", True)),
             show_autofill_clear_status=bool(ui.get("show_autofill_clear_status", True)),
@@ -331,11 +416,24 @@ def load_config(path: Path) -> AppConfig:
         ),
         autofill=AutofillConfig(
             enabled=bool(autofill.get("enabled", True)),
-            poll_interval_seconds=int(autofill.get("poll_interval_seconds", 10)),
+            poll_interval_seconds=_must_int_at_least(
+                autofill.get("poll_interval_seconds", 10),
+                key="autofill.poll_interval_seconds",
+                minimum=1,
+            ),
             scan_dir=str(autofill.get("scan_dir", "patches")),
-            scan_extensions=list(autofill.get("scan_extensions", [".zip", ".patch"])),
-            scan_ignore_filenames=list(autofill.get("scan_ignore_filenames", [])),
-            scan_ignore_prefixes=list(autofill.get("scan_ignore_prefixes", [])),
+            scan_extensions=_list_of_strings(
+                autofill.get("scan_extensions", [".zip", ".patch"]),
+                key="autofill.scan_extensions",
+            ),
+            scan_ignore_filenames=_list_of_strings(
+                autofill.get("scan_ignore_filenames", []),
+                key="autofill.scan_ignore_filenames",
+            ),
+            scan_ignore_prefixes=_list_of_strings(
+                autofill.get("scan_ignore_prefixes", []),
+                key="autofill.scan_ignore_prefixes",
+            ),
             choose_strategy=str(autofill.get("choose_strategy", "mtime_ns")),
             tiebreaker=str(autofill.get("tiebreaker", "lex_name")),
             derive_enabled=bool(autofill.get("derive_enabled", True)),
@@ -359,12 +457,28 @@ def load_config(path: Path) -> AppConfig:
             fill_commit_message=bool(autofill.get("fill_commit_message", True)),
             zip_commit_enabled=bool(autofill.get("zip_commit_enabled", True)),
             zip_commit_filename=str(autofill.get("zip_commit_filename", "COMMIT_MESSAGE.txt")),
-            zip_commit_max_bytes=int(autofill.get("zip_commit_max_bytes", 4096)),
-            zip_commit_max_ratio=int(autofill.get("zip_commit_max_ratio", 200)),
+            zip_commit_max_bytes=_must_int_at_least(
+                autofill.get("zip_commit_max_bytes", 4096),
+                key="autofill.zip_commit_max_bytes",
+                minimum=1,
+            ),
+            zip_commit_max_ratio=_must_int_at_least(
+                autofill.get("zip_commit_max_ratio", 200),
+                key="autofill.zip_commit_max_ratio",
+                minimum=1,
+            ),
             zip_issue_enabled=bool(autofill.get("zip_issue_enabled", True)),
             zip_issue_filename=str(autofill.get("zip_issue_filename", "ISSUE_NUMBER.txt")),
-            zip_issue_max_bytes=int(autofill.get("zip_issue_max_bytes", 128)),
-            zip_issue_max_ratio=int(autofill.get("zip_issue_max_ratio", 200)),
+            zip_issue_max_bytes=_must_int_at_least(
+                autofill.get("zip_issue_max_bytes", 128),
+                key="autofill.zip_issue_max_bytes",
+                minimum=1,
+            ),
+            zip_issue_max_ratio=_must_int_at_least(
+                autofill.get("zip_issue_max_ratio", 200),
+                key="autofill.zip_issue_max_ratio",
+                minimum=1,
+            ),
             scan_zip_require_patch=bool(autofill.get("scan_zip_require_patch", False)),
         ),
         targeting=TargetingConfig(

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any
+
+from am_patch.config import Policy
 
 
 def effective_issue_id(*, issue_id: int | None, pseudo_issue_id: str | None) -> str:
@@ -19,7 +20,7 @@ def effective_issue_id(*, issue_id: int | None, pseudo_issue_id: str | None) -> 
     return "NONE"
 
 
-def _extract_ts_from_log_name(*, policy: Any, log_path: Path, issue: str) -> str:
+def _extract_ts_from_log_name(*, policy: Policy, log_path: Path, issue: str) -> str:
     """Extract {ts} from the log filename using configured templates.
 
     This avoids introducing new time dependence for failure zip naming.
@@ -62,12 +63,16 @@ def _log_nonce(*, log_path: Path) -> str:
     return h.hexdigest()[:12]
 
 
-def render_name(*, policy: Any, issue: str, log_path: Path, attempt: int | None) -> str:
+def _failure_zip_sort_key(path: Path) -> tuple[int, str]:
+    return path.stat().st_mtime_ns, path.name
+
+
+def render_name(*, policy: Policy, issue: str, log_path: Path, attempt: int | None) -> str:
     """Render the failure zip filename from policy template."""
 
-    template = getattr(policy, "failure_zip_template", "") or ""
+    template = policy.failure_zip_template or ""
     if not template.strip():
-        return str(getattr(policy, "failure_zip_name", "patched.zip"))
+        return str(policy.failure_zip_name)
 
     ts = _extract_ts_from_log_name(policy=policy, log_path=log_path, issue=issue)
     nonce = _log_nonce(log_path=log_path)
@@ -86,25 +91,24 @@ def render_name(*, policy: Any, issue: str, log_path: Path, attempt: int | None)
     return name
 
 
-def cleanup_for_issue(*, patch_dir: Path, policy: Any, issue: str) -> None:
+def cleanup_for_issue(*, patch_dir: Path, policy: Policy, issue: str) -> None:
     """Apply per-issue retention for failure zips (best-effort)."""
 
-    if not bool(getattr(policy, "failure_zip_enabled", True)):
+    if not policy.failure_zip_enabled:
         return
 
-    keep_raw = getattr(policy, "failure_zip_keep_per_issue", 1)
-    keep = int(keep_raw) if keep_raw is not None else 1
+    keep = int(policy.failure_zip_keep_per_issue)
     if keep < 0:
         keep = 0
 
-    glob_tmpl = getattr(policy, "failure_zip_cleanup_glob_template", "")
+    glob_tmpl = policy.failure_zip_cleanup_glob_template
     if not glob_tmpl:
         glob_tmpl = "patched_issue{issue}_*.zip"
     pattern = glob_tmpl.format(issue=issue)
 
     matches = sorted(
         (p for p in patch_dir.glob(pattern) if p.is_file()),
-        key=lambda p: (p.stat().st_mtime_ns, p.name),
+        key=_failure_zip_sort_key,
         reverse=True,
     )
     for p in matches[keep:]:
@@ -114,16 +118,16 @@ def cleanup_for_issue(*, patch_dir: Path, policy: Any, issue: str) -> None:
             continue
 
 
-def cleanup_on_success_commit(*, patch_dir: Path, policy: Any, issue: str) -> None:
+def cleanup_on_success_commit(*, patch_dir: Path, policy: Policy, issue: str) -> None:
     """Remove failure zips for issue after a successful commit (best-effort)."""
 
-    if not bool(getattr(policy, "failure_zip_enabled", True)):
+    if not policy.failure_zip_enabled:
         return
 
-    if not bool(getattr(policy, "failure_zip_delete_on_success_commit", True)):
+    if not policy.failure_zip_delete_on_success_commit:
         return
 
-    glob_tmpl = getattr(policy, "failure_zip_cleanup_glob_template", "")
+    glob_tmpl = policy.failure_zip_cleanup_glob_template
     if not glob_tmpl:
         glob_tmpl = "patched_issue{issue}_*.zip"
     pattern = glob_tmpl.format(issue=issue)

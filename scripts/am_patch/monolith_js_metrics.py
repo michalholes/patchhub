@@ -26,12 +26,12 @@ def js_metrics(
     """
 
     # Local import to avoid import cycles: monolith_gate imports this module.
-    from .monolith_gate import FileMetrics, MonolithAreas, area_for_relpath
+    from .monolith_gate import FileMetrics, area_for_relpath
 
     _ = compute_fanin  # reserved for future parity with Python fan graphs
 
     try:
-        area_rules: list[MonolithAreas] = [a for a in areas if isinstance(a, MonolithAreas)]
+        area_rules: list[MonolithAreas] = list(areas)
 
         loc = _count_loc(new_text)
         exports = _count_js_exports(new_text)
@@ -108,7 +108,7 @@ def _count_loc(text: str) -> int:
 
 def _count_js_exports(text: str) -> int:
     # ESM export statements
-    export_lines = len(_RE_EXPORT_LINE.findall(text))
+    export_lines = sum(1 for _ in _RE_EXPORT_LINE.finditer(text))
 
     # CJS module.exports occurrences
     module_exports = text.count("module.exports")

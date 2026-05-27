@@ -5,10 +5,10 @@ import json
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 from .console import colorize_console_message, stdout_color_enabled
 from .errors import RunnerCancelledError, RunnerError
@@ -26,6 +26,21 @@ class RunResult:
 
 Severity = str  # DEBUG|INFO|WARNING|ERROR
 Channel = str  # CORE|DETAIL
+
+
+class _IpcEventSink(Protocol):
+    def __call__(self, event: Mapping[str, object]) -> None: ...
+
+
+class _EmitLineFn(Protocol):
+    def __call__(
+        self,
+        s: str,
+        *,
+        to_screen: bool,
+        to_log: bool,
+        machine_event: bool,
+    ) -> None: ...
 
 
 _LEVELS = ("quiet", "normal", "warning", "verbose", "debug")
@@ -131,7 +146,7 @@ class Logger:
         self._ipc_hook: Callable[[str, str], None] | None = None
         self._screen_break_hook: Callable[[], None] | None = None
 
-        self._ipc_stream: Callable[[dict[str, Any]], None] | None = None
+        self._ipc_stream: _IpcEventSink | None = None
         self._io_lock = threading.Lock()
         self._subprocess_lock = threading.Lock()
         self._active_subprocess: ManagedSubprocess | None = None
@@ -170,7 +185,7 @@ class Logger:
     def set_ipc_hook(self, hook: Callable[[str, str], None] | None) -> None:
         self._ipc_hook = hook
 
-    def set_ipc_stream(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
+    def set_ipc_stream(self, cb: _IpcEventSink | None) -> None:
         self._ipc_stream = cb
 
     def set_screen_break_hook(self, hook: Callable[[], None] | None) -> None:
@@ -207,7 +222,7 @@ class Logger:
                 return s
         return "PREFLIGHT"
 
-    def _write_json(self, obj: dict[str, Any]) -> None:
+    def _write_json(self, obj: Mapping[str, object]) -> None:
         if self._json_fp is None:
             return
         line = json.dumps(obj, ensure_ascii=True, separators=(",", ":"))
@@ -401,7 +416,7 @@ class Logger:
 
     def emit_control_event(
         self,
-        payload: dict[str, Any],
+        payload: Mapping[str, object],
         *,
         before_publish: Callable[[int], None] | None = None,
     ) -> int:
@@ -428,7 +443,7 @@ class Logger:
                     ipc_stream(evt)
             return self._json_seq
 
-    def _write_machine_event_locked(self, evt: dict[str, Any]) -> tuple[bool, bool]:
+    def _write_machine_event_locked(self, evt: Mapping[str, object]) -> tuple[bool, bool]:
         wrote_json = False
         wrote_ipc = False
         if self.json_enabled and self._json_fp is not None:
@@ -662,7 +677,7 @@ class Logger:
             log_got_live = log_got_live or wrote_log
 
         def _emit_failure_dump(
-            emit_line: Callable[..., None],
+            emit_line: _EmitLineFn,
             *,
             stdout: str,
             stderr: str,

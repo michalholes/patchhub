@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Protocol
+
+
+class _WorkspaceLike(Protocol):
+    root: Path
+    attempt: int
 
 
 def workspace_history_dirs(
@@ -33,7 +39,7 @@ def rotate_current_dir(cur_dir: Path, old_dir: Path, prev_attempt: int) -> None:
 
 
 def workspace_store_current_patch(
-    ws,
+    ws: _WorkspaceLike,
     patch_script: Path,
     *,
     history_logs_dir: str,
@@ -60,7 +66,7 @@ def workspace_store_current_patch(
 
 
 def workspace_store_current_log(
-    ws,
+    ws: _WorkspaceLike,
     log_path: Path,
     *,
     history_logs_dir: str,

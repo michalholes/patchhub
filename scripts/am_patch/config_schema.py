@@ -15,7 +15,7 @@ No heuristics are permitted.
 from __future__ import annotations
 
 from dataclasses import Field, fields
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import cast, get_args, get_origin, get_type_hints
 
 from am_patch.config import BOOTSTRAP_OWNED_KEYS, Policy
 
@@ -622,9 +622,21 @@ _ENUM_BY_KEY: dict[str, list[str]] = {
 }
 
 
-def _infer_schema_type(typ: Any) -> str:
-    origin = get_origin(typ)
-    args = get_args(typ)
+def _typing_origin(typ: object) -> object | None:
+    return cast(object | None, get_origin(typ))
+
+
+def _typing_args(typ: object) -> tuple[object, ...]:
+    return cast(tuple[object, ...], get_args(typ))
+
+
+def _policy_fields() -> tuple[Field[object], ...]:
+    return cast(tuple[Field[object], ...], fields(Policy))
+
+
+def _infer_schema_type(typ: object) -> str:
+    origin = _typing_origin(typ)
+    args = _typing_args(typ)
 
     if typ is bool:
         return "bool"
@@ -637,7 +649,8 @@ def _infer_schema_type(typ: Any) -> str:
         return "list[str]"
     if origin is dict and len(args) == 2 and args[0] is str:
         value = args[1]
-        if get_origin(value) is list and get_args(value) and get_args(value)[0] is str:
+        value_args = _typing_args(value)
+        if _typing_origin(value) is list and value_args and value_args[0] is str:
             return "dict[str,list[str]]"
         if value is str:
             return "dict[str,str]"
@@ -651,42 +664,47 @@ def _infer_schema_type(typ: Any) -> str:
             return "int"
         if other is bool:
             return "bool"
-        if get_origin(other) is list and get_args(other) and get_args(other)[0] is str:
+        other_args = _typing_args(other)
+        if _typing_origin(other) is list and other_args and other_args[0] is str:
             return "list[str]"
 
     # Fallback: treat as string surface (read-only paths, complex collections, etc.).
     return "str"
 
 
-def _get_default_value(field_obj: Field[Any], defaults: Policy) -> Any:
-    v = getattr(defaults, field_obj.name)
+def _get_default_value(field_obj: Field[object], defaults: Policy) -> object:
+    v = cast(object, getattr(defaults, field_obj.name))
     return v
 
 
-def get_policy_schema() -> dict[str, Any]:
+def get_policy_schema() -> dict[str, object]:
     defaults = Policy()
     # Policy uses `from __future__ import annotations`, so Field.type may contain
     # strings. Resolve annotations so type inference is correct.
-    hints = get_type_hints(Policy)
-    out: dict[str, Any] = {
+    hints = cast(dict[str, object], get_type_hints(Policy))
+    policy_map: dict[str, object] = {}
+    out: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
-        "policy": {},
+        "policy": policy_map,
     }
 
-    for f in fields(Policy):
+    for f in _policy_fields():
         if f.name == "_src":
             continue
 
         if f.name not in _SECTION_BY_KEY:
             raise RuntimeError(f"Missing section mapping for policy key: {f.name}")
 
-        type_name = _infer_schema_type(hints.get(f.name, f.type))
+        annotation = hints.get(f.name)
+        if annotation is None:
+            annotation = str
+        type_name = _infer_schema_type(annotation)
         read_only = False
         if f.name in _READ_ONLY_TYPE_BY_KEY:
             type_name = _READ_ONLY_TYPE_BY_KEY[f.name]
             read_only = True
 
-        item: dict[str, Any] = {
+        item: dict[str, object] = {
             "key": f.name,
             "type": type_name,
             "section": _SECTION_BY_KEY[f.name],
@@ -699,13 +717,19 @@ def get_policy_schema() -> dict[str, Any]:
         if read_only:
             item["read_only"] = True
 
-        out["policy"][f.name] = item
+        policy_map[f.name] = item
 
     return out
 
 
-def get_bootstrap_policy_schema() -> dict[str, Any]:
+def get_bootstrap_policy_schema() -> dict[str, object]:
     schema = get_policy_schema()
-    policy = schema["policy"]
-    schema["policy"] = {key: value for key, value in policy.items() if key in BOOTSTRAP_OWNED_KEYS}
+    policy_obj = schema.get("policy")
+    if not isinstance(policy_obj, dict):
+        raise RuntimeError("policy schema is missing policy map")
+    filtered: dict[str, object] = {}
+    for raw_key, raw_value in cast(dict[object, object], policy_obj).items():
+        if isinstance(raw_key, str) and raw_key in BOOTSTRAP_OWNED_KEYS:
+            filtered[raw_key] = raw_value
+    schema["policy"] = filtered
     return schema

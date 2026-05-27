@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Protocol, cast
 
 from am_patch.version import RUNNER_VERSION
 
@@ -24,31 +24,55 @@ class AppendOverride(argparse.Action):
         dest: str,
         key: str,
         const_value: str | None = None,
-        **kwargs: Any,
+        nargs: int | str | None = None,
+        const: object | None = None,
+        default: object | None = None,
+        type: Callable[[str], object] | argparse.FileType | None = None,
+        choices: Sequence[object] | None = None,
+        required: bool = False,
+        help: str | None = None,
+        metavar: str | tuple[str, ...] | None = None,
     ) -> None:
         self._key = key
         self._const_value = const_value
-        super().__init__(option_strings, dest, **kwargs)
+        super().__init__(
+            option_strings,
+            dest,
+            nargs=nargs,
+            const=const,
+            default=default,
+            type=type,
+            choices=choices,
+            required=required,
+            help=help,
+            metavar=metavar,
+        )
 
     def __call__(
         self,
         parser: argparse.ArgumentParser,
         namespace: argparse.Namespace,
-        values: str | Sequence[Any] | None,
+        values: str | Sequence[object] | None,
         option_string: str | None = None,
     ) -> None:
-        ov = getattr(namespace, "overrides", None)
-        if ov is None:
-            ov = []
-            namespace.overrides = ov
-        if values is None or (
-            not isinstance(values, str) and isinstance(values, Sequence) and len(values) == 0
-        ):
+        raw_overrides = cast(object | None, getattr(namespace, "overrides", None))
+        if raw_overrides is None:
+            ov: list[str] = []
+        elif isinstance(raw_overrides, list):
+            ov = [str(item) for item in cast(list[object], raw_overrides)]
+        else:
+            ov = [str(raw_overrides)]
+        namespace.overrides = ov
+
+        if values is None:
             v = self._const_value if self._const_value is not None else "true"
         elif isinstance(values, str):
             v = values
         else:
-            v = ",".join(str(x) for x in values)
+            if len(values) == 0:
+                v = self._const_value if self._const_value is not None else "true"
+            else:
+                v = ",".join(str(item) for item in values)
         ov.append(f"{self._key}={v}")
 
 
@@ -120,6 +144,75 @@ class CliArgs:
     success_archive_name: str | None = None
 
 
+class _ParsedNamespace(Protocol):
+    overrides: list[str] | None
+    auto_pull_if_behind: bool | None
+    show_config: bool
+    config_path: str | None
+    verbosity: str | None
+    log_level: str | None
+    json_out: bool | None
+    console_color: str | None
+    run_all_tests: bool | None
+    allow_no_op: bool | None
+    compile_check: bool | None
+    unified_patch: bool | None
+    patch_strip: int | None
+    skip_up_to_date: bool | None
+    allow_non_main: bool | None
+    no_rollback: bool | None
+    update_workspace: bool | None
+    soft_reset_workspace: bool | None
+    enforce_allowed_files: bool | None
+    rollback_workspace_on_fail: str | None
+    live_repo_guard: bool | None
+    live_repo_guard_scope: str | None
+    patch_jail: bool | None
+    patch_jail_unshare_net: bool | None
+    ruff_format: bool | None
+    pytest_use_venv: bool | None
+    require_push_success: bool | None
+    allow_outside_files: bool | None
+    allow_declared_untouched: bool | None
+    disable_promotion: bool | None
+    allow_live_changed: bool | None
+    allow_gates_fail: bool | None
+    skip_ruff: bool | None
+    skip_pytest: bool | None
+    skip_mypy: bool | None
+    skip_js: bool | None
+    skip_docs: bool | None
+    skip_monolith: bool | None
+    apply_failure_partial_gates_policy: str | None
+    apply_failure_zero_gates_policy: str | None
+    docs_include: str | None
+    docs_exclude: str | None
+    gates_order: str | None
+    ruff_autofix_legalize_outside: bool | None
+    load_latest_patch: bool | None
+    keep_workspace: bool | None
+    test_mode: bool | None
+    success_archive_name: str | None
+    post_success_audit: bool | None
+    finalize_workspace_issue_id: str | None
+    finalize_message: str | None
+    finalize_from_cwd_message: str | None
+    rest: list[str]
+
+
+_VERBOSITY_CHOICES: tuple[str, ...] = (
+    "debug",
+    "verbose",
+    "normal",
+    "warning",
+    "quiet",
+)
+_CONSOLE_COLOR_CHOICES: tuple[str, ...] = ("auto", "always", "never")
+_APPLY_FAILURE_POLICY_CHOICES: tuple[str, ...] = ("never", "always", "repair_only")
+_ROLLBACK_ON_FAIL_CHOICES: tuple[str, ...] = ("none-applied", "always", "never")
+_LIVE_REPO_GUARD_SCOPE_CHOICES: tuple[str, ...] = ("patch", "patch_and_gates")
+
+
 def _fmt_short_help() -> str:
     return fmt_short_help(RUNNER_VERSION)
 
@@ -128,19 +221,19 @@ def _fmt_full_help() -> str:
     return fmt_full_help(RUNNER_VERSION)
 
 
-def add_workspace_cmd(subparsers: Any) -> None:
+def add_workspace_cmd(subparsers: object) -> None:
     return
 
 
-def add_finalize_cmd(subparsers: Any) -> None:
+def add_finalize_cmd(subparsers: object) -> None:
     return
 
 
-def add_test_cmd(subparsers: Any) -> None:
+def add_test_cmd(subparsers: object) -> None:
     return
 
 
-def add_web_cmd(subparsers: Any) -> None:
+def add_web_cmd(subparsers: object) -> None:
     return
 
 
@@ -520,14 +613,14 @@ def parse_args(argv: list[str]) -> CliArgs:
     vg.add_argument(
         "--verbosity",
         dest="verbosity",
-        choices=["debug", "verbose", "normal", "warning", "quiet"],
+        choices=_VERBOSITY_CHOICES,
         default=None,
     )
 
     p.add_argument(
         "--log-level",
         dest="log_level",
-        choices=["debug", "verbose", "normal", "warning", "quiet"],
+        choices=_VERBOSITY_CHOICES,
         default=None,
         help="File log level (independent from --verbosity; same semantics).",
     )
@@ -544,7 +637,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     p.add_argument(
         "--color",
         dest="console_color",
-        choices=["auto", "always", "never"],
+        choices=_CONSOLE_COLOR_CHOICES,
         default=None,
         help="Console color output mode (auto=TTY only).",
     )
@@ -645,7 +738,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     p.add_argument(
         "--apply-failure-partial-gates-policy",
         dest="apply_failure_partial_gates_policy",
-        choices=["never", "always", "repair_only"],
+        choices=_APPLY_FAILURE_POLICY_CHOICES,
         type=str,
         default=None,
         metavar="{never,always,repair_only}",
@@ -653,7 +746,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     p.add_argument(
         "--apply-failure-zero-gates-policy",
         dest="apply_failure_zero_gates_policy",
-        choices=["never", "always", "repair_only"],
+        choices=_APPLY_FAILURE_POLICY_CHOICES,
         type=str,
         default=None,
         metavar="{never,always,repair_only}",
@@ -674,7 +767,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         dest="rollback_workspace_on_fail",
         nargs="?",
         const="none-applied",
-        choices=["none-applied", "always", "never"],
+        choices=_ROLLBACK_ON_FAIL_CHOICES,
         default=None,
         metavar="{none-applied,always,never}",
     )
@@ -695,7 +788,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     p.add_argument(
         "--live-repo-guard-scope",
         dest="live_repo_guard_scope",
-        choices=["patch", "patch_and_gates"],
+        choices=_LIVE_REPO_GUARD_SCOPE_CHOICES,
         default=None,
     )
     p.add_argument(
@@ -762,7 +855,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     )
 
     p.add_argument("rest", nargs="*")
-    ns = p.parse_args(argv)
+    ns = cast(_ParsedNamespace, p.parse_args(argv))
 
     if ns.overrides is not None:
         norm: list[str] = []
@@ -777,7 +870,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     # Map explicit gate flags into overrides so engine.py does not need changes.
     # Precedence: CLI flags > config > defaults (apply_cli_overrides marks these as src=cli).
     apply_explicit_gate_flag_overrides(ns)
-    if getattr(ns, "auto_pull_if_behind", None) is not None:
+    if ns.auto_pull_if_behind is not None:
         value = "true" if bool(ns.auto_pull_if_behind) else "false"
         ns.overrides = (ns.overrides or []) + [f"auto_pull_if_behind={value}"]
 
@@ -790,14 +883,14 @@ def parse_args(argv: list[str]) -> CliArgs:
             finalize_from_cwd=False,
             config_path=ns.config_path,
             verbosity=ns.verbosity,
-            log_level=getattr(ns, "log_level", None),
-            json_out=getattr(ns, "json_out", None),
-            console_color=getattr(ns, "console_color", None),
+            log_level=ns.log_level,
+            json_out=ns.json_out,
+            console_color=ns.console_color,
             run_all_tests=ns.run_all_tests,
             allow_no_op=ns.allow_no_op,
-            compile_check=getattr(ns, "compile_check", None),
-            unified_patch=getattr(ns, "unified_patch", None),
-            patch_strip=getattr(ns, "patch_strip", None),
+            compile_check=ns.compile_check,
+            unified_patch=ns.unified_patch,
+            patch_strip=ns.patch_strip,
             skip_up_to_date=ns.skip_up_to_date,
             allow_non_main=ns.allow_non_main,
             auto_pull_if_behind=ns.auto_pull_if_behind,
@@ -822,21 +915,19 @@ def parse_args(argv: list[str]) -> CliArgs:
             skip_ruff=ns.skip_ruff,
             skip_pytest=ns.skip_pytest,
             skip_mypy=ns.skip_mypy,
-            skip_js=getattr(ns, "skip_js", None),
-            skip_docs=getattr(ns, "skip_docs", None),
-            skip_monolith=getattr(ns, "skip_monolith", None),
-            apply_failure_partial_gates_policy=getattr(
-                ns, "apply_failure_partial_gates_policy", None
-            ),
-            apply_failure_zero_gates_policy=getattr(ns, "apply_failure_zero_gates_policy", None),
-            docs_include=getattr(ns, "docs_include", None),
-            docs_exclude=getattr(ns, "docs_exclude", None),
+            skip_js=ns.skip_js,
+            skip_docs=ns.skip_docs,
+            skip_monolith=ns.skip_monolith,
+            apply_failure_partial_gates_policy=ns.apply_failure_partial_gates_policy,
+            apply_failure_zero_gates_policy=ns.apply_failure_zero_gates_policy,
+            docs_include=ns.docs_include,
+            docs_exclude=ns.docs_exclude,
             gates_order=ns.gates_order,
             ruff_autofix_legalize_outside=ns.ruff_autofix_legalize_outside,
             load_latest_patch=ns.load_latest_patch,
             keep_workspace=ns.keep_workspace,
             test_mode=ns.test_mode,
-            success_archive_name=getattr(ns, "success_archive_name", None),
+            success_archive_name=ns.success_archive_name,
             post_success_audit=ns.post_success_audit,
         )
 
@@ -887,14 +978,14 @@ def parse_args(argv: list[str]) -> CliArgs:
         finalize_from_cwd=finalize_from_cwd,
         config_path=ns.config_path,
         verbosity=ns.verbosity,
-        log_level=getattr(ns, "log_level", None),
-        json_out=getattr(ns, "json_out", None),
-        console_color=getattr(ns, "console_color", None),
+        log_level=ns.log_level,
+        json_out=ns.json_out,
+        console_color=ns.console_color,
         run_all_tests=ns.run_all_tests,
         allow_no_op=ns.allow_no_op,
-        compile_check=getattr(ns, "compile_check", None),
-        unified_patch=getattr(ns, "unified_patch", None),
-        patch_strip=getattr(ns, "patch_strip", None),
+        compile_check=ns.compile_check,
+        unified_patch=ns.unified_patch,
+        patch_strip=ns.patch_strip,
         skip_up_to_date=ns.skip_up_to_date,
         allow_non_main=ns.allow_non_main,
         auto_pull_if_behind=ns.auto_pull_if_behind,
@@ -919,17 +1010,18 @@ def parse_args(argv: list[str]) -> CliArgs:
         skip_ruff=ns.skip_ruff,
         skip_pytest=ns.skip_pytest,
         skip_mypy=ns.skip_mypy,
-        skip_js=getattr(ns, "skip_js", None),
-        skip_docs=getattr(ns, "skip_docs", None),
-        skip_monolith=getattr(ns, "skip_monolith", None),
-        apply_failure_partial_gates_policy=getattr(ns, "apply_failure_partial_gates_policy", None),
-        apply_failure_zero_gates_policy=getattr(ns, "apply_failure_zero_gates_policy", None),
-        docs_include=getattr(ns, "docs_include", None),
-        docs_exclude=getattr(ns, "docs_exclude", None),
+        skip_js=ns.skip_js,
+        skip_docs=ns.skip_docs,
+        skip_monolith=ns.skip_monolith,
+        apply_failure_partial_gates_policy=ns.apply_failure_partial_gates_policy,
+        apply_failure_zero_gates_policy=ns.apply_failure_zero_gates_policy,
+        docs_include=ns.docs_include,
+        docs_exclude=ns.docs_exclude,
         gates_order=ns.gates_order,
         ruff_autofix_legalize_outside=ns.ruff_autofix_legalize_outside,
         load_latest_patch=ns.load_latest_patch,
         keep_workspace=ns.keep_workspace,
         test_mode=ns.test_mode,
+        success_archive_name=ns.success_archive_name,
         post_success_audit=ns.post_success_audit,
     )

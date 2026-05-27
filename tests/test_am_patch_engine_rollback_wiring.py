@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -145,7 +144,7 @@ def test_run_mode_wires_rollback_context_for_post_workspace_failure(
     monkeypatch.setattr(engine_mod, "_stage_ok", lambda stage: None)
     monkeypatch.setattr(engine_mod, "_stage_fail", lambda stage: None)
 
-    def _fail_validation(**kwargs: Any) -> None:
+    def _fail_validation(**kwargs: object) -> None:
         raise engine_mod.RunnerError("GATES", "GATES", "gate failed: pytest")
 
     monkeypatch.setattr(engine_mod, "run_validation", _fail_validation)

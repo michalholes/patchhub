@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from am_patch.fs_junk import fs_junk_ignore_partition
 from am_patch.workspace_history import (
@@ -22,6 +23,21 @@ class Paths:
     artifacts_dir: Path
     lock_path: Path
     symlink_path: Path
+
+
+class _WorkspaceLike(Protocol):
+    root: Path
+    attempt: int
+
+
+__all__ = [
+    "Paths",
+    "ensure_dirs",
+    "default_paths",
+    "_fs_junk_ignore_partition",
+    "_workspace_history_dirs",
+    "_workspace_store_current_patch",
+]
 
 
 def ensure_dirs(paths: Paths) -> None:
@@ -104,7 +120,7 @@ def _workspace_history_dirs(
 
 
 def _workspace_store_current_patch(
-    ws,
+    ws: _WorkspaceLike,
     patch_script: Path,
     *,
     history_logs_dir: str,

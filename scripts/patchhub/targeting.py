@@ -3,7 +3,13 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast
+
+TomlTable = dict[str, object]
+
+
+class TargetCfgLike(Protocol):
+    default_target_repo: str
 
 
 @dataclass(frozen=True)
@@ -33,16 +39,34 @@ def validate_target_repo_token(value: str, *, field: str) -> str:
 
 def canonical_target_repo_name_from_root(root: Path) -> str:
     resolved = Path(root).resolve()
-    parts = resolved.parts
-    if len(parts) != 4 or parts[:3] != ("/", "home", "pi"):
+    if resolved.parent != Path("/home/pi"):
         raise ValueError("target root must canonically match /home/pi/<name>")
-    return validate_target_repo_token(parts[3], field="target_repo_root")
+    return validate_target_repo_token(resolved.name, field="target_repo_root")
 
 
-def _load_runner_config(path: Path) -> dict[str, Any]:
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+def _as_toml_table(raw: object, *, key: str) -> TomlTable:
     if not isinstance(raw, dict):
-        raise ValueError("runner config must be a TOML object")
+        raise ValueError(f"{key} must be a TOML object")
+    raw_dict = cast(dict[object, object], raw)
+    out: TomlTable = {}
+    for raw_key, raw_value in raw_dict.items():
+        if not isinstance(raw_key, str):
+            raise ValueError(f"{key} has non-string key")
+        out[raw_key] = raw_value
+    return out
+
+
+def _list_of_objects(raw: object, *, key: str) -> list[object]:
+    if isinstance(raw, list):
+        return [item for item in cast(list[object], raw)]
+    if isinstance(raw, tuple):
+        return [item for item in cast(tuple[object, ...], raw)]
+    raise ValueError(f"{key} must be an array")
+
+
+def _load_runner_config(path: Path) -> TomlTable:
+    parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
+    raw = _as_toml_table(parsed, key="runner config")
     return raw
 
 
@@ -68,10 +92,8 @@ def derive_target_repo_roots(
         else Path(runner_config_toml).resolve().parents[2]
     )
     data = _load_runner_config(Path(runner_config_toml))
-    paths = data.get("paths", {})
-    if not isinstance(paths, dict):
-        raise ValueError("runner config [paths] must be a TOML object")
-    raw_values = list(paths.get("target_repo_roots", []) or [])
+    paths = _as_toml_table(data.get("paths", {}), key="runner config [paths]")
+    raw_values = _list_of_objects(paths.get("target_repo_roots", []), key="target_repo_roots")
     roots_by_token: dict[str, Path] = {}
     seen_roots: set[Path] = set()
     for raw in raw_values:
@@ -137,8 +159,8 @@ def validate_selected_target_repo(target_repo: str, options: list[str]) -> str:
     return token
 
 
-def targeting_default_target_repo(target_cfg: Any) -> str:
-    value = str(getattr(target_cfg, "default_target_repo", "patchhub") or "").strip()
+def targeting_default_target_repo(target_cfg: TargetCfgLike | None) -> str:
+    value = str(target_cfg.default_target_repo if target_cfg is not None else "patchhub").strip()
     return validate_target_repo_token(value or "patchhub", field="default_target_repo")
 
 
@@ -146,7 +168,7 @@ def resolve_targeting_runtime(
     *,
     repo_root: Path,
     runner_config_toml: str,
-    target_cfg: Any,
+    target_cfg: TargetCfgLike | None,
 ) -> TargetingRuntime:
     default_target_repo = targeting_default_target_repo(target_cfg)
     runner_rel = str(runner_config_toml or "").strip()

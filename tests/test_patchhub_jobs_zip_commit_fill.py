@@ -6,7 +6,6 @@ import sys
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any
 from zipfile import ZipFile
 
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -123,12 +122,12 @@ def _cfg() -> AppConfig:
 
 @dataclass
 class _QueueDummy:
-    last_job: Any | None = None
+    last_job: object | None = None
 
-    def enqueue(self, job: Any) -> None:
+    def enqueue(self, job: object) -> None:
         self.last_job = job
 
-    def list_jobs(self) -> Any:
+    def list_jobs(self) -> object:
         return []
 
 
@@ -136,7 +135,7 @@ class _QueueDummy:
 class _BackendStateDummy:
     mode: str = "file_emergency"
     authoritative_backend: str = "files"
-    last_recovery: dict[str, Any] | None = None
+    last_recovery: dict[str, object] | None = None
 
 
 @dataclass
@@ -148,7 +147,7 @@ class _SelfDummy:
     queue: _QueueDummy
     backend_mode_state: _BackendStateDummy
     _backend_session_id: str = "session-test"
-    web_jobs_db: Any | None = None
+    web_jobs_db: object | None = None
 
 
 def _mk_self(

@@ -10,35 +10,66 @@ Constraints:
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import cast
 
+from am_patch import config_file as _config_file
 from am_patch.config import Policy, build_policy
-from am_patch.config_file import _flatten_sections
 from am_patch.errors import RunnerError
 
+_TomlLoads = Callable[[str], object]
+_TOML_LOADS = cast(_TomlLoads, tomllib.loads)
 
-def validate_patchhub_update(values: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+
+def _flatten_sections(cfg: object) -> dict[str, object]:
+    helper_name = "_flatten_sections"
+    flatten = cast(
+        Callable[[object], dict[str, object]],
+        getattr(_config_file, helper_name),
+    )
+    return flatten(cfg)
+
+
+def validate_patchhub_update(
+    values: object,
+    schema: object,
+) -> dict[str, object]:
     if not isinstance(values, dict):
         raise RunnerError("CONFIG", "CONFIG", "update payload must be a dict")
-    policy_schema = schema.get("policy")
-    if not isinstance(policy_schema, dict):
+    if not isinstance(schema, dict):
+        raise RunnerError("CONFIG", "CONFIG", "schema must be a dict")
+    values_map = cast(dict[object, object], values)
+    schema_map = cast(dict[object, object], schema)
+    policy_schema_obj = schema_map.get("policy")
+    if not isinstance(policy_schema_obj, dict):
         raise RunnerError("CONFIG", "CONFIG", "schema missing policy map")
+    policy_schema = cast(dict[object, object], policy_schema_obj)
 
-    out: dict[str, Any] = {}
-    for k, v in values.items():
+    out: dict[str, object] = {}
+    for raw_key, v in values_map.items():
+        if not isinstance(raw_key, str):
+            raise RunnerError("CONFIG", "CONFIG", "policy key must be a string")
+        k = raw_key
         if k not in policy_schema:
             raise RunnerError("CONFIG", "CONFIG", f"unknown policy key: {k}")
-        item = policy_schema[k]
-        if not isinstance(item, dict):
+        item_obj = policy_schema[k]
+        if not isinstance(item_obj, dict):
             raise RunnerError("CONFIG", "CONFIG", f"schema entry invalid: {k}")
+        item = cast(dict[object, object], item_obj)
         if item.get("read_only") is True:
             raise RunnerError("CONFIG", "CONFIG", f"read-only policy key: {k}")
 
         type_name = str(item.get("type") or "")
-        enum = item.get("enum")
-        if enum is not None and not isinstance(enum, list):
+        enum_obj = item.get("enum")
+        if enum_obj is not None and not isinstance(enum_obj, list):
             raise RunnerError("CONFIG", "CONFIG", f"schema enum invalid: {k}")
+        enum_values: list[str] | None = None
+        if isinstance(enum_obj, list):
+            enum_list = cast(list[object], enum_obj)
+            if any(not isinstance(entry, str) for entry in enum_list):
+                raise RunnerError("CONFIG", "CONFIG", f"schema enum invalid: {k}")
+            enum_values = [entry for entry in enum_list if isinstance(entry, str)]
 
         if type_name == "bool":
             if not isinstance(v, bool):
@@ -53,31 +84,34 @@ def validate_patchhub_update(values: dict[str, Any], schema: dict[str, Any]) -> 
             if v is not None and not isinstance(v, str):
                 raise RunnerError("CONFIG", "CONFIG", f"expected optional[str] for {k}")
         elif type_name == "list[str]":
-            if not isinstance(v, list) or any(not isinstance(x, str) for x in v):
+            if not isinstance(v, list):
+                raise RunnerError("CONFIG", "CONFIG", f"expected list[str] for {k}")
+            list_value = cast(list[object], v)
+            if any(not isinstance(item, str) for item in list_value):
                 raise RunnerError("CONFIG", "CONFIG", f"expected list[str] for {k}")
         elif type_name == "dict[str,list[str]]":
             if not isinstance(v, dict):
                 raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}")
-            for kk, vv in v.items():
+            for kk, vv in cast(dict[object, object], v).items():
                 if not isinstance(kk, str) or not isinstance(vv, list):
                     raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}")
-                if any(not isinstance(item, str) for item in vv):
+                if any(not isinstance(item, str) for item in cast(list[object], vv)):
                     raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}")
         elif type_name == "dict[str,str]":
             if not isinstance(v, dict):
                 raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,str] for {k}")
-            for kk, vv in v.items():
+            for kk, vv in cast(dict[object, object], v).items():
                 if not isinstance(kk, str) or not isinstance(vv, str):
                     raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,str] for {k}")
         else:
             raise RunnerError("CONFIG", "CONFIG", f"unsupported schema type for {k}: {type_name}")
 
-        if enum is not None:
+        if enum_values is not None:
             if v is None:
                 raise RunnerError("CONFIG", "CONFIG", f"enum value may not be null: {k}")
             if not isinstance(v, str):
                 raise RunnerError("CONFIG", "CONFIG", f"enum value must be str: {k}")
-            if v not in enum:
+            if v not in enum_values:
                 raise RunnerError(
                     "CONFIG",
                     "CONFIG",
@@ -90,11 +124,14 @@ def validate_patchhub_update(values: dict[str, Any], schema: dict[str, Any]) -> 
 
 def validate_config_text_roundtrip(text: str) -> None:
     try:
-        data = tomllib.loads(text)
+        data_obj = _TOML_LOADS(text)
     except Exception as e:  # pragma: no cover
         raise RunnerError("CONFIG", "CONFIG", f"invalid TOML: {e}") from e
 
-    flat = _flatten_sections(data)
+    if not isinstance(data_obj, dict):
+        raise RunnerError("CONFIG", "CONFIG", "invalid TOML root: expected table")
+    data_map = cast(dict[str, object], data_obj)
+    flat = _flatten_sections(data_map)
     defaults = Policy()
     try:
         build_policy(defaults, flat)
@@ -104,13 +141,17 @@ def validate_config_text_roundtrip(text: str) -> None:
 
 def apply_update_to_config_text(
     original_text: str,
-    values: dict[str, Any],
-    schema: dict[str, Any],
+    values: dict[str, object],
+    schema: dict[str, object],
 ) -> str:
     normalized = validate_patchhub_update(values, schema)
-    policy_schema = schema.get("policy")
-    if not isinstance(policy_schema, dict):
+    policy_schema_obj = schema.get("policy")
+    if not isinstance(policy_schema_obj, dict):
         raise RunnerError("CONFIG", "CONFIG", "schema missing policy map")
+    policy_schema: dict[str, object] = {}
+    for key, value in cast(dict[object, object], policy_schema_obj).items():
+        if isinstance(key, str):
+            policy_schema[key] = value
 
     lines = original_text.splitlines(keepends=True)
     edits = _compute_edits(lines, normalized, policy_schema)
@@ -128,11 +169,15 @@ class _Edit:
     delete_to: int | None = None
 
 
-def _render_value(v: Any, type_name: str) -> str:
+def _render_value(v: object, type_name: str) -> str:
     if type_name == "bool":
+        if not isinstance(v, bool):
+            raise RunnerError("CONFIG", "CONFIG", "expected bool")
         return "true" if v else "false"
     if type_name == "int":
-        return str(int(v))
+        if not isinstance(v, int) or isinstance(v, bool):
+            raise RunnerError("CONFIG", "CONFIG", "expected int")
+        return str(v)
     if type_name == "str":
         return _toml_quote(str(v))
     if type_name == "optional[str]":
@@ -140,29 +185,52 @@ def _render_value(v: Any, type_name: str) -> str:
             return ""  # caller should remove assignment; not used in current policy
         return _toml_quote(str(v))
     if type_name == "list[str]":
-        items = ", ".join(_toml_quote(str(x)) for x in v)
+        if not isinstance(v, list):
+            raise RunnerError("CONFIG", "CONFIG", "expected list[str]")
+        list_value = cast(list[object], v)
+        items = ", ".join(_toml_quote(str(item)) for item in list_value)
         return f"[{items}]"
     if type_name == "dict[str,list[str]]":
+        if not isinstance(v, dict):
+            raise RunnerError("CONFIG", "CONFIG", "expected dict[str,list[str]]")
         parts: list[str] = []
-        for key, values in v.items():
-            rendered = ", ".join(_toml_quote(str(item)) for item in values)
+        for key, values in cast(dict[object, object], v).items():
+            if not isinstance(values, list):
+                raise RunnerError("CONFIG", "CONFIG", "expected dict[str,list[str]]")
+            rendered = ", ".join(
+                _toml_quote(str(item)) for item in cast(list[object], values)
+            )
             parts.append(f"{_toml_quote(str(key))} = [{rendered}]")
         return "{" + ", ".join(parts) + "}"
     if type_name == "dict[str,str]":
-        parts = [f"{_toml_quote(str(key))} = {_toml_quote(str(value))}" for key, value in v.items()]
+        if not isinstance(v, dict):
+            raise RunnerError("CONFIG", "CONFIG", "expected dict[str,str]")
+        parts = [
+            f"{_toml_quote(str(key))} = {_toml_quote(str(value))}"
+            for key, value in cast(dict[object, object], v).items()
+        ]
         return "{" + ", ".join(parts) + "}"
     raise RunnerError("CONFIG", "CONFIG", f"cannot render type: {type_name}")
 
 
-def _render_table_lines(v: Any, type_name: str) -> list[str]:
+def _render_table_lines(v: object, type_name: str) -> list[str]:
     if type_name == "dict[str,str]":
+        if not isinstance(v, dict):
+            raise RunnerError("CONFIG", "CONFIG", "expected dict[str,str]")
         return [
-            f"{_toml_quote(str(key))} = {_toml_quote(str(value))}\n" for key, value in v.items()
+            f"{_toml_quote(str(key))} = {_toml_quote(str(value))}\n"
+            for key, value in cast(dict[object, object], v).items()
         ]
     if type_name == "dict[str,list[str]]":
+        if not isinstance(v, dict):
+            raise RunnerError("CONFIG", "CONFIG", "expected dict[str,list[str]]")
         lines: list[str] = []
-        for key, values in v.items():
-            rendered = ", ".join(_toml_quote(str(item)) for item in values)
+        for key, values in cast(dict[object, object], v).items():
+            if not isinstance(values, list):
+                raise RunnerError("CONFIG", "CONFIG", "expected dict[str,list[str]]")
+            rendered = ", ".join(
+                _toml_quote(str(item)) for item in cast(list[object], values)
+            )
             lines.append(f"{_toml_quote(str(key))} = [{rendered}]\n")
         return lines
     raise RunnerError("CONFIG", "CONFIG", f"cannot render table type: {type_name}")
@@ -175,15 +243,18 @@ def _toml_quote(s: str) -> str:
 
 def _compute_edits(
     lines: list[str],
-    values: dict[str, Any],
-    policy_schema: dict[str, Any],
+    values: dict[str, object],
+    policy_schema: dict[str, object],
 ) -> list[_Edit]:
     # Build section spans.
     spans = _scan_sections(lines)
 
     edits: list[_Edit] = []
     for key, value in values.items():
-        item = policy_schema[key]
+        item_obj = policy_schema[key]
+        if not isinstance(item_obj, dict):
+            raise RunnerError("CONFIG", "CONFIG", f"schema entry invalid: {key}")
+        item = cast(dict[object, object], item_obj)
         section = str(item.get("section") or "")
         type_name = str(item.get("type") or "")
 

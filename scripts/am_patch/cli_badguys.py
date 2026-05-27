@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Callable, Sequence
+from typing import cast
 
 
 class _AppendBadguysOverride(argparse.Action):
@@ -12,35 +12,60 @@ class _AppendBadguysOverride(argparse.Action):
         dest: str,
         key: str,
         const_value: str | None = None,
-        **kwargs: Any,
+        nargs: int | str | None = None,
+        const: object | None = None,
+        default: object | None = None,
+        type: Callable[[str], object] | argparse.FileType | None = None,
+        choices: Sequence[object] | None = None,
+        required: bool = False,
+        help: str | None = None,
+        metavar: str | tuple[str, ...] | None = None,
     ) -> None:
         self._key = key
         self._const_value = const_value
-        super().__init__(option_strings, dest, **kwargs)
+        super().__init__(
+            option_strings,
+            dest,
+            nargs=nargs,
+            const=const,
+            default=default,
+            type=type,
+            choices=choices,
+            required=required,
+            help=help,
+            metavar=metavar,
+        )
 
     def __call__(
         self,
         parser: argparse.ArgumentParser,
         namespace: argparse.Namespace,
-        values: str | Sequence[Any] | None,
+        values: str | Sequence[object] | None,
         option_string: str | None = None,
     ) -> None:
-        overrides = getattr(namespace, "overrides", None)
-        if overrides is None:
-            overrides = []
-            namespace.overrides = overrides
-        if values is None or (
-            not isinstance(values, str) and isinstance(values, Sequence) and len(values) == 0
-        ):
+        raw_overrides = cast(object | None, getattr(namespace, "overrides", None))
+        if raw_overrides is None:
+            overrides: list[str] = []
+        elif isinstance(raw_overrides, list):
+            overrides = [str(item) for item in cast(list[object], raw_overrides)]
+        else:
+            overrides = [str(raw_overrides)]
+        namespace.overrides = overrides
+
+        if values is None:
             value = self._const_value if self._const_value is not None else "true"
         elif isinstance(values, str):
             value = values
         else:
-            value = ",".join(str(item) for item in values)
+            if len(values) == 0:
+                value = self._const_value if self._const_value is not None else "true"
+            else:
+                value = ",".join(str(item) for item in values)
         overrides.append(f"{self._key}={value}")
 
 
 def add_badguys_cli_args(parser: argparse.ArgumentParser) -> None:
+    badguys_mode_choices: tuple[str, str] = ("auto", "always")
     parser.add_argument(
         "--skip-badguys",
         dest="skip_badguys",
@@ -62,7 +87,7 @@ def add_badguys_cli_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--badguys-mode",
         dest="badguys_mode",
-        choices=["auto", "always"],
+        choices=badguys_mode_choices,
         action=_AppendBadguysOverride,
         key="gate_badguys_mode",
         default=None,

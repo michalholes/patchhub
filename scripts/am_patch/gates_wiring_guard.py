@@ -13,8 +13,12 @@ def _am_patch_dir_from_here() -> Path:
 
 
 def _iter_py_files(am_patch_dir: Path) -> list[Path]:
-    files = [p for p in am_patch_dir.rglob("*.py") if p.is_file()]
-    return sorted(files, key=lambda p: str(p))
+    files: list[Path] = []
+    for path in am_patch_dir.rglob("*.py"):
+        if path.is_file():
+            files.append(path)
+    files.sort(key=Path.as_posix)
+    return files
 
 
 def _find_run_gates_calls(path: Path) -> list[int]:
@@ -47,7 +51,7 @@ def _find_run_gates_calls(path: Path) -> list[int]:
             or isinstance(fn, ast.Attribute)
             and fn.attr == "run_gates"
         ):
-            out.append(int(getattr(node, "lineno", 0) or 0))
+            out.append(node.lineno)
     return out
 
 
@@ -72,7 +76,7 @@ def assert_single_run_gates_callsite() -> None:
             violations.append((rel, ln if ln > 0 else 0))
 
     if violations:
-        violations.sort(key=lambda t: (t[0], t[1]))
+        violations.sort()
         detail = "\n".join([f"- am_patch/{p}:{ln}" for (p, ln) in violations])
         raise RunnerError(
             "PREFLIGHT",

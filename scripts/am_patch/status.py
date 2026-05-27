@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -55,7 +56,7 @@ class StatusReporter:
         if t is not None:
             t.join(timeout=2.0)
         self._thread = None
-        if sys.stderr.isatty():
+        if _stderr_isatty():
             # End any active status line.
             self._tty_line_open = False
             self._tty_last_len = 0
@@ -84,7 +85,7 @@ class StatusReporter:
         """
         if not self._enabled:
             return
-        if not sys.stderr.isatty():
+        if not _stderr_isatty():
             return
         with self._lock:
             if not self._tty_line_open:
@@ -130,7 +131,7 @@ class StatusReporter:
             return
 
     def _run(self) -> None:
-        is_tty = sys.stderr.isatty()
+        is_tty = _stderr_isatty()
         interval = self._interval_tty if is_tty else self._interval_non_tty
         # First tick quickly so user sees it.
         next_tick = time.monotonic()
@@ -144,3 +145,10 @@ class StatusReporter:
                 self._emit_heartbeat_hook()
                 next_tick = now + interval
             self._stop.wait(0.2)
+
+
+def _stderr_isatty() -> bool:
+    try:
+        return bool(os.isatty(2))
+    except Exception:
+        return False

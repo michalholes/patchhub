@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
+from am_patch.config import Policy
 from am_patch.errors import RunnerError
+from am_patch.gate_step_capture import GateStepCallback
 from am_patch.gates_policy_wiring import run_policy_gates
+from am_patch.log import Logger
+from am_patch.paths import Paths
 
 
 @dataclass(frozen=True)
@@ -17,18 +21,18 @@ class GateSummary:
 
 def run_validation(
     *,
-    logger: Any,
+    logger: Logger,
     repo_root: Path,
     cwd: Path,
-    paths: Any,
-    policy: Any,
+    paths: Paths,
+    policy: Policy,
     cli_mode: str,
     issue_id: int | None,
     decision_paths: list[str],
-    progress: Any,
-    gate_step_callback: Any = None,
+    progress: Callable[[str], None] | None,
+    gate_step_callback: GateStepCallback | None = None,
 ) -> GateSummary:
-    if not getattr(policy, "gate_monolith_extensions", None):
+    if not policy.gate_monolith_extensions:
         raise RunnerError(
             "CONFIG",
             "INVALID",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from .errors import RunnerError
 
 
@@ -47,32 +49,36 @@ def parse_monolith_areas(
     if not isinstance(dynamic_raw, list):
         raise RunnerError("CONFIG", "INVALID", f"{dynamic_key} must be a list")
 
-    if not (len(prefixes_raw) == len(names_raw) == len(dynamic_raw)):
+    prefixes_items = cast(list[object], prefixes_raw)
+    names_items = cast(list[object], names_raw)
+    dynamic_items = cast(list[object], dynamic_raw)
+
+    if not (len(prefixes_items) == len(names_items) == len(dynamic_items)):
         raise RunnerError(
             "CONFIG",
             "INVALID",
             "gate_monolith_areas lengths mismatch: "
-            f"prefixes={len(prefixes_raw)} names={len(names_raw)} dynamic={len(dynamic_raw)}",
+            f"prefixes={len(prefixes_items)} names={len(names_items)} dynamic={len(dynamic_items)}",
         )
 
     prefixes: list[str] = []
     names: list[str] = []
     dynamic: list[str] = []
 
-    for i, s in enumerate(prefixes_raw):
-        ps = str(s).strip()
+    for i, item in enumerate(prefixes_items):
+        ps = str(item).strip()
         if ps == "":
             raise RunnerError("CONFIG", "INVALID", f"{prefixes_key}[{i}] must be non-empty")
         prefixes.append(ps)
 
-    for i, s in enumerate(names_raw):
-        ns = str(s).strip()
+    for i, item in enumerate(names_items):
+        ns = str(item).strip()
         if ns == "":
             raise RunnerError("CONFIG", "INVALID", f"{names_key}[{i}] must be non-empty")
         names.append(ns)
 
-    for _i, s in enumerate(dynamic_raw):
-        ds = str(s)
+    for item in dynamic_items:
+        ds = str(item)
         dynamic.append(ds)
 
     return (prefixes, names, dynamic)

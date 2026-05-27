@@ -2,26 +2,147 @@ from __future__ import annotations
 
 import shlex
 from collections.abc import Callable
-from typing import Any
+from typing import Protocol, cast
 
 from .config_ipc_surface import IPC_NONNEGATIVE_IPC_INT_KEYS
 from .config_monolith_areas import parse_monolith_areas
 from .errors import RunnerError
-from .policy_gate_modes import apply_gate_modes
+from .policy_gate_modes import PolicyGateModesLike, apply_gate_modes
 
-ConfigBool = Callable[[dict[str, Any], str, bool], bool]
-ConfigStrRequired = Callable[[dict[str, Any], str, str], str]
-ConfigListStr = Callable[[dict[str, Any], str, list[str]], list[str]]
+
+class PolicyGateExecutionLike(PolicyGateModesLike, Protocol):
+    run_all_tests: bool
+    compile_check: bool
+    ruff_autofix: bool
+    ruff_autofix_legalize_outside: bool
+    ruff_format: bool
+    gates_allow_fail: bool
+    apply_failure_partial_gates_policy: str
+    apply_failure_zero_gates_policy: str
+    gates_skip_dont_touch: bool
+    dont_touch_paths: list[str]
+    gates_skip_ruff: bool
+    gates_skip_pytest: bool
+    gates_skip_mypy: bool
+    gates_skip_docs: bool
+    gates_skip_monolith: bool
+    gate_monolith_enabled: bool
+    gate_monolith_mode: str
+    gate_monolith_scan_scope: str
+    gate_monolith_extensions: list[str]
+    gate_monolith_compute_fanin: bool
+    gate_monolith_on_parse_error: str
+    gate_monolith_areas_prefixes: list[str]
+    gate_monolith_areas_names: list[str]
+    gate_monolith_areas_dynamic: list[str]
+    ipc_handshake_enabled: bool
+    ipc_handshake_wait_s: int
+    gate_monolith_catchall_basenames: list[str]
+    gate_monolith_catchall_dirs: list[str]
+    gate_monolith_catchall_allowlist: list[str]
+    gates_skip_js: bool
+    gate_js_extensions: list[str]
+    gate_js_command: list[str]
+    gates_skip_biome: bool
+    gate_biome_extensions: list[str]
+    biome_autofix: bool
+    biome_autofix_legalize_outside: bool
+    biome_format: bool
+    biome_format_legalize_outside: bool
+    gates_skip_typescript: bool
+    gate_typescript_extensions: list[str]
+    gate_typescript_command: list[str]
+    gate_docs_include: list[str]
+    gate_docs_exclude: list[str]
+    gate_docs_required_files: list[str]
+    gates_order: list[str]
+    gates_skip_badguys: bool
+    gate_badguys_command: list[str]
+    compile_targets: list[str]
+    compile_exclude: list[str]
+    ruff_targets: list[str]
+    pytest_targets: list[str]
+    pytest_routing_mode: str
+    pytest_roots: dict[str, str]
+    pytest_tree: dict[str, str]
+    pytest_namespace_modules: dict[str, list[str]]
+    pytest_dependencies: dict[str, list[str]]
+    pytest_external_dependencies: dict[str, list[str]]
+    pytest_full_suite_prefixes: list[str]
+    mypy_targets: list[str]
+    typescript_targets: list[str]
+    gate_typescript_base_tsconfig: str
+    pytest_use_venv: bool
+
+
+ConfigBool = Callable[[dict[str, object], str, bool], bool]
+ConfigStrRequired = Callable[[dict[str, object], str, str], str]
+ConfigListStr = Callable[[dict[str, object], str, list[str]], list[str]]
 ConfigDictListStr = Callable[
-    [dict[str, Any], str, dict[str, list[str]]],
+    [dict[str, object], str, dict[str, list[str]]],
     dict[str, list[str]],
 ]
-MarkCfg = Callable[[Any, dict[str, Any], str], None]
+MarkCfg = Callable[[object, dict[str, object], str], None]
+
+
+def _coerce_list_str(raw: object, *, key: str) -> list[str]:
+    if not isinstance(raw, list):
+        raise RunnerError("CONFIG", "INVALID", f"{key} must be list[str]")
+    out: list[str] = []
+    for item in cast(list[object], raw):
+        if not isinstance(item, str):
+            raise RunnerError("CONFIG", "INVALID", f"{key} must be list[str]")
+        out.append(item)
+    return out
+
+
+def _parse_command_list(raw: object, *, key: str) -> list[str]:
+    if isinstance(raw, str):
+        cmd_list = shlex.split(raw)
+    elif isinstance(raw, list):
+        cmd_list = _coerce_list_str(cast(object, raw), key=key)
+    else:
+        raise RunnerError("CONFIG", "INVALID", f"{key} must be a string or list[str]")
+    if not cmd_list:
+        raise RunnerError("CONFIG", "INVALID", f"{key} must be non-empty")
+    return cmd_list
+
+
+def _coerce_str_map(raw: object, *, key: str) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        raise RunnerError("CONFIG", "INVALID", f"{key} must be dict[str,str]")
+    out: dict[str, str] = {}
+    for raw_key, raw_value in cast(dict[object, object], raw).items():
+        key_str = str(raw_key).strip()
+        value_str = str(raw_value).strip()
+        if key_str and value_str:
+            out[key_str] = value_str
+    return out
+
+
+def _coerce_nonnegative_int(raw: object, *, key: str) -> int:
+    if isinstance(raw, bool):
+        raise RunnerError("CONFIG", "INVALID", f"{key} must be >= 0")
+    if isinstance(raw, int):
+        value = raw
+    elif isinstance(raw, str):
+        text = raw.strip()
+        if text == "":
+            raise RunnerError("CONFIG", "INVALID", f"{key} must be >= 0")
+        try:
+            value = int(text)
+        except ValueError as exc:
+            raise RunnerError("CONFIG", "INVALID", f"{key} must be >= 0") from exc
+    else:
+        raise RunnerError("CONFIG", "INVALID", f"{key} must be >= 0")
+    if value < 0:
+        raise RunnerError("CONFIG", "INVALID", f"{key} must be >= 0")
+    return value
 
 
 def apply_gate_execution_cfg(
-    cfg: dict[str, Any],
-    p: Any,
+    cfg: dict[str, object],
+    p: PolicyGateExecutionLike,
     *,
     as_bool: ConfigBool,
     as_str_required: ConfigStrRequired,
@@ -100,15 +221,10 @@ def apply_gate_execution_cfg(
 
     if "gate_monolith_extensions" in cfg:
         raw_ext = cfg["gate_monolith_extensions"]
-        if not isinstance(raw_ext, list) or not all(isinstance(x, str) for x in raw_ext):
-            raise RunnerError(
-                "CONFIG",
-                "INVALID",
-                "gate_monolith_extensions must be list[str]",
-            )
+        ext_items = _coerce_list_str(raw_ext, key="gate_monolith_extensions")
         cleaned: list[str] = []
-        for item in raw_ext:
-            s = str(item).strip()
+        for item in ext_items:
+            s = item.strip()
             if not s:
                 continue
             if not s.startswith("."):
@@ -171,10 +287,9 @@ def apply_gate_execution_cfg(
         *IPC_NONNEGATIVE_IPC_INT_KEYS,
     ):
         if k in cfg:
-            setattr(p, k, int(cfg[k]))
+            setattr(p, k, _coerce_nonnegative_int(cfg[k], key=k))
             mark_cfg(p, cfg, k)
-        if int(getattr(p, k)) < 0:
-            raise RunnerError("CONFIG", "INVALID", f"{k} must be >= 0")
+        _coerce_nonnegative_int(cast(object, getattr(p, k)), key=k)
 
     if p.ipc_handshake_enabled and p.ipc_handshake_wait_s < 1:
         raise RunnerError(
@@ -202,15 +317,7 @@ def apply_gate_execution_cfg(
     mark_cfg(p, cfg, "gate_js_extensions")
 
     if "gate_js_command" in cfg:
-        raw_cmd = cfg["gate_js_command"]
-        if isinstance(raw_cmd, str):
-            cmd_list = shlex.split(raw_cmd)
-        elif isinstance(raw_cmd, list) and all(isinstance(x, str) for x in raw_cmd):
-            cmd_list = raw_cmd
-        else:
-            raise RunnerError("CONFIG", "INVALID", "gate_js_command must be a string or list[str]")
-        if not cmd_list:
-            raise RunnerError("CONFIG", "INVALID", "gate_js_command must be non-empty")
+        cmd_list = _parse_command_list(cfg["gate_js_command"], key="gate_js_command")
         p.gate_js_command = cmd_list
         mark_cfg(p, cfg, "gate_js_command")
 
@@ -239,13 +346,7 @@ def apply_gate_execution_cfg(
     ):
         if k not in cfg:
             continue
-        raw_cmd = cfg[k]
-        if isinstance(raw_cmd, str):
-            cmd_list = shlex.split(raw_cmd)
-        elif isinstance(raw_cmd, list) and all(isinstance(x, str) for x in raw_cmd):
-            cmd_list = raw_cmd
-        else:
-            raise RunnerError("CONFIG", "INVALID", f"{k} must be a string or list[str]")
+        cmd_list = _parse_command_list(cfg[k], key=k)
         cmd_list0 = [str(x).strip() for x in cmd_list if str(x).strip()]
         if not cmd_list0:
             raise RunnerError("CONFIG", "INVALID", f"{k} must be non-empty")
@@ -260,19 +361,10 @@ def apply_gate_execution_cfg(
     mark_cfg(p, cfg, "gate_typescript_extensions")
 
     if "gate_typescript_command" in cfg:
-        raw_cmd = cfg["gate_typescript_command"]
-        if isinstance(raw_cmd, str):
-            cmd_list = shlex.split(raw_cmd)
-        elif isinstance(raw_cmd, list) and all(isinstance(x, str) for x in raw_cmd):
-            cmd_list = raw_cmd
-        else:
-            raise RunnerError(
-                "CONFIG",
-                "INVALID",
-                "gate_typescript_command must be a string or list[str]",
-            )
-        if not cmd_list:
-            raise RunnerError("CONFIG", "INVALID", "gate_typescript_command must be non-empty")
+        cmd_list = _parse_command_list(
+            cfg["gate_typescript_command"],
+            key="gate_typescript_command",
+        )
         p.gate_typescript_command = cmd_list
         mark_cfg(p, cfg, "gate_typescript_command")
 
@@ -291,19 +383,10 @@ def apply_gate_execution_cfg(
     mark_cfg(p, cfg, "gates_skip_badguys")
 
     if "gate_badguys_command" in cfg:
-        raw_cmd = cfg["gate_badguys_command"]
-        if isinstance(raw_cmd, str):
-            cmd_list = shlex.split(raw_cmd)
-        elif isinstance(raw_cmd, list) and all(isinstance(x, str) for x in raw_cmd):
-            cmd_list = raw_cmd
-        else:
-            raise RunnerError(
-                "CONFIG",
-                "INVALID",
-                "gate_badguys_command must be a string or list[str]",
-            )
-        if not cmd_list:
-            raise RunnerError("CONFIG", "INVALID", "gate_badguys_command must be non-empty")
+        cmd_list = _parse_command_list(
+            cfg["gate_badguys_command"],
+            key="gate_badguys_command",
+        )
         p.gate_badguys_command = cmd_list
         mark_cfg(p, cfg, "gate_badguys_command")
 
@@ -324,25 +407,11 @@ def apply_gate_execution_cfg(
             f"invalid pytest_routing_mode: {p.pytest_routing_mode!r}",
         )
     if "pytest_roots" in cfg:
-        raw_roots = cfg["pytest_roots"]
-        if not isinstance(raw_roots, dict):
-            raise RunnerError("CONFIG", "INVALID", "pytest_roots must be dict[str,str]")
-        p.pytest_roots = {
-            str(key).strip(): str(value).strip()
-            for key, value in raw_roots.items()
-            if str(key).strip() and str(value).strip()
-        }
+        p.pytest_roots = _coerce_str_map(cfg["pytest_roots"], key="pytest_roots")
         mark_cfg(p, cfg, "pytest_roots")
 
     if "pytest_tree" in cfg:
-        raw_tree = cfg["pytest_tree"]
-        if not isinstance(raw_tree, dict):
-            raise RunnerError("CONFIG", "INVALID", "pytest_tree must be dict[str,str]")
-        p.pytest_tree = {
-            str(key).strip(): str(value).strip()
-            for key, value in raw_tree.items()
-            if str(key).strip() and str(value).strip()
-        }
+        p.pytest_tree = _coerce_str_map(cfg["pytest_tree"], key="pytest_tree")
         mark_cfg(p, cfg, "pytest_tree")
 
     p.pytest_namespace_modules = as_dict_list_str(

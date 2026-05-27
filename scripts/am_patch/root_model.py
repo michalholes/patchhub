@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from am_patch.errors import RunnerError
 
@@ -38,9 +40,21 @@ def _resolve_runner_relative(raw: str | None, *, runner_root: Path) -> Path | No
     return base.resolve()
 
 
+def _policy_attr(policy: object, key: str, default: object) -> object:
+    return cast(object, getattr(policy, key, default))
+
+
+def _policy_list_str(policy: object, key: str) -> list[str]:
+    raw = _policy_attr(policy, key, [])
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in cast(list[object], raw)]
+
+
 def _resolve_artifacts_root(policy: object, *, runner_root: Path) -> Path:
+    artifacts_raw = _policy_attr(policy, "artifacts_root", None)
     artifacts_root = _resolve_runner_relative(
-        getattr(policy, "artifacts_root", None),
+        str(artifacts_raw) if artifacts_raw is not None else None,
         runner_root=runner_root,
     )
     return runner_root if artifacts_root is None else artifacts_root
@@ -49,10 +63,12 @@ def _resolve_artifacts_root(policy: object, *, runner_root: Path) -> Path:
 def resolve_patch_root(policy: object, *, runner_root: Path) -> tuple[Path, Path]:
     runner_root = runner_root.resolve()
     artifacts_root = _resolve_artifacts_root(policy, runner_root=runner_root)
+    patch_dir_raw = _policy_attr(policy, "patch_dir", None)
     patch_dir = _resolve_runner_relative(
-        getattr(policy, "patch_dir", None), runner_root=runner_root
+        str(patch_dir_raw) if patch_dir_raw is not None else None,
+        runner_root=runner_root,
     )
-    patch_dir_name = str(getattr(policy, "patch_dir_name", "patches"))
+    patch_dir_name = str(_policy_attr(policy, "patch_dir_name", "patches"))
     patch_root = patch_dir if patch_dir is not None else (artifacts_root / patch_dir_name)
     return artifacts_root, patch_root
 
@@ -84,19 +100,21 @@ def _validated_basename(root: Path, *, field: str) -> str:
 
 def canonical_target_repo_name_from_root(root: Path) -> str:
     resolved = root.resolve()
-    parts = resolved.parts
-    if len(parts) != 4 or parts[:3] != ("/", "home", "pi"):
+    if resolved.parent != Path("/home/pi"):
         raise RunnerError(
             "CONFIG",
             "INVALID",
             "selected effective target root must canonically match /home/pi/<name>",
         )
-    return _validate_repo_token(parts[3], field="effective_target_repo_name")
+    return _validate_repo_token(resolved.name, field="effective_target_repo_name")
 
 
 def _selected_source(policy: object, key: str) -> str:
-    src = getattr(policy, "_src", {}) or {}
-    return str(src.get(key, "default"))
+    src_obj = _policy_attr(policy, "_src", {})
+    if not isinstance(src_obj, Mapping):
+        return "default"
+    src_map = cast(Mapping[object, object], src_obj)
+    return str(src_map.get(key, "default"))
 
 
 def _legacy_binding_token(root: Path) -> str:
@@ -227,14 +245,17 @@ def _choose_target_binding(
     patch_target_repo_name: str | None,
     workspace_target_repo_name: str | None,
 ) -> TargetBinding:
+    active_target_raw = _policy_attr(policy, "active_target_repo_root", None)
     active_target = _resolve_runner_relative(
-        getattr(policy, "active_target_repo_root", None),
+        str(active_target_raw) if active_target_raw is not None else None,
         runner_root=runner_root,
     )
+    repo_root_raw = _policy_attr(policy, "repo_root", None)
     repo_root_alias = _resolve_runner_relative(
-        getattr(policy, "repo_root", None), runner_root=runner_root
+        str(repo_root_raw) if repo_root_raw is not None else None,
+        runner_root=runner_root,
     )
-    target_repo_name = str(getattr(policy, "target_repo_name", "") or "").strip()
+    target_repo_name = str(_policy_attr(policy, "target_repo_name", "") or "").strip()
     active_src = _selected_source(policy, "active_target_repo_root")
     repo_src = _selected_source(policy, "repo_root")
     target_src = _selected_source(policy, "target_repo_name")
@@ -341,7 +362,7 @@ def resolve_root_model(
     runner_root = runner_root.resolve()
     artifacts_root, patch_root = resolve_patch_root(policy, runner_root=runner_root)
     bindings = resolve_target_bindings(
-        list(getattr(policy, "target_repo_roots", []) or []),
+        _policy_list_str(policy, "target_repo_roots"),
         runner_root=runner_root,
     )
     selected = _choose_target_binding(

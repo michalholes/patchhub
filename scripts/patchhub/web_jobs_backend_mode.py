@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 BackendMode = Literal["db_primary", "file_emergency", "resolving"]
+RecoveryPayload = dict[str, object]
 
 
 @dataclass
@@ -15,7 +16,7 @@ class WebJobsBackendModeState:
     authoritative_backend: str = "unresolved"
     resolution_done: bool = False
     queue_writable: bool = False
-    last_recovery: dict[str, Any] = field(default_factory=lambda: {"status": "not_run"})
+    last_recovery: RecoveryPayload = field(default_factory=lambda: {"status": "not_run"})
 
     def begin_resolution(self) -> None:
         self.mode = "resolving"
@@ -23,14 +24,14 @@ class WebJobsBackendModeState:
         self.resolution_done = False
         self.queue_writable = False
 
-    def activate_db_primary(self, recovery: dict[str, Any]) -> None:
+    def activate_db_primary(self, recovery: RecoveryPayload) -> None:
         self.mode = "db_primary"
         self.authoritative_backend = "db"
         self.resolution_done = True
         self.queue_writable = True
         self.last_recovery = dict(recovery)
 
-    def activate_file_emergency(self, recovery: dict[str, Any]) -> None:
+    def activate_file_emergency(self, recovery: RecoveryPayload) -> None:
         self.mode = "file_emergency"
         self.authoritative_backend = "files"
         self.resolution_done = True
@@ -42,7 +43,7 @@ class WebJobsBackendModeState:
             return None
         return "Backend mode selection is not finished"
 
-    def debug_payload(self) -> dict[str, Any]:
+    def debug_payload(self) -> RecoveryPayload:
         return {
             "mode": str(self.mode),
             "authoritative_backend": str(self.authoritative_backend),

@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -19,8 +18,8 @@ class _FakeIpcController:
         socket_path: Path,
         issue_id: str | None,
         mode: str,
-        status_provider: Any,
-        logger: Any,
+        status_provider: object,
+        logger: object,
         handshake_enabled: bool = False,
         handshake_wait_s: int = 0,
     ) -> None:
@@ -31,7 +30,7 @@ class _FakeIpcController:
         self.logger = logger
         self.handshake_enabled = handshake_enabled
         self.handshake_wait_s = handshake_wait_s
-        self.events: list[dict[str, Any]] = []
+        self.events: list[dict[str, object]] = []
         self.calls: list[str] = []
         type(self).created_instances.append(self)
         logger.set_ipc_stream(self.events.append)
@@ -56,7 +55,7 @@ class _FakeIpcController:
     def wait_if_paused(self) -> None:
         return None
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self) -> dict[str, object]:
         return {"cancel": False}
 
 

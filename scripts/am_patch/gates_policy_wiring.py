@@ -5,6 +5,7 @@ from pathlib import Path
 
 from . import gates as gates_mod
 from .config import Policy
+from .gate_step_capture import GateStepCallback
 from .log import Logger
 from .scope import changed_path_entries
 
@@ -17,7 +18,7 @@ def run_policy_gates(
     policy: Policy,
     decision_paths: list[str],
     progress: Callable[[str], None] | None,
-    gate_step_callback: Callable[..., None] | None = None,
+    gate_step_callback: GateStepCallback | None = None,
     workspaces_dir: Path | None = None,
     cli_mode: str = "finalize",
     issue_id: str | int | None = None,

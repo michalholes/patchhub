@@ -208,9 +208,26 @@ def _leaf_namespaces(namespaces: Sequence[str]) -> set[str]:
     return {item for item in items if not _has_descendants(item, tuple(items))}
 
 
+def _reduce_sort_key(item: str) -> tuple[int, str]:
+    return (-len(item), item)
+
+
+def _unique_sorted(values: Sequence[str]) -> tuple[str, ...]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    out.sort()
+    return tuple(out)
+
+
 def _reduce_namespaces(namespaces: set[str]) -> set[str]:
     out: set[str] = set()
-    for candidate in sorted(namespaces, key=lambda item: (-len(item), item)):
+    for candidate in sorted(namespaces, key=_reduce_sort_key):
         if any(existing == candidate or existing.startswith(candidate + ".") for existing in out):
             continue
         out.add(candidate)
@@ -367,12 +384,12 @@ def validate_namespace_policy(
 
     return NamespacePolicyEvidence(
         repo_dependency_edges={
-            namespace: tuple(sorted(dict.fromkeys(providers)))
+            namespace: _unique_sorted(providers)
             for namespace, providers in sorted(repo_dependency_edges.items())
             if providers
         },
         external_overrides={
-            namespace: tuple(sorted(dict.fromkeys(providers)))
+            namespace: _unique_sorted(providers)
             for namespace, providers in sorted(external_dependencies.items())
             if providers
         },

@@ -7,10 +7,10 @@ import zipfile
 from pathlib import Path
 
 from .archive import (
-    _fsync_dir,
-    _fsync_file,
-    _tmp_path_for_atomic_write,
+    fsync_dir,
+    fsync_file,
     pick_versioned_dest,
+    tmp_path_for_atomic_write,
 )
 from .errors import RunnerError
 from .git_ops import unified_diff_since
@@ -70,8 +70,12 @@ def collect_issue_logs(*, logs_dir: Path, issue_id: str, issue_template: str) ->
     except FileNotFoundError:
         return []
 
-    matches.sort(key=lambda p: p.name)
+    matches.sort(key=_path_name)
     return matches
+
+
+def _path_name(path: Path) -> str:
+    return path.name
 
 
 def _normalize_rel_paths(paths: list[str]) -> list[str]:
@@ -110,7 +114,7 @@ def make_issue_diff_zip(
     snapshot_manifest: list[str] = []
     snapshot_entries = 0
 
-    tmp_path = _tmp_path_for_atomic_write(dest)
+    tmp_path = tmp_path_for_atomic_write(dest)
     with contextlib.suppress(FileNotFoundError):
         tmp_path.unlink()
 
@@ -126,7 +130,7 @@ def make_issue_diff_zip(
                 diff_entries.append(patch_name)
 
             # Logs
-            logs_sorted = sorted(log_paths, key=lambda p: p.name)
+            logs_sorted = sorted(log_paths, key=_path_name)
             for p in logs_sorted:
                 if not p.exists() or not p.is_file():
                     continue
@@ -164,9 +168,9 @@ def make_issue_diff_zip(
             lines.append("")
             z.writestr("manifest.txt", "\n".join(lines).encode("utf-8"))
 
-        _fsync_file(tmp_path)
+        fsync_file(tmp_path)
         os.replace(tmp_path, dest)
-        _fsync_dir(dest.parent)
+        fsync_dir(dest.parent)
     finally:
         with contextlib.suppress(FileNotFoundError):
             tmp_path.unlink()

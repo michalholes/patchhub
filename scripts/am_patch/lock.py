@@ -4,14 +4,22 @@ import contextlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
+from typing import Protocol, cast
+
+
+class _FcntlLike(Protocol):
+    LOCK_EX: int
+    LOCK_NB: int
+    LOCK_UN: int
+
+    def flock(self, fd: int, operation: int) -> None: ...
 
 try:
     import fcntl as _fcntl
 except ImportError:  # pragma: no cover
-    fcntl: ModuleType | None = None
+    fcntl: _FcntlLike | None = None
 else:
-    fcntl = _fcntl
+    fcntl = cast(_FcntlLike, _fcntl)
 
 
 @dataclass

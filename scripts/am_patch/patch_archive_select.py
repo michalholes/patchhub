@@ -82,5 +82,8 @@ def select_latest_issue_patch(*, patch_dir: Path, issue_id: str, hint_name: str 
             f"-l: no archived patch scripts found for issue_id={issue_id}",
         )
 
-    cands.sort(key=lambda p: (p.stat().st_mtime, str(p)), reverse=True)
+    def _candidate_sort_key(path: Path) -> tuple[float, str]:
+        return (path.stat().st_mtime, path.as_posix())
+
+    cands.sort(key=_candidate_sort_key, reverse=True)
     return cands[0]

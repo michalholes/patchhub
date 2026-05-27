@@ -5,10 +5,14 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
-from am_patch.archive import _fsync_dir, _fsync_file, _tmp_path_for_atomic_write
+from am_patch.archive import fsync_dir, fsync_file, tmp_path_for_atomic_write
 from am_patch.errors import RunnerError
+from am_patch.log import Logger
+
+if TYPE_CHECKING:
+    from am_patch.config import Policy
 
 __all__ = [
     "InitialSelfBackupResult",
@@ -43,7 +47,7 @@ def _workspace_repo_dir(
     return workspaces_dir / issue_dir_template.format(issue=issue_id) / repo_dir_name
 
 
-def _tracked_files(*, logger: Any, runner_root: Path) -> list[str]:
+def _tracked_files(*, logger: Logger, runner_root: Path) -> list[str]:
     result = logger.run_logged(
         ["git", "ls-files", "-z"],
         cwd=runner_root,
@@ -69,7 +73,7 @@ def _tracked_files(*, logger: Any, runner_root: Path) -> list[str]:
 
 def _resolve_archived_files(
     *,
-    logger: Any,
+    logger: Logger,
     runner_root: Path,
     include_relpaths: list[str],
 ) -> tuple[str, ...]:
@@ -120,9 +124,9 @@ def _resolve_archived_files(
     return tuple(sorted(archived))
 
 
-def _render_backup_name(*, policy: Any, issue_id: str) -> str:
-    template = str(getattr(policy, "self_backup_template", "")).strip()
-    ts_format = str(getattr(policy, "log_ts_format", "%Y%m%d_%H%M%S"))
+def _render_backup_name(*, policy: Policy, issue_id: str) -> str:
+    template = str(policy.self_backup_template).strip()
+    ts_format = str(policy.log_ts_format)
     try:
         rendered = template.format(issue=issue_id, ts=time.strftime(ts_format))
     except Exception as exc:
@@ -141,17 +145,17 @@ def _render_backup_name(*, policy: Any, issue_id: str) -> str:
     return name
 
 
-def normalize_self_backup_policy(policy: Any) -> None:
-    mode = str(getattr(policy, "self_backup_mode", "initial_self_patch")).strip()
+def normalize_self_backup_policy(policy: Policy) -> None:
+    mode = str(policy.self_backup_mode).strip()
     if mode not in ("never", "initial_self_patch"):
         raise RunnerError("CONFIG", "INVALID", f"invalid self_backup_mode={mode!r}")
-    raw_dir = str(getattr(policy, "self_backup_dir", "quarantine")).replace("\\", "/").strip()
+    raw_dir = str(policy.self_backup_dir).replace("\\", "/").strip()
     parts = [part for part in raw_dir.split("/") if part not in ("", ".")]
     if not parts or ".." in parts or raw_dir.startswith("/"):
         raise RunnerError("CONFIG", "INVALID", f"invalid self_backup_dir={raw_dir!r}")
     if len(raw_dir) > 2 and raw_dir[1:3] == ":/":
         raise RunnerError("CONFIG", "INVALID", f"invalid self_backup_dir={raw_dir!r}")
-    template = str(getattr(policy, "self_backup_template", "")).strip()
+    template = str(policy.self_backup_template).strip()
     if not template or Path(template).name != template:
         raise RunnerError(
             "CONFIG",
@@ -176,9 +180,7 @@ def normalize_self_backup_policy(policy: Any) -> None:
     policy.self_backup_dir = "/".join(parts)
     policy.self_backup_template = template
     policy.self_backup_include_relpaths = [
-        s
-        for item in getattr(policy, "self_backup_include_relpaths", [])
-        if (s := str(item).strip())
+        s for item in policy.self_backup_include_relpaths if (s := str(item).strip())
     ]
 
 
@@ -192,7 +194,7 @@ def _write_backup_zip(
 ) -> Path:
     zip_path = artifacts_root / self_backup_dir / zip_name
     zip_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = _tmp_path_for_atomic_write(zip_path)
+    tmp_path = tmp_path_for_atomic_write(zip_path)
     with contextlib.suppress(FileNotFoundError):
         tmp_path.unlink()
     try:
@@ -206,9 +208,9 @@ def _write_backup_zip(
                         f"initial self-backup source missing during write: {rel}",
                     )
                 zf.write(src, arcname=rel)
-        _fsync_file(tmp_path)
+        fsync_file(tmp_path)
         tmp_path.replace(zip_path)
-        _fsync_dir(zip_path.parent)
+        fsync_dir(zip_path.parent)
     except RunnerError:
         raise
     except Exception as exc:
@@ -225,8 +227,8 @@ def _write_backup_zip(
 
 def maybe_create_initial_self_backup(
     *,
-    logger: Any,
-    policy: Any,
+    logger: Logger,
+    policy: Policy,
     issue_id: str,
     runner_root: Path,
     live_target_root: Path,
@@ -238,7 +240,7 @@ def maybe_create_initial_self_backup(
     runner_root = runner_root.resolve()
     live_target_root = live_target_root.resolve()
     artifacts_root = artifacts_root.resolve()
-    mode = str(getattr(policy, "self_backup_mode", "initial_self_patch")).strip()
+    mode = str(policy.self_backup_mode).strip()
     workspace_repo_dir = _workspace_repo_dir(
         workspaces_dir=workspaces_dir,
         issue_id=issue_id,
@@ -252,7 +254,7 @@ def maybe_create_initial_self_backup(
     logger.line(f"self_backup_mode={mode}")
     logger.line(f"self_backup_workspace_repo_dir={workspace_repo_dir}")
 
-    if bool(getattr(policy, "test_mode", False)):
+    if bool(policy.test_mode):
         logger.line("self_backup_skip_reason=test_mode")
         logger.info_core("self_backup=SKIP reason=test_mode")
         return InitialSelfBackupResult(
@@ -295,7 +297,7 @@ def maybe_create_initial_self_backup(
 
     include_relpaths = [
         str(item).strip()
-        for item in list(getattr(policy, "self_backup_include_relpaths", []) or [])
+        for item in list(policy.self_backup_include_relpaths)
         if str(item).strip()
     ]
     logger.line(f"self_backup_include_relpaths={include_relpaths!r}")
@@ -307,7 +309,7 @@ def maybe_create_initial_self_backup(
     zip_name = _render_backup_name(policy=policy, issue_id=issue_id)
     zip_path = _write_backup_zip(
         artifacts_root=artifacts_root,
-        self_backup_dir=str(getattr(policy, "self_backup_dir", "quarantine")),
+        self_backup_dir=str(policy.self_backup_dir),
         zip_name=zip_name,
         runner_root=runner_root,
         archived_files=archived_files,

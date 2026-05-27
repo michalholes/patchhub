@@ -6,9 +6,14 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from .errors import RunnerError
 from .log import Logger
+
+
+def _policy_attr(policy: object, key: str, default: object) -> object:
+    return cast(object, getattr(policy, key, default))
 
 
 def precheck_patch_script(path: Path, *, ascii_only: bool) -> None:
@@ -131,17 +136,19 @@ def run_patch(
 
     logger.section("PATCH EXEC (PREP)")
     logger.line(f"patch_exec_path={exec_path}")
-    logger.line(f"patch_jail={getattr(policy, 'patch_jail', False)}")
+    patch_jail_enabled = bool(_policy_attr(policy, "patch_jail", False))
+    patch_jail_unshare_net = bool(_policy_attr(policy, "patch_jail_unshare_net", True))
+    logger.line(f"patch_jail={patch_jail_enabled}")
 
     # Build command (optionally inside a jail).
-    if getattr(policy, "patch_jail", False):
+    if patch_jail_enabled:
         # Inside jail we intentionally run system python3, not the runner's interpreter,
         # so that the jail does not need access to any venv under the live repo.
         python_argv = ["python3", f"/repo/{exec_path.relative_to(workspace_repo)}"]
         cmd = _build_bwrap_cmd(
             workspace_repo=workspace_repo,
             argv=python_argv,
-            unshare_net=getattr(policy, "patch_jail_unshare_net", True),
+            unshare_net=patch_jail_unshare_net,
         )
         logger.section("PATCH EXEC (JAILED)")
         logger.line("cmd=" + " ".join(cmd))
@@ -369,9 +376,13 @@ def run_unified_patch_bundle(
     logger.line(f"UNIFIED_PATCH bundle_start input={src.name}")
 
     patch_entries: list[tuple[str, bytes]] = []
+    ascii_only_patch = bool(_policy_attr(policy, "ascii_only_patch", False))
+    patch_jail_enabled = bool(_policy_attr(policy, "patch_jail", False))
+    patch_jail_unshare_net = bool(_policy_attr(policy, "patch_jail_unshare_net", True))
+    strip_cfg_obj = _policy_attr(policy, "unified_patch_strip", None)
     if src.suffix == ".patch":
         data = src.read_bytes()
-        if getattr(policy, "ascii_only_patch", False):
+        if ascii_only_patch:
             _ascii_check_bytes(data, label=str(src))
         patch_entries.append((src.name, data))
     else:
@@ -385,7 +396,7 @@ def run_unified_patch_bundle(
                 if pn.is_absolute() or ".." in pn.parts:
                     continue
                 data = z.read(n)
-                if getattr(policy, "ascii_only_patch", False):
+                if ascii_only_patch:
                     _ascii_check_bytes(data, label=f"{src.name}:{n}")
                 safe_name = pn.as_posix().replace("/", "__")
                 patch_entries.append((safe_name, data))
@@ -396,7 +407,6 @@ def run_unified_patch_bundle(
     declared_all: set[str] = set()
     touched_all: set[str] = set()
 
-    strip_cfg = getattr(policy, "unified_patch_strip", None)
     for name, data in patch_entries:
         text = data.decode("utf-8", errors="replace")
         raw_paths = _parse_unified_header_paths(text)
@@ -404,8 +414,16 @@ def run_unified_patch_bundle(
         logger.section("UNIFIED PATCH (attempt)")
         logger.line(f"patch_name={name}")
         logger.line(f"UNIFIED_PATCH attempt_start name={name}")
-        if strip_cfg is not None:
-            strip: int | None = int(strip_cfg)
+        strip: int | None
+        if strip_cfg_obj is not None:
+            if isinstance(strip_cfg_obj, bool):
+                strip = int(strip_cfg_obj)
+            elif isinstance(strip_cfg_obj, int):
+                strip = strip_cfg_obj
+            elif isinstance(strip_cfg_obj, str):
+                strip = int(strip_cfg_obj)
+            else:
+                strip = int(str(strip_cfg_obj))
             logger.line(f"patch_strip={strip} (config)")
         else:
             strip = _infer_strip_depth(workspace_repo, raw_paths)
@@ -446,11 +464,11 @@ def run_unified_patch_bundle(
 
         patch_rel = patch_path.relative_to(workspace_repo)
         git_argv = ["git", "apply", "--whitespace=nowarn", str(patch_rel)]
-        if getattr(policy, "patch_jail", False):
+        if patch_jail_enabled:
             cmd = _build_bwrap_cmd(
                 workspace_repo=workspace_repo,
                 argv=git_argv,
-                unshare_net=getattr(policy, "patch_jail_unshare_net", True),
+                unshare_net=patch_jail_unshare_net,
             )
             try:
                 r = logger.run_logged(cmd, cwd=workspace_repo)

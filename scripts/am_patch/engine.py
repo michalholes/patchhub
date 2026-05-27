@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 from am_patch import git_ops
 from am_patch.apply_failure_gates_policy import (
@@ -10,7 +10,7 @@ from am_patch.apply_failure_gates_policy import (
 )
 from am_patch.archive import archive_patch
 from am_patch.audit_rubric_check import check_audit_rubric_coverage
-from am_patch.cli import parse_args
+from am_patch.cli import CliArgs, parse_args
 from am_patch.cli_override_normalization import (
     apply_cli_symmetry_helpers,
     build_cli_override_mapping,
@@ -55,7 +55,7 @@ from am_patch.runtime import (
 )
 from am_patch.scope import changed_paths, enforce_scope_delta
 from am_patch.startup_context import RunContext, build_paths_and_logger
-from am_patch.state import save_state, update_union
+from am_patch.state import IssueState, save_state, update_union
 from am_patch.validation import run_validation
 from am_patch.version import RUNNER_VERSION
 from am_patch.workspace import drop_checkpoint
@@ -66,6 +66,10 @@ from am_patch.workspace_promotion_pipeline import (
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+
+
+class _LineLogger(Protocol):
+    def line(self, s: str = "") -> None: ...
 
 
 def _detect_engine_roots(module_file: str | Path | None = None) -> tuple[Path, Path]:
@@ -111,7 +115,7 @@ def _ruff_step_eligible(policy: Policy, step_key: str, delta: list[str]) -> list
         enabled = bool(policy.ruff_autofix)
     else:
         return []
-    if not enabled or not getattr(policy, "ruff_autofix_legalize_outside", True):
+    if not enabled or not policy.ruff_autofix_legalize_outside:
         return []
     return sorted(p for p in delta if _under_configured_targets(p, policy.ruff_targets))
 
@@ -119,10 +123,10 @@ def _ruff_step_eligible(policy: Policy, step_key: str, delta: list[str]) -> list
 def _biome_step_eligible(policy: Policy, step_key: str, delta: list[str]) -> list[str]:
     if step_key == "biome_format":
         enabled = bool(policy.biome_format)
-        legalize_outside = bool(getattr(policy, "biome_format_legalize_outside", True))
+        legalize_outside = bool(policy.biome_format_legalize_outside)
     elif step_key == "biome_autofix":
         enabled = bool(policy.biome_autofix)
-        legalize_outside = bool(getattr(policy, "biome_autofix_legalize_outside", True))
+        legalize_outside = bool(policy.biome_autofix_legalize_outside)
     else:
         return []
     if not enabled or not legalize_outside:
@@ -133,15 +137,15 @@ def _biome_step_eligible(policy: Policy, step_key: str, delta: list[str]) -> lis
 
 def _gate_step_capture_sink(
     *,
-    logger: Any,
+    logger: _LineLogger,
     policy: Policy,
     workspace_root: Path,
-    state: Any,
+    state: IssueState,
     files_for_fail_zip: list[str],
     step_key: str,
     pre_dirty: list[str],
     post_dirty: list[str],
-) -> tuple[Any, list[str]]:
+) -> tuple[IssueState, list[str]]:
     delta = _step_delta(pre_dirty, post_dirty)
     if step_key.startswith("ruff_"):
         eligible = _ruff_step_eligible(policy, step_key, delta)
@@ -181,7 +185,7 @@ def _select_latest_issue_patch(*, patch_dir: Path, issue_id: str, hint_name: str
     return select_latest_issue_patch(patch_dir=patch_dir, issue_id=issue_id, hint_name=hint_name)
 
 
-def build_effective_policy(argv: list[str]) -> int | tuple[Any, Policy, Path, str]:
+def build_effective_policy(argv: list[str]) -> int | tuple[CliArgs, Policy, Path, str]:
     cli = parse_args(argv)
 
     defaults = Policy()
@@ -381,7 +385,7 @@ def run_mode(ctx: RunContext) -> RunResult:
                 logger=logger,
                 cli=cli,
                 policy=policy,
-                issue_id=issue_id,
+                issue_id=int(issue_id),
                 repo_root=repo_root,
                 patch_root=patch_root,
             )
@@ -391,7 +395,7 @@ def run_mode(ctx: RunContext) -> RunResult:
 
         # Audit rubric guard (future-proofing): fail fast when new audit domains are added
         # but audit/audit_rubric.yaml does not contain the required runtime evidence commands.
-        if getattr(policy, "audit_rubric_guard", True):
+        if policy.audit_rubric_guard:
             missing = check_audit_rubric_coverage(repo_root)
             if missing:
                 # Build a deterministic, copy-paste friendly guidance message.
@@ -427,7 +431,7 @@ def run_mode(ctx: RunContext) -> RunResult:
             paths=paths,
             repo_root=repo_root,
             runner_root=runner_root,
-            effective_target_repo_name=str(getattr(ctx, "effective_target_repo_name", "")),
+            effective_target_repo_name=str(ctx.effective_target_repo_name or ""),
             patch_script=patch_script,
             unified_mode=unified_mode,
             files_declared=files_current,
@@ -619,7 +623,7 @@ def run_mode(ctx: RunContext) -> RunResult:
             paths=paths,
             policy=policy,
             cli_mode=cli.mode,
-            issue_id=cli.issue_id,
+            issue_id=int(issue_id),
             decision_paths=touched,
             progress=_gate_progress,
             gate_step_callback=_capture_sink,
@@ -695,7 +699,7 @@ def run_mode(ctx: RunContext) -> RunResult:
         delete_workspace_after_archive = promotion_summary.delete_workspace_after_archive
 
         used_patch_for_zip = None
-        if getattr(policy, "patch_script_archive_enabled", True):
+        if policy.patch_script_archive_enabled:
             used_patch_for_zip = archive_patch(logger, patch_script, paths.successful_dir)
         drop_checkpoint(logger, ws.repo, ckpt)
         return _result(0)
@@ -738,7 +742,7 @@ def finalize_and_report(ctx: RunContext, result: RunResult) -> int:
     final_fail_fingerprint = result.final_fail_fingerprint
     summary = build_terminal_summary(
         exit_code=exit_code,
-        commit_and_push=bool(getattr(policy, "commit_and_push", False)),
+        commit_and_push=bool(policy.commit_and_push),
         final_commit_sha=result.final_commit_sha,
         final_pushed_files=result.final_pushed_files,
         push_ok_for_posthook=result.push_ok_for_posthook,
@@ -746,7 +750,7 @@ def finalize_and_report(ctx: RunContext, result: RunResult) -> int:
         final_fail_reason=result.final_fail_reason,
         log_path=log_path,
         json_path=json_path,
-        effective_target_repo_name=getattr(ctx, "effective_target_repo_name", None),
+        effective_target_repo_name=ctx.effective_target_repo_name,
     )
 
     with suppress(Exception):

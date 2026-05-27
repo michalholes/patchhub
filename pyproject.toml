@@ -61,7 +61,7 @@ build-backend = "setuptools.build_meta"
 mypy_path = "$MYPY_CONFIG_FILE_DIR,$MYPY_CONFIG_FILE_DIR/scripts"
 explicit_package_bases = true
 namespace_packages = true
-exclude = ["patches/", "tests/", "venv/", "__pycache__/"]
+exclude = ["patches/", "tests/", "governance/", "venv/", "__pycache__/"]
 python_version = "3.11"
 strict = false
 warn_return_any = true
@@ -91,7 +91,7 @@ ignore_missing_imports = true
 line-length = 100
 target-version = "py311"
 src = ["scripts", "badguys", "tests"]
-exclude = ["governance", "patches", "audit"]
+exclude = ["patches", "audit", "governance"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM"]

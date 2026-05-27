@@ -5,9 +5,10 @@ import json
 import os
 import socket
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast
 
 from am_patch.errors import RunnerError
 
@@ -15,8 +16,27 @@ PROTOCOL = "am_patch_ipc/1"
 
 _LEVELS = ("quiet", "normal", "warning", "verbose", "debug")
 
-_STARTUP_EXISTS_MODE = "fail"
-_STARTUP_WAIT_S = 0
+_startup_exists_mode = "fail"
+_startup_wait_s = 0
+
+
+class _StatusProviderLike(Protocol):
+    def get_stage(self) -> str: ...
+
+
+class _IpcStreamLike(Protocol):
+    def __call__(self, event: Mapping[str, object]) -> None: ...
+
+
+class _LoggerLike(Protocol):
+    screen_level: str
+    log_level: str
+
+    def set_ipc_stream(self, cb: _IpcStreamLike | None) -> None: ...
+
+    def emit_control_event(self, payload: Mapping[str, object]) -> int: ...
+
+    def request_subprocess_cancel(self) -> bool: ...
 
 
 def _normalize_level(v: str) -> str:
@@ -32,7 +52,7 @@ def _safe_unlink(path: Path) -> None:
         pass
 
 
-def _json_line(obj: dict[str, Any]) -> bytes:
+def _json_line(obj: Mapping[str, object]) -> bytes:
     return (json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
@@ -102,8 +122,8 @@ class IpcController:
         socket_path: Path,
         issue_id: str | None,
         mode: str,
-        status_provider: Any,
-        logger: Any,
+        status_provider: _StatusProviderLike,
+        logger: _LoggerLike,
         handshake_enabled: bool = False,
         handshake_wait_s: int = 0,
     ) -> None:
@@ -129,16 +149,15 @@ class IpcController:
         self._startup_state = "pending" if self._handshake_enabled else "disabled"
         self._expected_drain_seq: int | None = None
 
-        set_stream = getattr(self._logger, "set_ipc_stream", None)
-        if callable(set_stream):
-            set_stream(self._on_log_event)
+        with contextlib.suppress(Exception):
+            self._logger.set_ipc_stream(self._on_log_event)
 
     def start(self) -> None:
         if self._thread is not None:
             return self.socket_path.parent.mkdir(parents=True, exist_ok=True)
         if self.socket_path.exists() or self.socket_path.is_symlink():
-            mode = str(_STARTUP_EXISTS_MODE or "fail").strip() or "fail"
-            wait_s = int(_STARTUP_WAIT_S or 0)
+            mode = str(_startup_exists_mode or "fail").strip() or "fail"
+            wait_s = int(_startup_wait_s or 0)
             if wait_s < 0:
                 wait_s = 0
             if mode == "wait_then_fail" and wait_s:
@@ -197,7 +216,7 @@ class IpcController:
                 client.conn.close()
         _safe_unlink(self.socket_path)
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self) -> dict[str, object]:
         with self._lock:
             st = IpcState(
                 paused=self._state.paused,
@@ -219,17 +238,15 @@ class IpcController:
             "cancel": st.cancel,
             "stop_after_step": st.stop_after_step,
             "pause_after_step": st.pause_after_step,
-            "verbosity": getattr(self._logger, "screen_level", "verbose"),
-            "log_level": getattr(self._logger, "log_level", "verbose"),
+            "verbosity": self._logger.screen_level,
+            "log_level": self._logger.log_level,
         }
 
     def request_cancel(self) -> None:
         with self._lock:
             self._state.cancel = True
-        cancel_active = getattr(self._logger, "request_subprocess_cancel", None)
-        if callable(cancel_active):
-            with contextlib.suppress(Exception):
-                cancel_active()
+        with contextlib.suppress(Exception):
+            self._logger.request_subprocess_cancel()
         self._resume.set()
 
     def request_resume(self) -> None:
@@ -315,15 +332,12 @@ class IpcController:
                 return False
         return self._drain_ack.wait(float(self._handshake_wait_s))
 
-    def _emit_control(self, event: str, data: dict[str, Any] | None = None) -> None:
-        emit = getattr(self._logger, "emit_control_event", None)
-        if not callable(emit):
-            return
-        payload: dict[str, Any] = {"type": "control", "event": str(event or "")}
+    def _emit_control(self, event: str, data: dict[str, object] | None = None) -> None:
+        payload: dict[str, object] = {"type": "control", "event": str(event or "")}
         if data:
             payload.update(data)
         with contextlib.suppress(Exception):
-            emit(payload)
+            self._logger.emit_control_event(payload)
 
     def _drop_client(self, client: _IpcClient) -> None:
         with self._clients_lock:
@@ -350,8 +364,8 @@ class IpcController:
                 return None
             pending.extend(chunk)
 
-    def _on_log_event(self, evt: dict[str, Any]) -> None:
-        line = _json_line(evt)
+    def _on_log_event(self, event: Mapping[str, object]) -> None:
+        line = _json_line(event)
         with self._clients_lock:
             clients = list(self._clients)
         failed: list[_IpcClient] = []
@@ -363,7 +377,12 @@ class IpcController:
         for client in failed:
             self._drop_client(client)
 
-    def _reply_ok(self, *, cmd_id: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _reply_ok(
+        self,
+        *,
+        cmd_id: str,
+        data: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         return {
             "type": "reply",
             "cmd_id": cmd_id,
@@ -371,7 +390,7 @@ class IpcController:
             "data": data or {},
         }
 
-    def _reply_err(self, *, cmd_id: str, code: str, message: str) -> dict[str, Any]:
+    def _reply_err(self, *, cmd_id: str, code: str, message: str) -> dict[str, object]:
         return {
             "type": "reply",
             "cmd_id": cmd_id,
@@ -385,7 +404,7 @@ class IpcController:
         *,
         cmd_id: str,
         ok: bool,
-        data: dict[str, Any] | None = None,
+        data: dict[str, object] | None = None,
         code: str = "",
         message: str = "",
     ) -> None:
@@ -442,7 +461,7 @@ class IpcController:
                         continue
 
                     try:
-                        req = json.loads(raw.decode("utf-8", errors="strict"))
+                        req_obj: object = json.loads(raw.decode("utf-8", errors="strict"))
                     except Exception:
                         self._send_reply(
                             client,
@@ -453,7 +472,7 @@ class IpcController:
                         )
                         continue
 
-                    if not isinstance(req, dict):
+                    if not isinstance(req_obj, dict):
                         self._send_reply(
                             client,
                             cmd_id="",
@@ -463,8 +482,10 @@ class IpcController:
                         )
                         continue
 
-                    if "protocol" in req and str(req.get("protocol", "")) != PROTOCOL:
-                        cmd_id = str(req.get("cmd_id", "") or "")
+                    req_map = cast(dict[object, object], req_obj)
+
+                    if "protocol" in req_map and str(req_map.get("protocol", "")) != PROTOCOL:
+                        cmd_id = str(req_map.get("cmd_id", "") or "")
                         self._send_reply(
                             client,
                             cmd_id=cmd_id,
@@ -474,8 +495,8 @@ class IpcController:
                         )
                         continue
 
-                    if str(req.get("type", "")) != "cmd":
-                        cmd_id = str(req.get("cmd_id", "") or "")
+                    if str(req_map.get("type", "")) != "cmd":
+                        cmd_id = str(req_map.get("cmd_id", "") or "")
                         self._send_reply(
                             client,
                             cmd_id=cmd_id,
@@ -485,7 +506,7 @@ class IpcController:
                         )
                         continue
 
-                    cmd_id = str(req.get("cmd_id", "") or "").strip()
+                    cmd_id = str(req_map.get("cmd_id", "") or "").strip()
                     if not cmd_id:
                         self._send_reply(
                             client,
@@ -496,11 +517,11 @@ class IpcController:
                         )
                         continue
 
-                    cmd = str(req.get("cmd", "") or "").strip()
-                    args = req.get("args")
-                    if args is None:
-                        args = {}
-                    if not isinstance(args, dict):
+                    cmd = str(req_map.get("cmd", "") or "").strip()
+                    args_obj = req_map.get("args")
+                    if args_obj is None:
+                        args_obj = {}
+                    if not isinstance(args_obj, dict):
                         self._send_reply(
                             client,
                             cmd_id=cmd_id,
@@ -509,6 +530,8 @@ class IpcController:
                             message="args must be an object",
                         )
                         continue
+
+                    args = cast(dict[object, object], args_obj)
 
                     if cmd == "ping":
                         self._send_reply(client, cmd_id=cmd_id, ok=True, data={"pong": True})
@@ -568,8 +591,8 @@ class IpcController:
                             cmd_id=cmd_id,
                             ok=True,
                             data={
-                                "verbosity": getattr(self._logger, "screen_level", "verbose"),
-                                "log_level": getattr(self._logger, "log_level", "verbose"),
+                                "verbosity": self._logger.screen_level,
+                                "log_level": self._logger.log_level,
                             },
                         )
                         continue
@@ -625,9 +648,31 @@ class IpcController:
                                 message="drain_ack seq must be an integer",
                             )
                             continue
-                        try:
-                            ack_seq = int(raw_seq)
-                        except Exception:
+                        if isinstance(raw_seq, bool):
+                            self._send_reply(
+                                client,
+                                cmd_id=cmd_id,
+                                ok=False,
+                                code="VALIDATION_ERROR",
+                                message="drain_ack seq must be an integer",
+                            )
+                            continue
+                        if isinstance(raw_seq, int):
+                            ack_seq = raw_seq
+                        elif isinstance(raw_seq, str):
+                            text = raw_seq.strip()
+                            try:
+                                ack_seq = int(text)
+                            except ValueError:
+                                self._send_reply(
+                                    client,
+                                    cmd_id=cmd_id,
+                                    ok=False,
+                                    code="VALIDATION_ERROR",
+                                    message="drain_ack seq must be an integer",
+                                )
+                                continue
+                        else:
                             self._send_reply(
                                 client,
                                 cmd_id=cmd_id,
@@ -689,26 +734,39 @@ class IpcController:
         _safe_unlink(sock_path)
 
 
-def resolve_socket_path(*, policy: Any, patch_dir: Path, issue_id: str | None) -> Path | None:
-    global _STARTUP_EXISTS_MODE, _STARTUP_WAIT_S
-    _STARTUP_EXISTS_MODE = (
-        str(getattr(policy, "ipc_socket_on_startup_exists", _STARTUP_EXISTS_MODE)).strip() or "fail"
-    )
-    try:
-        _STARTUP_WAIT_S = int(getattr(policy, "ipc_socket_on_startup_wait_s", 0) or 0)
-    except Exception:
-        _STARTUP_WAIT_S = 0
+def resolve_socket_path(*, policy: object, patch_dir: Path, issue_id: str | None) -> Path | None:
+    global _startup_exists_mode, _startup_wait_s
 
-    enabled = bool(getattr(policy, "ipc_socket_enabled", True))
+    def _policy_attr(name: str, default: object) -> object:
+        return cast(object, getattr(policy, name, default))
+
+    _startup_exists_mode = (
+        str(_policy_attr("ipc_socket_on_startup_exists", _startup_exists_mode)).strip() or "fail"
+    )
+    wait_raw = _policy_attr("ipc_socket_on_startup_wait_s", 0)
+    if isinstance(wait_raw, bool):
+        _startup_wait_s = 0
+    elif isinstance(wait_raw, int):
+        _startup_wait_s = wait_raw
+    elif isinstance(wait_raw, str):
+        text = wait_raw.strip()
+        try:
+            _startup_wait_s = int(text or "0")
+        except ValueError:
+            _startup_wait_s = 0
+    else:
+        _startup_wait_s = 0
+
+    enabled = bool(_policy_attr("ipc_socket_enabled", True))
     if not enabled:
         return None
 
-    explicit = getattr(policy, "ipc_socket_path", None)
+    explicit = _policy_attr("ipc_socket_path", None)
     if explicit:
         return Path(str(explicit))
 
-    mode = str(getattr(policy, "ipc_socket_mode", "patch_dir") or "patch_dir").strip().lower()
-    tpl = str(getattr(policy, "ipc_socket_name_template", "") or "").strip()
+    mode = str(_policy_attr("ipc_socket_mode", "patch_dir") or "patch_dir").strip().lower()
+    tpl = str(_policy_attr("ipc_socket_name_template", "") or "").strip()
     if not tpl:
         tpl = "am_patch_ipc_{issue}_{pid}.sock"
 
@@ -718,13 +776,13 @@ def resolve_socket_path(*, policy: Any, patch_dir: Path, issue_id: str | None) -
         return patch_dir / name
 
     if mode == "base_dir":
-        base = getattr(policy, "ipc_socket_base_dir", None)
+        base = _policy_attr("ipc_socket_base_dir", None)
         if not base:
             return None
         return Path(str(base)) / name
 
     if mode == "system_runtime":
-        base = getattr(policy, "ipc_socket_system_runtime_dir", None)
+        base = _policy_attr("ipc_socket_system_runtime_dir", None)
         if base:
             return Path(str(base)) / name
         return _system_runtime_dir() / name

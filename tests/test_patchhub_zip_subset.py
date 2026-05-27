@@ -4,7 +4,6 @@ import json
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any
 from zipfile import ZipFile
 
 from scripts.patchhub.app_api_jobs import api_jobs_enqueue, api_patch_zip_manifest
@@ -113,12 +112,12 @@ def _cfg() -> AppConfig:
 
 @dataclass
 class _QueueDummy:
-    last_job: Any | None = None
+    last_job: object | None = None
 
-    def enqueue(self, job: Any) -> None:
+    def enqueue(self, job: object) -> None:
         self.last_job = job
 
-    def list_jobs(self) -> list[Any]:
+    def list_jobs(self) -> list[object]:
         return []
 
     def get_job(self, _job_id: str) -> None:

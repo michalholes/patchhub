@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from .errors import RunnerError
 
@@ -24,10 +24,14 @@ def resolve_config_path(cli_config: str | None, runner_root: Path, scripts_dir: 
     return default_config_path(scripts_dir)
 
 
-def _flatten_sections(cfg: dict[str, object]) -> dict[str, object]:
+def _flatten_sections(cfg: object) -> dict[str, object]:
     if not isinstance(cfg, dict):
         return {}
-    out: dict[str, object] = dict(cfg)
+    root = cast(dict[object, object], cfg)
+    out: dict[str, object] = {}
+    for key, value in root.items():
+        if isinstance(key, str):
+            out[key] = value
     for section in (
         "git",
         "paths",
@@ -40,9 +44,10 @@ def _flatten_sections(cfg: dict[str, object]) -> dict[str, object]:
         "logging",
         "audit",
     ):
-        sec = cfg.get(section)
+        sec = root.get(section)
         if isinstance(sec, dict):
-            for key, value in sec.items():
+            sec_map = cast(dict[object, object], sec)
+            for key, value in sec_map.items():
                 if isinstance(key, str):
                     out.setdefault(key, value)
 
@@ -57,10 +62,10 @@ def _flatten_sections(cfg: dict[str, object]) -> dict[str, object]:
     return out
 
 
-def load_config(path: Path) -> tuple[dict[str, Any], bool]:
+def load_config(path: Path) -> tuple[dict[str, object], bool]:
     if not path.exists():
         return {}, False
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    data = cast(object, tomllib.loads(path.read_text(encoding="utf-8")))
     return _flatten_sections(data), True
 
 
@@ -98,7 +103,7 @@ def load_repo_local_config(
     *,
     active_repository_tree_root: Path,
     target_repo_config_relpath: str,
-) -> tuple[dict[str, Any], bool, Path]:
+) -> tuple[dict[str, object], bool, Path]:
     path = resolve_repo_local_config_path(
         active_repository_tree_root=active_repository_tree_root,
         target_repo_config_relpath=target_repo_config_relpath,

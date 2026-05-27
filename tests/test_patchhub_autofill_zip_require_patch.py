@@ -5,7 +5,6 @@ import os
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any
 from zipfile import ZipFile
 
 from scripts.patchhub import app_api_core as api_core
@@ -134,7 +133,7 @@ def _mk_self(
     return _SelfDummy(repo_root=tmp_path, cfg=cfg, jail=jail)
 
 
-def _status_text(payload: dict[str, Any]) -> str:
+def _status_text(payload: dict[str, object]) -> str:
     lines = payload.get("status") or []
     return "\n".join(str(x) for x in lines)
 

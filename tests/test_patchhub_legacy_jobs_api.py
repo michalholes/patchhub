@@ -6,7 +6,6 @@ import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
@@ -28,10 +27,10 @@ class _QueueFalse:
 
 @dataclass
 class _LegacySelf:
-    queue: Any
+    queue: object
 
 
-def _load_repo_cfg() -> Any:
+def _load_repo_cfg() -> object:
     return load_config(
         Path(__file__).resolve().parents[1] / "scripts" / "patchhub" / "patchhub.toml"
     )
@@ -64,21 +63,21 @@ def test_async_app_core_wires_terminate_grace_from_config(tmp_path: Path) -> Non
 
 
 class _QueueJobAsync:
-    def __init__(self, job: Any) -> None:
+    def __init__(self, job: object) -> None:
         self._job = job
 
-    async def get_job(self, job_id: str) -> Any:
+    async def get_job(self, job_id: str) -> object:
         del job_id
         return self._job
 
 
 @dataclass
 class _LegacyJobsSelf:
-    queue: Any
+    queue: object
     patches_root: Path
     jobs_root: Path
 
-    def _load_job_from_disk(self, job_id: str) -> Any:
+    def _load_job_from_disk(self, job_id: str) -> object:
         del job_id
         return None
 
