@@ -5,15 +5,17 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TypeAlias, cast
 
-if TYPE_CHECKING:
-    from .type_aliases import JsonDict, JsonList, as_json_dict
-else:
-    try:
-        from .type_aliases import JsonDict, JsonList, as_json_dict
-    except ImportError:
-        from type_aliases import JsonDict, JsonList, as_json_dict
+JsonDict: TypeAlias = dict[str, object]
+JsonList: TypeAlias = list[JsonDict]
+
+
+def as_json_dict(value: object) -> JsonDict:
+    if not isinstance(value, dict):
+        raise ValueError("expected_json_object")
+    return cast(JsonDict, value)
+
 
 SEPARATOR = "-" * 72
 
