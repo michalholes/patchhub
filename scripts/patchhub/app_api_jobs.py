@@ -4,8 +4,9 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable, Coroutine
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, cast
 
+from . import targeting as _targeting
 from .app_support import _err, _ok, _utc_now, read_tail
 from .command_parse import (
     CommandParseError,
@@ -47,7 +48,6 @@ from .rollback_preflight import (
     validate_source_job_authority,
 )
 from .run_applied_files import collect_job_applied_files
-from .targeting import resolve_targeting_runtime, validate_selected_target_repo
 from .web_jobs_derived import read_effective_log_tail
 from .zip_commit_message import (
     ZipCommitConfig,
@@ -66,8 +66,11 @@ from .zip_patch_subset import (
     validate_selected_patch_entries,
 )
 
+if TYPE_CHECKING:
+    from .asgi.async_app_core import AsyncAppCore
 
-def _try_fill_commit_from_zip(self, patch_path: str) -> str:
+
+def _try_fill_commit_from_zip(self: AsyncAppCore, patch_path: str) -> str:
     if not self.cfg.autofill.zip_commit_enabled:
         return ""
     if Path(patch_path).suffix.lower() != ".zip":
@@ -92,7 +95,7 @@ def _try_fill_commit_from_zip(self, patch_path: str) -> str:
     return msg or ""
 
 
-def _try_fill_issue_from_zip(self, patch_path: str) -> str:
+def _try_fill_issue_from_zip(self: AsyncAppCore, patch_path: str) -> str:
     if not self.cfg.autofill.zip_issue_enabled:
         return ""
     if Path(patch_path).suffix.lower() != ".zip":
@@ -117,32 +120,37 @@ def _try_fill_issue_from_zip(self, patch_path: str) -> str:
     return zid or ""
 
 
-def _targeting_runtime(self):
-    return resolve_targeting_runtime(
+def _targeting_runtime(self: AsyncAppCore) -> _targeting.TargetingRuntime:
+    return _targeting.resolve_targeting_runtime(
         repo_root=self.repo_root,
         runner_config_toml=self.cfg.runner.runner_config_toml,
-        target_cfg=getattr(self.cfg, "targeting", None),
+        target_cfg=cast(_targeting.TargetCfgLike, self.cfg.targeting),
     )
 
 
-def _resolved_target_repo_token(runtime: Any, requested_target_repo: str | None) -> str:
-    token = str(requested_target_repo or "").strip()
+def _resolved_target_repo(runtime: _targeting.TargetingRuntime, requested_repo: str | None) -> str:
+    token = str(requested_repo or "").strip()
     if token:
         return token
     return str(runtime.default_target_repo or "").strip()
 
 
-def _load_job_record_any(self, job_id: str) -> JobRecord | None:
+def _load_job_record_any(self: AsyncAppCore, job_id: str) -> JobRecord | None:
     def current_job_lookup(current_job_id: str) -> JobRecord | None:
         try:
             return _run_queue_get_sync(self.queue.get_job, current_job_id)
         except Exception:
             return None
 
+    try:
+        job_db = self.web_jobs_db
+    except AttributeError:
+        job_db = None
+
     return load_job_record_any_sync(
         job_id,
         current_job_lookup=current_job_lookup,
-        job_db=getattr(self, "web_jobs_db", None),
+        job_db=job_db,
         jobs_root=_legacy_jobs_root(self),
     )
 
@@ -196,7 +204,7 @@ def _zip_target_config() -> ZipTargetConfig:
     )
 
 
-def _resolve_patch_zip_path_for_target(self, patch_path: str) -> Path | None:
+def _resolve_patch_zip_path_for_target(self: AsyncAppCore, patch_path: str) -> Path | None:
     raw = str(patch_path or "").strip()
     if not raw or Path(raw).suffix.lower() != ".zip":
         return None
@@ -213,7 +221,7 @@ def _resolve_patch_zip_path_for_target(self, patch_path: str) -> Path | None:
     return zpath
 
 
-def _read_zip_target_from_patch_path(self, patch_path: str) -> str | None:
+def _read_zip_target_from_patch_path(self: AsyncAppCore, patch_path: str) -> str | None:
     zpath = _resolve_patch_zip_path_for_target(self, patch_path)
     if zpath is None:
         return None
@@ -221,7 +229,7 @@ def _read_zip_target_from_patch_path(self, patch_path: str) -> str | None:
     return value
 
 
-def _selected_patch_entries_from_body(body: dict[str, Any]) -> list[str]:
+def _selected_patch_entries_from_body(body: dict[str, object]) -> list[str]:
     raw = body.get("selected_patch_entries")
     if raw is None:
         return []
@@ -238,7 +246,7 @@ def _selected_patch_entries_from_body(body: dict[str, Any]) -> list[str]:
     return out
 
 
-def _gate_argv_from_body(body: dict[str, Any]) -> list[str]:
+def _gate_argv_from_body(body: dict[str, object]) -> list[str]:
     raw = body.get("gate_argv")
     if raw is None:
         return []
@@ -262,10 +270,14 @@ def _job_commit_message_from_canonical(job: JobRecord) -> str:
 
 
 def _job_commit_message(job: JobRecord) -> str:
-    commit_message = getattr(job, "commit_message", None)
+    commit_message = job.commit_message
     if commit_message:
         return str(commit_message or "")
     return _job_commit_message_from_canonical(job)
+
+
+def _job_created_sort_key(job: JobRecord) -> str:
+    return str(job.created_utc or "")
 
 
 def _job_patch_path_from_canonical(job: JobRecord) -> str | None:
@@ -283,7 +295,7 @@ def _job_resolved_patch_path(job: JobRecord) -> str | None:
     return _job_patch_path_from_canonical(job)
 
 
-def _job_jsonl_path_from_fields(self, job_id: str, mode: str, issue_id: str) -> Path:
+def _job_jsonl_path_from_fields(self: AsyncAppCore, job_id: str, mode: str, issue_id: str) -> Path:
     d = self.jobs_root / str(job_id)
     if mode in ("finalize_live", "finalize_workspace"):
         return d / "am_patch_finalize.jsonl"
@@ -293,22 +305,25 @@ def _job_jsonl_path_from_fields(self, job_id: str, mode: str, issue_id: str) -> 
     return d / "am_patch_finalize.jsonl"
 
 
-def _legacy_jobs_root(self) -> Path | None:
-    source = getattr(self, "jobs_root", None)
-    if isinstance(source, Path):
-        return source
-    return None
+def _legacy_jobs_root(self: AsyncAppCore) -> Path:
+    try:
+        return self.jobs_root
+    except AttributeError:
+        try:
+            return self.patches_root / "artifacts" / "web_jobs"
+        except AttributeError:
+            return Path("patches") / "artifacts" / "web_jobs"
 
 
-def _load_job_from_disk(self, job_id: str) -> JobRecord | None:
+def _load_job_from_disk(self: AsyncAppCore, job_id: str) -> JobRecord | None:
     return load_job_record_from_persistence(
         job_id=str(job_id),
-        job_db=getattr(self, "web_jobs_db", None),
+        job_db=self.web_jobs_db,
         jobs_root=_legacy_jobs_root(self),
     )
 
 
-def _job_jsonl_path(self, job: JobRecord) -> Path:
+def _job_jsonl_path(self: AsyncAppCore, job: JobRecord) -> Path:
     d = self.jobs_root / job.job_id
     if job.mode in ("finalize_live", "finalize_workspace"):
         return d / "am_patch_finalize.jsonl"
@@ -318,15 +333,15 @@ def _job_jsonl_path(self, job: JobRecord) -> Path:
     return d / "am_patch_finalize.jsonl"
 
 
-def _pick_tail_job(self) -> JobRecord | None:
-    jobs = self.queue.list_jobs()
+def _pick_tail_job(self: AsyncAppCore) -> JobRecord | None:
+    jobs = _run_queue_list_sync(self.queue.list_jobs)
     for j in jobs:
         if j.status == "running":
             return j
     return jobs[0] if jobs else None
 
 
-def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
+def _job_detail_json(self: AsyncAppCore, job: JobRecord) -> dict[str, object]:
     payload = job.to_json()
     if "commit_message" not in payload:
         commit_message = _job_commit_message(job)
@@ -356,20 +371,24 @@ def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
             and payload.get("zip_target_repo") != payload.get("selected_target_repo")
         )
 
-    jobs_root = getattr(self, "jobs_root", self.patches_root / "artifacts" / "web_jobs")
+    jobs_root = _legacy_jobs_root(self)
+    try:
+        job_db = self.web_jobs_db
+    except AttributeError:
+        job_db = None
     files, source = collect_job_applied_files(
         patches_root=self.patches_root,
         jobs_root=jobs_root,
         job=job,
-        job_db=getattr(self, "web_jobs_db", None),
+        job_db=job_db,
     )
     payload["applied_files"] = files
     payload["applied_files_source"] = source
     authority = load_job_manifest_authority(
         jobs_root=jobs_root,
         job=job,
-        manifest_loader=job_db_manifest_loader(getattr(self, "web_jobs_db", None)),
-        allow_filesystem_fallback=getattr(self, "web_jobs_db", None) is None,
+        manifest_loader=job_db_manifest_loader(job_db),
+        allow_filesystem_fallback=job_db is None,
     )
     payload["rollback_available"] = bool(authority)
     if isinstance(authority, dict):
@@ -385,7 +404,7 @@ def _job_detail_json(self, job: JobRecord) -> dict[str, Any]:
     return payload
 
 
-def api_patch_zip_manifest(self, qs: dict[str, str]) -> tuple[int, bytes]:
+def api_patch_zip_manifest(self: AsyncAppCore, qs: dict[str, str]) -> tuple[int, bytes]:
     patch_path = str(qs.get("path", "")).strip()
     if not patch_path:
         return _err("Missing path", status=400)
@@ -413,38 +432,40 @@ def api_patch_zip_manifest(self, qs: dict[str, str]) -> tuple[int, bytes]:
     )
 
 
-def _queue_block_reason(self) -> str | None:
-    source = getattr(self, "queue_block_reason", None)
-    if callable(source):
-        try:
-            reason = source()
-        except Exception:
-            return "Backend mode selection is not finished"
-        if reason:
-            return str(reason)
+def _queue_block_reason(self: AsyncAppCore) -> str | None:
+    try:
+        queue_block_reason = self.queue_block_reason
+    except AttributeError:
+        return None
+    try:
+        reason = queue_block_reason()
+    except Exception:
+        return None
+    if reason:
+        return str(reason)
     return None
 
 
 def _all_job_records_for_rollback(
-    self,
+    self: AsyncAppCore,
     source_job: JobRecord,
     *,
     limit: int = 5000,
 ) -> list[JobRecord]:
     return list_rollback_relevant_job_records_sync(
         source_job=source_job,
-        current_jobs=getattr(self.queue, "_jobs", {}).values(),
-        job_db=getattr(self, "web_jobs_db", None),
+        current_jobs=self.queue._jobs.values(),
+        job_db=self.web_jobs_db,
         jobs_root=_legacy_jobs_root(self),
         limit=limit,
     )
 
 
-def _rollback_scope_kind_from_body(body: dict[str, Any]) -> str:
+def _rollback_scope_kind_from_body(body: dict[str, object]) -> str:
     return str(body.get("rollback_scope_kind", "")).strip()
 
 
-def _rollback_selected_paths_from_body(body: dict[str, Any]) -> list[str]:
+def _rollback_selected_paths_from_body(body: dict[str, object]) -> list[str]:
     raw = body.get("rollback_selected_repo_paths")
     if raw is None:
         return []
@@ -461,35 +482,35 @@ def _rollback_selected_paths_from_body(body: dict[str, Any]) -> list[str]:
     return out
 
 
-def _write_rollback_request(job_dir: Path, payload: dict[str, Any]) -> None:
+def _write_rollback_request(job_dir: Path, payload: dict[str, object]) -> None:
     job_dir.mkdir(parents=True, exist_ok=True)
     path = job_dir / "rollback_request.json"
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
 
 
 def _run_source_job_preflight(
-    self,
+    self: AsyncAppCore,
     source_job: JobRecord,
     *,
     scope_kind: str,
     selected_repo_paths: list[str],
-) -> dict[str, Any]:
+) -> dict[str, object]:
     rel_path, manifest_hash, _kind, _source_ref = validate_source_job_authority(source_job)
     return run_rollback_preflight(
         jobs_root=self.jobs_root,
-        target_repo_roots=dict(getattr(self.queue, "_target_repo_roots", {})),
+        target_repo_roots=dict(self.queue._target_repo_roots),
         source_job=source_job,
         source_manifest_rel_path=rel_path,
         source_manifest_hash=manifest_hash,
         scope_kind=scope_kind,
         selected_repo_paths=selected_repo_paths,
         all_jobs=_all_job_records_for_rollback(self, source_job),
-        load_manifest_for_job=job_db_manifest_loader(getattr(self, "web_jobs_db", None)),
-        allow_filesystem_fallback=getattr(self, "web_jobs_db", None) is None,
+        load_manifest_for_job=job_db_manifest_loader(self.web_jobs_db),
+        allow_filesystem_fallback=self.web_jobs_db is None,
     )
 
 
-def _api_jobs_enqueue_rollback(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def _api_jobs_enqueue_rollback(self: AsyncAppCore, body: dict[str, object]) -> tuple[int, bytes]:
     if str(body.get("raw_command", "")).strip():
         return _err("rollback mode MUST NOT consume raw_command", status=400)
     source_job_id = str(body.get("rollback_source_job_id", "")).strip()
@@ -526,15 +547,17 @@ def _api_jobs_enqueue_rollback(self, body: dict[str, Any]) -> tuple[int, bytes]:
     )
     if not commit_summary:
         commit_summary = f"Roll-back {source_job.job_id}"
+    scope = preflight.get("selected_repo_paths")
+    selected_paths = [str(item) for item in scope] if isinstance(scope, list) else []
     try:
         persist_rollback_request_payload(
-            job_db=getattr(self, "web_jobs_db", None),
+            job_db=self.web_jobs_db,
             jobs_root=self.jobs_root,
             job_id=job_id,
             payload={
                 "source_job_id": source_job_id,
                 "scope_kind": str(preflight.get("scope_kind") or ""),
-                "selected_repo_paths": list(preflight.get("selected_repo_paths") or []),
+                "selected_repo_paths": selected_paths,
                 "rollback_preflight_token": token,
             },
         )
@@ -562,7 +585,7 @@ def _api_jobs_enqueue_rollback(self, body: dict[str, Any]) -> tuple[int, bytes]:
     return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})
 
 
-def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_jobs_enqueue(self: AsyncAppCore, body: dict[str, object]) -> tuple[int, bytes]:
     blocked = _queue_block_reason(self)
     if blocked is not None:
         return _err(blocked, status=409)
@@ -612,7 +635,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
         return _err("raw_command cannot be combined with target_repo", status=400)
     if target_repo:
         try:
-            target_repo = validate_selected_target_repo(target_repo, target_options)
+            target_repo = _targeting.validate_selected_target_repo(target_repo, target_options)
         except ValueError as e:
             return _err(str(e), status=400)
 
@@ -634,13 +657,13 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
         effective_patch_kind = "original" if patch_path else None
         if parsed.target_repo:
             try:
-                effective_runner_target_repo = validate_selected_target_repo(
+                effective_runner_target_repo = _targeting.validate_selected_target_repo(
                     parsed.target_repo,
                     target_options,
                 )
             except ValueError as e:
                 return _err(str(e), status=400)
-        effective_runner_target_repo = _resolved_target_repo_token(
+        effective_runner_target_repo = _resolved_target_repo(
             runtime,
             effective_runner_target_repo,
         )
@@ -658,7 +681,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 gate_argv,
                 target_repo=target_repo,
             )
-            effective_runner_target_repo = _resolved_target_repo_token(runtime, target_repo)
+            effective_runner_target_repo = _resolved_target_repo(runtime, target_repo)
         elif mode == "finalize_workspace":
             if not issue_id or not issue_id.isdigit():
                 return _err("Missing/invalid issue_id", status=400)
@@ -671,7 +694,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 gate_argv,
                 target_repo=target_repo,
             )
-            effective_runner_target_repo = _resolved_target_repo_token(runtime, target_repo)
+            effective_runner_target_repo = _resolved_target_repo(runtime, target_repo)
         elif mode == "rerun_latest":
             if not issue_id or not issue_id.isdigit():
                 return _err("Missing/invalid issue_id", status=400)
@@ -686,7 +709,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 gate_argv,
                 target_repo=target_repo,
             )
-            effective_runner_target_repo = _resolved_target_repo_token(runtime, target_repo)
+            effective_runner_target_repo = _resolved_target_repo(runtime, target_repo)
             zip_target_repo = _read_zip_target_from_patch_path(self, patch_path)
         else:
             if not issue_id and patch_path:
@@ -723,10 +746,13 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 except ValueError as e:
                     return _err(str(e), status=400)
 
+                entries_raw = manifest.get("entries")
+                if isinstance(entries_raw, list):
+                    entries = cast(list[dict[str, object]], entries_raw)
+                else:
+                    entries = []
                 all_entries = [
-                    str(item.get("zip_member", ""))
-                    for item in list(manifest.get("entries") or [])
-                    if item.get("selectable")
+                    str(item.get("zip_member", "")) for item in entries if item.get("selectable")
                 ]
                 selected_repo_paths = selected_repo_paths_from_manifest(
                     manifest,
@@ -763,7 +789,7 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
                 gate_argv,
                 target_repo=target_repo,
             )
-            effective_runner_target_repo = _resolved_target_repo_token(runtime, target_repo)
+            effective_runner_target_repo = _resolved_target_repo(runtime, target_repo)
             zip_target_repo = _read_zip_target_from_patch_path(
                 self,
                 str(effective_patch_path or patch_path),
@@ -843,33 +869,34 @@ def api_jobs_enqueue(self, body: dict[str, Any]) -> tuple[int, bytes]:
     return _ok({"job_id": job_id, "job": _job_detail_json(self, job)})
 
 
-def api_jobs_list(self) -> tuple[int, bytes]:
+def api_jobs_list(self: AsyncAppCore) -> tuple[int, bytes]:
+    current_jobs = _run_queue_list_sync(self.queue.list_jobs)
     jobs = list_job_records_any_sync(
-        current_jobs=self.queue.list_jobs(),
-        job_db=getattr(self, "web_jobs_db", None),
+        current_jobs=current_jobs,
+        job_db=self.web_jobs_db,
         jobs_root=_legacy_jobs_root(self),
         limit=200,
     )
-    jobs.sort(key=lambda j: str(j.created_utc or ""), reverse=True)
+    jobs.sort(key=_job_created_sort_key, reverse=True)
     return _ok({"jobs": [job_to_list_item_json(j) for j in jobs]})
 
 
-def api_jobs_get(self, job_id: str) -> tuple[int, bytes]:
+def api_jobs_get(self: AsyncAppCore, job_id: str) -> tuple[int, bytes]:
     job = _load_job_record_any(self, job_id)
     if job is None:
         return _err("Not found", status=404)
     return _ok({"job": _job_detail_json(self, job)})
 
 
-def api_jobs_log_tail(self, job_id: str, qs: dict[str, str]) -> tuple[int, bytes]:
-    job = self.queue.get_job(job_id)
+def api_jobs_log_tail(self: AsyncAppCore, job_id: str, qs: dict[str, str]) -> tuple[int, bytes]:
+    job = _run_queue_get_sync(self.queue.get_job, job_id)
     if job is None:
         job = self._load_job_from_disk(job_id)
     if job is None:
         return _err("Not found", status=404)
     lines = int(qs.get("lines", "200"))
     log_path = self.jobs_root / str(job_id) / "runner.log"
-    if getattr(self, "web_jobs_db", None) is not None:
+    if self.web_jobs_db is not None:
         tail = read_effective_log_tail(self.web_jobs_db, job_id, lines=lines)
     else:
         tail = read_tail(
@@ -881,7 +908,7 @@ def api_jobs_log_tail(self, job_id: str, qs: dict[str, str]) -> tuple[int, bytes
     return _ok({"job_id": job_id, "tail": tail})
 
 
-def api_jobs_revert(self, job_id: str) -> tuple[int, bytes]:
+def api_jobs_revert(self: AsyncAppCore, job_id: str) -> tuple[int, bytes]:
     blocked = _queue_block_reason(self)
     if blocked is not None:
         return _err(blocked, status=409)
@@ -900,7 +927,7 @@ def api_jobs_revert(self, job_id: str) -> tuple[int, bytes]:
     return _ok({"job": _job_detail_json(self, source_job), "rollback": preflight})
 
 
-def api_rollback_preflight(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_rollback_preflight(self: AsyncAppCore, body: dict[str, object]) -> tuple[int, bytes]:
     blocked = _queue_block_reason(self)
     if blocked is not None:
         return _err(blocked, status=409)
@@ -922,7 +949,7 @@ def api_rollback_preflight(self, body: dict[str, Any]) -> tuple[int, bytes]:
     return _ok({"rollback": preflight, "job": _job_detail_json(self, source_job)})
 
 
-def api_rollback_helper_action(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_rollback_helper_action(self: AsyncAppCore, body: dict[str, object]) -> tuple[int, bytes]:
     blocked = _queue_block_reason(self)
     if blocked is not None:
         return _err(blocked, status=409)
@@ -939,12 +966,12 @@ def api_rollback_helper_action(self, body: dict[str, Any]) -> tuple[int, bytes]:
         preflight = run_helper_action(
             action=action,
             jobs_root=self.jobs_root,
-            target_repo_roots=dict(getattr(self.queue, "_target_repo_roots", {})),
+            target_repo_roots=dict(self.queue._target_repo_roots),
             source_job=source_job,
             scope_kind=_rollback_scope_kind_from_body(body),
             selected_repo_paths=_rollback_selected_paths_from_body(body),
             all_jobs=_all_job_records_for_rollback(self, source_job),
-            load_manifest_for_job=job_db_manifest_loader(getattr(self, "web_jobs_db", None)),
+            load_manifest_for_job=job_db_manifest_loader(self.web_jobs_db),
         )
     except (RollbackHelperActionError, RollbackPreflightError, ValueError) as exc:
         return _err(str(exc), status=409)
@@ -952,13 +979,16 @@ def api_rollback_helper_action(self, body: dict[str, Any]) -> tuple[int, bytes]:
 
 
 def _run_queue_bool_sync(
-    fn: Callable[[str], Awaitable[bool]],
+    fn: Callable[[str], bool | Awaitable[bool]],
     job_id: str,
 ) -> bool:
+    result = fn(job_id)
+    if not asyncio.iscoroutine(result):
+        return bool(result)
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        coro = cast("Coroutine[Any, Any, bool]", fn(job_id))
+        coro = cast(Coroutine[object, object, bool], result)
         return bool(asyncio.run(coro))
     raise RuntimeError("Legacy jobs API cannot run inside an active event loop")
 
@@ -972,10 +1002,20 @@ def _run_queue_get_sync(
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            coro = cast("Coroutine[Any, Any, JobRecord | None]", result)
+            coro = cast(Coroutine[object, object, JobRecord | None], result)
             return asyncio.run(coro)
         raise RuntimeError("Legacy jobs API cannot run inside an active event loop")
-    return cast("JobRecord | None", result)
+    return cast(JobRecord | None, result)
+
+
+def _run_queue_list_sync(
+    fn: Callable[[], Coroutine[object, object, list[JobRecord]]],
+) -> list[JobRecord]:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return list(asyncio.run(fn()))
+    raise RuntimeError("Legacy jobs API cannot run inside an active event loop")
 
 
 def _run_queue_enqueue_sync(
@@ -987,13 +1027,13 @@ def _run_queue_enqueue_sync(
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            coro = cast("Coroutine[Any, Any, None]", result)
+            coro = cast(Coroutine[object, object, None], result)
             asyncio.run(coro)
             return
         raise RuntimeError("Legacy jobs API cannot run inside an active event loop")
 
 
-def api_jobs_cancel(self, job_id: str) -> tuple[int, bytes]:
+def api_jobs_cancel(self: AsyncAppCore, job_id: str) -> tuple[int, bytes]:
     try:
         ok = _run_queue_bool_sync(self.queue.cancel, job_id)
     except Exception:
@@ -1003,7 +1043,7 @@ def api_jobs_cancel(self, job_id: str) -> tuple[int, bytes]:
     return _ok({"job_id": job_id})
 
 
-def api_jobs_hard_stop(self, job_id: str) -> tuple[int, bytes]:
+def api_jobs_hard_stop(self: AsyncAppCore, job_id: str) -> tuple[int, bytes]:
     try:
         ok = _run_queue_bool_sync(self.queue.hard_stop, job_id)
     except Exception:

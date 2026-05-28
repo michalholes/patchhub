@@ -9,7 +9,7 @@ import tomllib
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from .models import WebJobsDbConfig
 from .web_jobs_backup import (
@@ -32,7 +32,7 @@ class WebJobsRecoveryResolution:
     mode: str
     job_db: WebJobsDatabase | None
     session_id: str
-    recovery: dict[str, Any]
+    recovery: dict[str, object]
 
 
 _REQUIRED_TABLES = (
@@ -47,17 +47,39 @@ _REQUIRED_TABLES = (
 _BOOTSTRAP_SAFE_MISSING_TABLES = frozenset({"run_stats_meta", "run_stats_seen"})
 
 
+def _obj_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _tuple_of_strings(raw: object, default: tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(raw, list):
+        values = cast(list[object], raw)
+    elif isinstance(raw, tuple):
+        values = list(cast(tuple[object, ...], raw))
+    else:
+        return default
+    items = tuple(str(item).strip() for item in values if str(item).strip())
+    return items or default
+
+
 def load_web_jobs_recovery_settings(repo_root: Path) -> WebJobsRecoverySettings:
     cfg_path = repo_root / "scripts" / "patchhub" / "patchhub.toml"
-    raw: dict[str, Any] = {}
+    raw: dict[str, object] = {}
     if cfg_path.is_file():
-        raw = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-    recovery_raw = raw.get("web_jobs_recovery", {})
-    raw_pref = recovery_raw.get("restore_source_preference")
-    if isinstance(raw_pref, list | tuple):
-        pref = tuple(str(item).strip() for item in raw_pref if str(item).strip())
-    else:
-        pref = ("explicit", "latest_backup", "main_db")
+        parsed: object = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+        raw = _obj_dict(parsed)
+    recovery_raw = _obj_dict(raw.get("web_jobs_recovery"))
+    pref = _tuple_of_strings(
+        recovery_raw.get("restore_source_preference"),
+        ("explicit", "latest_backup", "main_db"),
+    )
     return WebJobsRecoverySettings(restore_source_preference=pref or ("latest_backup",))
 
 
@@ -76,28 +98,28 @@ def _utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def read_runtime_state_file(path: Path) -> dict[str, Any]:
+def read_runtime_state_file(path: Path) -> dict[str, object]:
     if not path.is_file():
         return {}
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload: object = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    return payload if isinstance(payload, dict) else {}
+    return _obj_dict(payload)
 
 
-def write_runtime_state_file(path: Path, payload: dict[str, Any]) -> None:
+def write_runtime_state_file(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
     path.write_text(text, encoding="utf-8")
 
 
-def read_runtime_state(patches_root: Path) -> dict[str, Any]:
+def read_runtime_state(patches_root: Path) -> dict[str, object]:
     return read_runtime_state_file(runtime_state_path(patches_root))
 
 
-def _carry_backup_state(payload: dict[str, Any]) -> dict[str, Any]:
-    kept: dict[str, Any] = {}
+def _carry_backup_state(payload: dict[str, object]) -> dict[str, object]:
+    kept: dict[str, object] = {}
     for key in _BACKUP_STATE_KEYS:
         if key in payload:
             kept[key] = payload[key]
@@ -109,7 +131,7 @@ def record_verified_backup(
     *,
     backup_path: Path,
     status: str = "verified",
-) -> dict[str, Any]:
+) -> dict[str, object]:
     path = runtime_state_path(patches_root)
     payload = read_runtime_state_file(path)
     payload.update(
@@ -123,7 +145,7 @@ def record_verified_backup(
     return payload
 
 
-def begin_startup_session(patches_root: Path) -> tuple[str, bool, Path, dict[str, Any]]:
+def begin_startup_session(patches_root: Path) -> tuple[str, bool, Path, dict[str, object]]:
     marker_path = runtime_state_path(patches_root)
     previous = read_runtime_state_file(marker_path)
     previous_clean = str(previous.get("state", "clean")) == "clean"
@@ -139,7 +161,7 @@ def begin_startup_session(patches_root: Path) -> tuple[str, bool, Path, dict[str
     return session_id, previous_clean, marker_path, previous
 
 
-def mark_shutdown_clean(patches_root: Path, session_id: str, recovery: dict[str, Any]) -> None:
+def mark_shutdown_clean(patches_root: Path, session_id: str, recovery: dict[str, object]) -> None:
     path = runtime_state_path(patches_root)
     previous = read_runtime_state_file(path)
     payload = {
@@ -157,15 +179,20 @@ def _validate_db_path(path: Path) -> tuple[bool, str]:
         return False, "missing"
     try:
         with sqlite3.connect(str(path)) as conn:
-            rows = conn.execute("PRAGMA quick_check").fetchall()
+            rows_obj = cast(object, conn.execute("PRAGMA quick_check").fetchall())
+            rows = cast(list[tuple[object, ...]], rows_obj) if isinstance(rows_obj, list) else []
             if not rows or any(str(row[0]) != "ok" for row in rows):
                 return False, "quick_check_failed"
-            tables = {
-                str(row[0])
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
-            }
+            tables_rows_obj = cast(
+                object,
+                conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall(),
+            )
+            table_rows = (
+                cast(list[tuple[object, ...]], tables_rows_obj)
+                if isinstance(tables_rows_obj, list)
+                else []
+            )
+            tables = {str(row[0]) for row in table_rows if row}
     except sqlite3.DatabaseError as exc:
         return False, f"database_error:{type(exc).__name__}:{exc}"
     except OSError as exc:
@@ -197,6 +224,7 @@ def _restore_main_db_from_backup(db_cfg: WebJobsDbConfig, source: Path) -> None:
         prefix=db_cfg.db_path.name + ".restore.",
         dir=str(db_cfg.db_path.parent),
     )
+    os.close(tmp_fd)
     Path(tmp_name).unlink(missing_ok=True)
     Path(tmp_name).parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -285,7 +313,7 @@ def resolve_web_jobs_backend(
         db_cfg,
     )
     session_id, previous_clean, marker_path, _previous = begin_startup_session(patches_root)
-    recovery: dict[str, Any] = {
+    recovery: dict[str, object] = {
         "status": "resolving",
         "marker_path": str(marker_path),
         "session_id": session_id,
@@ -389,7 +417,12 @@ def resolve_web_jobs_backend(
                 session_id=session_id,
                 recovery=recovery,
             )
-        recovery.setdefault("fallback_export_errors", []).append(source_info)
+        errors_raw = recovery.get("fallback_export_errors")
+        if not isinstance(errors_raw, list):
+            recovery["fallback_export_errors"] = []
+            errors_raw = recovery["fallback_export_errors"]
+        errors = cast(list[object], errors_raw)
+        errors.append(source_info)
 
     if _count_legacy_jobs(jobs_root) > 0:
         recovery["status"] = "ok"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from hashlib import sha1
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from fastapi import Request
 from fastapi.responses import Response
@@ -22,7 +22,7 @@ def _etag_matches(if_none_match: str | None, etag_value: str) -> bool:
     return str(if_none_match).strip() == etag_value
 
 
-def _diagnostics_sig(body: dict[str, Any]) -> str:
+def _diagnostics_sig(body: dict[str, object]) -> str:
     payload = json.dumps(
         body,
         sort_keys=True,

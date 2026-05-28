@@ -5,7 +5,7 @@ import tomllib
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, TypeAlias, cast, runtime_checkable
 
 if TYPE_CHECKING:
     from .models import JobRecord, WebJobsDbConfig
@@ -25,57 +25,144 @@ class RetentionSettings:
     reclaim_min_pruned_rows: int
 
 
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    try:
+        return int(str(value if value is not None else default))
+    except Exception:
+        return default
+
+
+SqlParams: TypeAlias = tuple[object, ...]
+
+
+@runtime_checkable
+class _RowLike(Protocol):
+    def keys(self) -> object: ...
+
+    def __getitem__(self, key: object) -> object: ...
+
+
+def _row_dict(value: object) -> dict[str, object]:
+    row = _obj_dict(value)
+    if row is not None:
+        return row
+    if not isinstance(value, _RowLike):
+        return {}
+    out: dict[str, object] = {}
+    with suppress(Exception):
+        keys_obj = value.keys()
+        keys_raw = _obj_list(keys_obj)
+        for key_raw in keys_raw:
+            key = str(key_raw)
+            out[key] = value[key]
+    return out
+
+
+def _row_dicts(value: object) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for row in _obj_list(value):
+        out.append(_row_dict(row))
+    return out
+
+
+def _as_str(value: object, default: str = "") -> str:
+    text = str(value if value is not None else default)
+    return text
+
+
+def _query_one_dict(
+    conn: sqlite3.Connection,
+    sql: str,
+    params: SqlParams = (),
+) -> dict[str, object]:
+    row_obj = cast(object, conn.execute(sql, params).fetchone())
+    return _row_dict(row_obj)
+
+
+def _query_all_dicts(
+    conn: sqlite3.Connection,
+    sql: str,
+    params: SqlParams = (),
+) -> list[dict[str, object]]:
+    rows_obj = cast(object, conn.execute(sql, params).fetchall())
+    return _row_dicts(rows_obj)
+
+
 def load_retention_settings(cfg: WebJobsDbConfig) -> RetentionSettings:
     cfg_path = cfg.db_path.parents[2] / "scripts" / "patchhub" / "patchhub.toml"
     raw: dict[str, object] = {}
     if cfg_path.is_file():
-        raw = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-    block = raw.get("web_jobs_retention", {})
-    if not isinstance(block, dict):
+        parsed: object = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+        loaded = _obj_dict(parsed)
+        raw = loaded if loaded is not None else {}
+    block_obj = raw.get("web_jobs_retention", {})
+    block = _obj_dict(block_obj)
+    if block is None:
         block = {}
     return RetentionSettings(
         max_completed_log_lines=max(
             1,
-            int(
+            _as_int(
                 block.get(
                     "max_completed_job_raw_log_lines",
                     cfg.retention_thresholds.get("compact_after_log_lines", 100000),
-                )
+                ),
+                cfg.retention_thresholds.get("compact_after_log_lines", 100000),
             ),
         ),
         max_completed_event_lines=max(
             1,
-            int(
+            _as_int(
                 block.get(
                     "max_completed_job_raw_event_lines",
                     cfg.retention_thresholds.get("compact_after_event_lines", 100000),
-                )
+                ),
+                cfg.retention_thresholds.get("compact_after_event_lines", 100000),
             ),
         ),
         max_completed_age_days=max(
             0,
-            int(
+            _as_int(
                 block.get(
                     "max_completed_job_raw_age_days",
                     cfg.retention_defaults.get("logs_keep_days", 30),
-                )
+                ),
+                cfg.retention_defaults.get("logs_keep_days", 30),
             ),
         ),
         keep_recent_terminal_per_mode=max(
             0,
-            int(
+            _as_int(
                 block.get(
                     "keep_recent_terminal_jobs_per_mode",
                     cfg.retention_thresholds.get("compact_after_jobs", 0),
-                )
+                ),
+                cfg.retention_thresholds.get("compact_after_jobs", 0),
             ),
         ),
-        compact_tail_lines=max(1, int(block.get("compact_tail_lines", 200))),
+        compact_tail_lines=max(1, _as_int(block.get("compact_tail_lines", 200), 200)),
         reclaim_trigger_policy=str(
             block.get("reclaim_trigger_policy", "after_compaction") or "manual"
         ),
-        reclaim_interval_seconds=max(0, int(block.get("reclaim_interval_seconds", 0))),
-        reclaim_min_pruned_rows=max(1, int(block.get("reclaim_min_pruned_rows", 1))),
+        reclaim_interval_seconds=max(0, _as_int(block.get("reclaim_interval_seconds", 0), 0)),
+        reclaim_min_pruned_rows=max(1, _as_int(block.get("reclaim_min_pruned_rows", 1), 1)),
     )
 
 
@@ -96,11 +183,12 @@ def _now_parts() -> tuple[str, int]:
 
 
 def _count_rows(conn: sqlite3.Connection, table: str, job_id: str) -> int:
-    row = conn.execute(
+    row = _query_one_dict(
+        conn,
         f"SELECT COUNT(*) AS n FROM {table} WHERE job_id = ?",
         (str(job_id),),
-    ).fetchone()
-    return int(row["n"]) if row is not None else 0
+    )
+    return _as_int(row.get("n"), 0)
 
 
 def _tail_text(
@@ -111,7 +199,8 @@ def _tail_text(
     column: str,
     lines: int,
 ) -> str:
-    rows = conn.execute(
+    rows = _query_all_dicts(
+        conn,
         f"""
         SELECT {column} FROM {table}
          WHERE job_id = ?
@@ -119,14 +208,17 @@ def _tail_text(
          LIMIT ?
         """,
         (str(job_id), max(1, int(lines))),
-    ).fetchall()
-    return "\n".join(str(row[column]) for row in reversed(rows))
+    )
+    out: list[str] = []
+    for row in reversed(rows):
+        out.append(_as_str(row.get(column), ""))
+    return "\n".join(out)
 
 
-def _age_eligible(row: sqlite3.Row, settings: RetentionSettings, now_ms: int) -> bool:
+def _age_eligible(row: dict[str, object], settings: RetentionSettings, now_ms: int) -> bool:
     if settings.max_completed_age_days <= 0:
         return False
-    terminal_ms = _utc_ms(str(row["ended_utc"] or row["created_utc"] or ""))
+    terminal_ms = _utc_ms(_as_str(row.get("ended_utc") or row.get("created_utc"), ""))
     if terminal_ms <= 0:
         return False
     max_age_ms = settings.max_completed_age_days * 24 * 60 * 60 * 1000
@@ -136,21 +228,23 @@ def _age_eligible(row: sqlite3.Row, settings: RetentionSettings, now_ms: int) ->
 def _upsert_compact_derived(
     conn: sqlite3.Connection,
     *,
-    row: sqlite3.Row,
+    row: dict[str, object],
     settings: RetentionSettings,
     raw_log_count: int,
     raw_event_count: int,
 ) -> None:
-    derived = conn.execute(
+    derived = _query_one_dict(
+        conn,
         (
             "SELECT applied_files_json, applied_files_source, derived_rev, "
             "created_utc, created_unix_ms FROM web_job_derived WHERE job_id = ?"
         ),
         (str(row["job_id"]),),
-    ).fetchone()
+    )
     updated_utc, updated_unix_ms = _now_parts()
-    created_utc = str(derived["created_utc"]) if derived is not None else updated_utc
-    created_unix_ms = int(derived["created_unix_ms"]) if derived is not None else updated_unix_ms
+    has_derived = bool(derived)
+    created_utc = _as_str(derived.get("created_utc"), updated_utc) if has_derived else updated_utc
+    created_unix_ms = _as_int(derived.get("created_unix_ms"), updated_unix_ms)
     conn.execute(
         """
         INSERT INTO web_job_derived(
@@ -187,12 +281,14 @@ def _upsert_compact_derived(
         (
             str(row["job_id"]),
             str(
-                derived["applied_files_json"] if derived is not None else row["applied_files_json"]
+                derived.get("applied_files_json")
+                if has_derived
+                else row.get("applied_files_json", "")
             ),
             str(
-                derived["applied_files_source"]
-                if derived is not None
-                else row["applied_files_source"]
+                derived.get("applied_files_source")
+                if has_derived
+                else row.get("applied_files_source", "")
             ),
             _tail_text(
                 conn,
@@ -208,16 +304,16 @@ def _upsert_compact_derived(
                 column="raw_line",
                 lines=settings.compact_tail_lines,
             ),
-            (int(derived["derived_rev"]) if derived is not None else 0) + 1,
+            (_as_int(derived.get("derived_rev"), 0) if has_derived else 0) + 1,
             created_utc,
             created_unix_ms,
             updated_utc,
             updated_unix_ms,
-            int(row["row_rev"]),
+            _as_int(row.get("row_rev"), 0),
             raw_log_count,
             raw_event_count,
-            str(row["status"]),
-            str(row["ended_utc"] or row["created_utc"] or ""),
+            _as_str(row.get("status"), ""),
+            _as_str(row.get("ended_utc") or row.get("created_utc"), ""),
         ),
     )
 
@@ -231,10 +327,11 @@ def _maybe_reclaim(conn: sqlite3.Connection, settings: RetentionSettings, pruned
         "after_compaction_or_interval",
     }:
         return False
-    row = conn.execute(
-        "SELECT last_reclaim_unix_ms FROM web_jobs_housekeeping WHERE singleton = 1"
-    ).fetchone()
-    last_reclaim_ms = int(row["last_reclaim_unix_ms"]) if row is not None else 0
+    row = _query_one_dict(
+        conn,
+        "SELECT last_reclaim_unix_ms FROM web_jobs_housekeeping WHERE singleton = 1",
+    )
+    last_reclaim_ms = _as_int(row.get("last_reclaim_unix_ms"), 0)
     interval_ms = max(0, settings.reclaim_interval_seconds) * 1000
     now_ms = _now_parts()[1]
     if interval_ms > 0 and now_ms - last_reclaim_ms < interval_ms:
@@ -257,13 +354,14 @@ def maybe_compact_terminal_job(
     if str(job.status) not in _TERMINAL_STATUSES:
         return
     settings = load_retention_settings(cfg)
-    rows = conn.execute(
+    rows = _query_all_dicts(
+        conn,
         """
         SELECT * FROM web_jobs
          WHERE status IN ('success', 'fail', 'canceled')
          ORDER BY created_unix_ms DESC, job_id DESC
-        """
-    ).fetchall()
+        """,
+    )
     if not rows:
         return
 
@@ -271,12 +369,12 @@ def maybe_compact_terminal_job(
     recent_by_mode: dict[str, int] = {}
     compacted_jobs = pruned_log_rows = pruned_event_rows = 0
     for row in rows:
-        mode = str(row["mode"])
+        mode = _as_str(row.get("mode"), "")
         seen = recent_by_mode.get(mode, 0)
         if seen < settings.keep_recent_terminal_per_mode:
             recent_by_mode[mode] = seen + 1
             continue
-        job_id = str(row["job_id"])
+        job_id = _as_str(row.get("job_id"), "")
         raw_log_count = _count_rows(conn, "web_job_log_lines", job_id)
         raw_event_count = _count_rows(conn, "web_job_event_lines", job_id)
         if raw_log_count <= 0 and raw_event_count <= 0:

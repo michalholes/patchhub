@@ -5,11 +5,18 @@ import fcntl
 import os
 import tempfile
 import tomllib
-from dataclasses import fields
 from pathlib import Path
-from typing import Any, cast, get_args, get_origin, get_type_hints
+from typing import Protocol
 
 from patchhub.app_support import _err, _json_bytes, _ok
+from patchhub.config import AppConfig
+from patchhub.fs_jail import FsJail
+
+
+class AmpApiContext(Protocol):
+    repo_root: Path
+    cfg: AppConfig
+    jail: FsJail
 
 
 def _is_lock_held(lock_path: Path) -> bool:
@@ -28,66 +35,113 @@ def _is_lock_held(lock_path: Path) -> bool:
         fd.close()
 
 
-def _runner_config_path(repo_root: Path, cfg: Any) -> Path:
-    rel = str(getattr(getattr(cfg, "runner", object()), "runner_config_toml", "")).strip()
+def _runner_config_path(repo_root: Path, cfg: AppConfig) -> Path:
+    rel = str(cfg.runner.runner_config_toml).strip()
     if not rel:
         raise ValueError("missing runner_config_toml")
     return (repo_root / rel).resolve()
 
 
-def _norm_type(tp: object) -> str | None:
-    # Policy fields use plain types and optionals (e.g., str | None).
-    # We support: bool, int, str, list[str] (and Optional variants of them).
-    if tp in (bool, int, str):
-        return cast(str, getattr(tp, "__name__", None))
+def _normalize_policy_value(value: object, default_value: object) -> object | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return [str(item) for item in value]
 
-    origin = get_origin(tp)
-    args = get_args(tp)
-
-    # Optional[T] / Union[T, None]
-    if origin is None and args:
-        # PEP 604 union types may expose args without origin.
-        non_none = [a for a in args if a is not type(None)]  # noqa: E721
-        if len(non_none) == 1:
-            return _norm_type(non_none[0])
-
-    if origin in (list,) and len(args) == 1 and args[0] is str:
-        return "list_str"
+    if value is None:
+        if isinstance(default_value, bool):
+            return False
+        if isinstance(default_value, int) and not isinstance(default_value, bool):
+            return 0
+        if isinstance(default_value, str):
+            return ""
+        if isinstance(default_value, list) and all(isinstance(item, str) for item in default_value):
+            return []
+        return None
 
     return None
 
 
-def _read_policy_values(cfg_path: Path, *, allowed_keys: set[str] | None = None) -> dict[str, Any]:
-    from am_patch.config import Policy, build_policy, load_config
+def _object_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, object] = {}
+    for key, item in value.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
 
-    tmap = get_type_hints(Policy)
 
-    flat, ok = load_config(cfg_path)
+def _policy_snapshot(policy_obj: object) -> dict[str, object]:
+    raw_obj: object
+    try:
+        raw_obj = policy_obj.__dict__
+    except Exception:
+        return {}
+    if not isinstance(raw_obj, dict):
+        return {}
+    out: dict[str, object] = {}
+    for key, item in raw_obj.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _load_config_safe(cfg_path: Path) -> tuple[dict[str, object], bool]:
+    from am_patch.config import load_config
+
+    loaded: object = load_config(cfg_path)
+    if not isinstance(loaded, tuple) or len(loaded) != 2:
+        return {}, False
+    flat_raw, ok_raw = loaded
+    return _object_mapping(flat_raw), bool(ok_raw)
+
+
+def _flatten_sections_safe(data: object) -> dict[str, object]:
+    from am_patch.config import _flatten_sections
+
+    flattened: object = _flatten_sections(data)
+    return _object_mapping(flattened)
+
+
+def _policy_keys(policy_obj: object, allowed_keys: set[str] | None = None) -> list[str]:
+    out: list[str] = []
+    for key in _policy_snapshot(policy_obj):
+        if key == "_src":
+            continue
+        if allowed_keys is not None and key not in allowed_keys:
+            continue
+        out.append(str(key))
+    return out
+
+
+def _read_policy_values(
+    cfg_path: Path,
+    *,
+    allowed_keys: set[str] | None = None,
+) -> dict[str, object]:
+    from am_patch.config import Policy, build_policy
+
+    flat, ok = _load_config_safe(cfg_path)
     if not ok:
         flat = {}
-    p = build_policy(Policy(), flat)
+    defaults = Policy()
+    p = build_policy(defaults, flat)
+    defaults_map = _policy_snapshot(defaults)
+    current_map = _policy_snapshot(p)
 
-    out: dict[str, Any] = {}
-    for f in fields(Policy):
-        if f.name == "_src":
-            continue
-        if allowed_keys is not None and f.name not in allowed_keys:
-            continue
-        tp = tmap.get(f.name, f.type)
-        norm = _norm_type(tp)
-        if norm is None:
-            continue
-        v = getattr(p, f.name)
-        if v is None:
-            if norm in ("str",):
-                v = ""
-            elif norm == "list_str":
-                v = []
-            elif norm == "bool":
-                v = False
-            elif norm == "int":
-                v = 0
-        out[f.name] = v
+    out: dict[str, object] = {}
+    for key in _policy_keys(defaults, allowed_keys):
+        normalized = _normalize_policy_value(
+            current_map.get(key),
+            defaults_map.get(key),
+        )
+        if normalized is not None:
+            out[key] = normalized
     return out
 
 
@@ -95,50 +149,39 @@ def _read_policy_values_from_text(
     text: str,
     *,
     allowed_keys: set[str] | None = None,
-) -> dict[str, Any]:
-    from am_patch.config import Policy, _flatten_sections, build_policy
+) -> dict[str, object]:
+    from am_patch.config import Policy, build_policy
 
-    tmap = get_type_hints(Policy)
+    data: object = tomllib.loads(text)
+    flat = _flatten_sections_safe(data)
+    defaults = Policy()
+    p = build_policy(defaults, flat)
+    defaults_map = _policy_snapshot(defaults)
+    current_map = _policy_snapshot(p)
 
-    data = tomllib.loads(text)
-    flat = _flatten_sections(data)
-    p = build_policy(Policy(), flat)
-
-    out: dict[str, Any] = {}
-    for f in fields(Policy):
-        if f.name == "_src":
-            continue
-        if allowed_keys is not None and f.name not in allowed_keys:
-            continue
-        tp = tmap.get(f.name, f.type)
-        norm = _norm_type(tp)
-        if norm is None:
-            continue
-        v = getattr(p, f.name)
-        if v is None:
-            if norm in ("str",):
-                v = ""
-            elif norm == "list_str":
-                v = []
-            elif norm == "bool":
-                v = False
-            elif norm == "int":
-                v = 0
-        out[f.name] = v
+    out: dict[str, object] = {}
+    for key in _policy_keys(defaults, allowed_keys):
+        normalized = _normalize_policy_value(
+            current_map.get(key),
+            defaults_map.get(key),
+        )
+        if normalized is not None:
+            out[key] = normalized
     return out
 
 
-def api_amp_schema(self) -> tuple[int, bytes]:
+def api_amp_schema(self: AmpApiContext) -> tuple[int, bytes]:
     from am_patch.config_schema import get_bootstrap_policy_schema
 
     schema = get_bootstrap_policy_schema()
     policy = schema.get("policy")
     if not isinstance(policy, dict):
         return _err("amp_schema_invalid: policy missing")
+    policy_map = _object_mapping(policy)
 
     allowed_types = {"bool", "int", "str", "optional[str]", "list[str]"}
-    editable: dict[str, Any] = {}
-    for key, item in policy.items():
+    editable: dict[str, object] = {}
+    for key, item in policy_map.items():
         if key == "json_out":
             continue
         if not isinstance(item, dict):
@@ -153,7 +196,7 @@ def api_amp_schema(self) -> tuple[int, bytes]:
     return _ok({"schema": schema})
 
 
-def api_amp_config_get(self) -> tuple[int, bytes]:
+def api_amp_config_get(self: AmpApiContext) -> tuple[int, bytes]:
     try:
         cfg_path = _runner_config_path(self.repo_root, self.cfg)
         from am_patch.config import BOOTSTRAP_OWNED_KEYS
@@ -165,7 +208,7 @@ def api_amp_config_get(self) -> tuple[int, bytes]:
     return _ok({"values": values})
 
 
-def api_amp_config_post(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_amp_config_post(self: AmpApiContext, body: dict[str, object]) -> tuple[int, bytes]:
     if _is_lock_held(self.jail.lock_path()):
         return _json_bytes({"ok": False, "error": "Runner active (lock held)"}, status=409)
 

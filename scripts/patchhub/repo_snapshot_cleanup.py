@@ -82,10 +82,18 @@ class CleanupPhaseDetail:
 _ALLOWED_AGE_DIRECTORY_SET = set(_ALLOWED_AGE_DIRECTORIES)
 
 
+def _candidate_desc_key(item: CleanupCandidate) -> tuple[int, str]:
+    return -int(item.mtime_ns), str(item.basename)
+
+
+def _candidate_basename_key(item: CleanupCandidate) -> str:
+    return str(item.basename)
+
+
 def _sorted_candidates(
     items: list[CleanupCandidate],
 ) -> list[CleanupCandidate]:
-    return sorted(items, key=lambda item: (-item.mtime_ns, item.basename))
+    return sorted(items, key=_candidate_desc_key)
 
 
 def _scan_direct_child_regular_files(root: Path) -> list[CleanupCandidate]:
@@ -110,7 +118,7 @@ def _scan_direct_child_regular_files(root: Path) -> list[CleanupCandidate]:
             CleanupCandidate(
                 path=entry,
                 basename=entry.name,
-                mtime_ns=int(getattr(entry_stat, "st_mtime_ns", 0)),
+                mtime_ns=int(entry_stat.st_mtime_ns),
             )
         )
     return out
@@ -135,7 +143,7 @@ def _assign_candidates(
     config: RepoSnapshotCleanupConfig,
 ) -> list[list[CleanupCandidate]]:
     assigned: list[list[CleanupCandidate]] = [[] for _ in config.rules]
-    for candidate in sorted(candidates, key=lambda item: item.basename):
+    for candidate in sorted(candidates, key=_candidate_basename_key):
         for idx, rule in enumerate(config.rules):
             if fnmatch.fnmatchcase(candidate.basename, rule.filename_pattern):
                 assigned[idx].append(candidate)

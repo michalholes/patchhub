@@ -4,12 +4,24 @@ import argparse
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast
 
-from .models import JobRecord, coerce_job_mode, coerce_job_status
+from .models import (
+    JobRecord,
+    LegacyJobSnapshot,
+    WebJobsDbConfig,
+    coerce_job_mode,
+    coerce_job_status,
+)
 from .web_jobs_db import WebJobsDatabase, load_web_jobs_db_config
 from .web_jobs_legacy_fs import iter_legacy_job_dirs, read_legacy_job_snapshot
 from .web_jobs_recovery import record_verified_backup
+
+
+class MigrationCliArgs(Protocol):
+    command: str
+    source: str
+    dest: str
 
 
 def _repo_root() -> Path:
@@ -24,7 +36,36 @@ def _jobs_root(repo_root: Path) -> Path:
     return _patches_root(repo_root) / "artifacts" / "web_jobs"
 
 
-def _build_cfg(repo_root: Path):
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    try:
+        return int(str(value or default))
+    except Exception:
+        return default
+
+
+def _as_optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(str(value))
+    except Exception:
+        return None
+
+
+def _as_optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
+def _build_cfg(repo_root: Path) -> WebJobsDbConfig:
     return load_web_jobs_db_config(repo_root, _patches_root(repo_root))
 
 
@@ -33,41 +74,42 @@ def _build_db(repo_root: Path) -> WebJobsDatabase:
     return WebJobsDatabase(cfg)
 
 
-def _snapshot_to_job(snapshot: Any) -> JobRecord:
-    raw = dict(snapshot.job_json or {})
+def _snapshot_to_job(snapshot: LegacyJobSnapshot) -> JobRecord:
+    raw: dict[str, object] = dict(snapshot.job_json) if snapshot.job_json is not None else {}
+    patch_basename = _as_optional_str(raw.get("patch_basename"))
     return JobRecord(
         job_id=str(raw.get("job_id", snapshot.job_id)),
         created_utc=str(raw.get("created_utc", "")),
-        created_unix_ms=int(raw.get("created_unix_ms", 0) or 0),
+        created_unix_ms=_as_int(raw.get("created_unix_ms", 0), 0),
         mode=coerce_job_mode(raw.get("mode", "patch")),
         issue_id=str(raw.get("issue_id", "")),
         commit_summary=str(raw.get("commit_summary", "")),
-        patch_basename=raw.get("patch_basename"),
+        patch_basename=patch_basename,
         raw_command=str(raw.get("raw_command", "")),
-        canonical_command=[str(item) for item in list(raw.get("canonical_command") or [])],
+        canonical_command=[str(item) for item in _obj_list(raw.get("canonical_command"))],
         status=coerce_job_status(raw.get("status", "unknown")),
-        started_utc=raw.get("started_utc"),
-        ended_utc=raw.get("ended_utc"),
-        return_code=raw.get("return_code"),
-        error=raw.get("error"),
-        cancel_requested_utc=raw.get("cancel_requested_utc"),
-        cancel_ack_utc=raw.get("cancel_ack_utc"),
-        cancel_source=raw.get("cancel_source"),
-        original_patch_path=raw.get("original_patch_path"),
-        effective_patch_path=raw.get("effective_patch_path"),
-        effective_patch_kind=raw.get("effective_patch_kind"),
-        selected_patch_entries=[str(x) for x in list(raw.get("selected_patch_entries") or [])],
-        selected_repo_paths=[str(x) for x in list(raw.get("selected_repo_paths") or [])],
-        applied_files=[str(x) for x in list(raw.get("applied_files") or [])],
+        started_utc=_as_optional_str(raw.get("started_utc")),
+        ended_utc=_as_optional_str(raw.get("ended_utc")),
+        return_code=_as_optional_int(raw.get("return_code")),
+        error=_as_optional_str(raw.get("error")),
+        cancel_requested_utc=_as_optional_str(raw.get("cancel_requested_utc")),
+        cancel_ack_utc=_as_optional_str(raw.get("cancel_ack_utc")),
+        cancel_source=_as_optional_str(raw.get("cancel_source")),
+        original_patch_path=_as_optional_str(raw.get("original_patch_path")),
+        effective_patch_path=_as_optional_str(raw.get("effective_patch_path")),
+        effective_patch_kind=_as_optional_str(raw.get("effective_patch_kind")),
+        selected_patch_entries=[str(x) for x in _obj_list(raw.get("selected_patch_entries"))],
+        selected_repo_paths=[str(x) for x in _obj_list(raw.get("selected_repo_paths"))],
+        applied_files=[str(x) for x in _obj_list(raw.get("applied_files"))],
         applied_files_source=str(raw.get("applied_files_source", "unavailable")),
-        last_log_seq=int(raw.get("last_log_seq", 0) or 0),
-        last_event_seq=int(raw.get("last_event_seq", 0) or 0),
-        row_rev=int(raw.get("row_rev", 0) or 0),
+        last_log_seq=_as_int(raw.get("last_log_seq", 0), 0),
+        last_event_seq=_as_int(raw.get("last_event_seq", 0), 0),
+        row_rev=_as_int(raw.get("row_rev", 0), 0),
     )
 
 
-def _scan(repo_root: Path) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
+def _scan(repo_root: Path) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
     for job_dir in iter_legacy_job_dirs(_jobs_root(repo_root)):
         snapshot = read_legacy_job_snapshot(job_dir)
         items.append(
@@ -121,7 +163,11 @@ def _latest_backup_path(repo_root: Path) -> Path | None:
     matches = [path for path in parent.glob(name_glob) if path.is_file()]
     if not matches:
         return None
-    matches.sort(key=lambda path: path.stat().st_mtime_ns, reverse=True)
+
+    def _path_mtime_key(path: Path) -> int:
+        return int(path.stat().st_mtime_ns)
+
+    matches.sort(key=_path_mtime_key, reverse=True)
     return matches[0]
 
 
@@ -144,9 +190,9 @@ def _resolve_restore_source(repo_root: Path, source: Path | None) -> Path:
     raise FileNotFoundError("No configured web_jobs restore source is available")
 
 
-def _verify(repo_root: Path) -> list[dict[str, Any]]:
+def _verify(repo_root: Path) -> list[dict[str, object]]:
     db = _build_db(repo_root)
-    out: list[dict[str, Any]] = []
+    out: list[dict[str, object]] = []
     for job_dir in iter_legacy_job_dirs(_jobs_root(repo_root)):
         snapshot = read_legacy_job_snapshot(job_dir)
         expected_job = (
@@ -171,7 +217,7 @@ def _verify(repo_root: Path) -> list[dict[str, Any]]:
             expected_job.setdefault("rollback_authority_kind", None)
             expected_job.setdefault("rollback_authority_source_ref", None)
             if db_job is not None and "row_rev" in db_job:
-                expected_job["row_rev"] = int(db_job.get("row_rev", 0) or 0)
+                expected_job["row_rev"] = _as_int(db_job.get("row_rev", 0), 0)
         ok = (
             expected_job is not None
             and db_job == expected_job
@@ -188,12 +234,15 @@ def _cleanup(repo_root: Path) -> list[str]:
         raise RuntimeError("web_jobs cleanup is disabled by config")
     removed: list[str] = []
     for item in _verify(repo_root):
-        if not item["ok"]:
+        if not bool(item.get("ok", False)):
             continue
-        job_dir = _jobs_root(repo_root) / str(item["job_id"])
+        job_id = str(item.get("job_id", "")).strip()
+        if not job_id:
+            continue
+        job_dir = _jobs_root(repo_root) / job_id
         if job_dir.exists():
             shutil.rmtree(job_dir)
-            removed.append(str(item["job_id"]))
+            removed.append(job_id)
     return removed
 
 
@@ -237,38 +286,48 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--source", default="")
     parser.add_argument("--dest", default="")
-    ns = parser.parse_args(argv)
+    ns = cast(MigrationCliArgs, parser.parse_args(argv))
+    command = str(ns.command)
+    source_arg = str(ns.source)
+    dest_arg = str(ns.dest)
     repo_root = _repo_root()
-    if ns.command == "scan":
-        print(json.dumps({"items": _scan(repo_root)}, ensure_ascii=True, indent=2))
+    if command == "scan":
+        payload: dict[str, object] = {"items": _scan(repo_root)}
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0
-    if ns.command == "migrate":
-        print(json.dumps({"imported": _migrate(repo_root)}, ensure_ascii=True, indent=2))
+    if command == "migrate":
+        payload = {"imported": _migrate(repo_root)}
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0
-    if ns.command == "verify":
-        print(json.dumps({"items": _verify(repo_root)}, ensure_ascii=True, indent=2))
+    if command == "verify":
+        payload = {"items": _verify(repo_root)}
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0
-    if ns.command == "cleanup":
-        print(json.dumps({"removed": _cleanup(repo_root)}, ensure_ascii=True, indent=2))
+    if command == "cleanup":
+        payload = {"removed": _cleanup(repo_root)}
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0
-    if ns.command == "backup":
-        print(json.dumps({"backup": _backup(repo_root)}, ensure_ascii=True, indent=2))
+    if command == "backup":
+        payload = {"backup": _backup(repo_root)}
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0
-    if ns.command == "restore":
-        source = Path(ns.source) if ns.source else None
+    if command == "restore":
+        source = Path(source_arg) if source_arg else None
+        payload = {"restored": _restore(repo_root, source)}
         print(
             json.dumps(
-                {"restored": _restore(repo_root, source)},
+                payload,
                 ensure_ascii=True,
                 indent=2,
             )
         )
         return 0
-    if ns.command == "export_legacy":
-        target = Path(ns.dest) if ns.dest else None
+    if command == "export_legacy":
+        target = Path(dest_arg) if dest_arg else None
+        payload = {"exported": _export_legacy(repo_root, target)}
         print(
             json.dumps(
-                {"exported": _export_legacy(repo_root, target)},
+                payload,
                 ensure_ascii=True,
                 indent=2,
             )

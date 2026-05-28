@@ -66,8 +66,11 @@ class FsJail:
 
 
 def list_dir(path: Path) -> list[dict[str, str | int | bool]]:
+    def _entry_sort_key(entry: Path) -> tuple[bool, str]:
+        return (not entry.is_dir(), entry.name)
+
     items: list[dict[str, str | int | bool]] = []
-    for entry in sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name)):
+    for entry in sorted(path.iterdir(), key=_entry_sort_key):
         st = entry.stat()
         items.append(
             {

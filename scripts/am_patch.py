@@ -318,10 +318,11 @@ def main(argv: list[str]) -> int:
         exit_code = finalize_and_report(ctx, result)
         return exit_code
     finally:
-        if ctx is not None and getattr(ctx, "ipc", None) is not None:
+        ipc = getattr(ctx, "ipc", None) if ctx is not None else None
+        if ctx is not None and ipc is not None:
             shutdown_handshake_active = False
             with contextlib.suppress(Exception):
-                if ctx.ipc.startup_handshake_completed():
+                if ipc.startup_handshake_completed():
                     ctx.logger.emit(
                         severity="DEBUG",
                         channel="DETAIL",
@@ -331,16 +332,14 @@ def main(argv: list[str]) -> int:
 
                     def _arm_shutdown_handshake(eos_seq: int) -> None:
                         nonlocal shutdown_handshake_active
-                        shutdown_handshake_active = ctx.ipc.begin_shutdown_handshake(
-                            eos_seq=eos_seq
-                        )
+                        shutdown_handshake_active = ipc.begin_shutdown_handshake(eos_seq=eos_seq)
 
                     ctx.logger.emit_control_event(
                         {"type": "control", "event": "eos"},
                         before_publish=_arm_shutdown_handshake,
                     )
                     if shutdown_handshake_active:
-                        ctx.ipc.wait_for_drain_ack()
+                        ipc.wait_for_drain_ack()
             if not shutdown_handshake_active:
                 delay = (
                     int(getattr(policy, "ipc_socket_cleanup_delay_success_s", 0) or 0)
@@ -350,7 +349,7 @@ def main(argv: list[str]) -> int:
                 if delay > 0:
                     threading.Event().wait(float(delay))
             with contextlib.suppress(Exception):
-                ctx.ipc.stop()
+                ipc.stop()
         if ctx is not None:
             _cleanup_isolated_test_mode_patch_dir(ctx)
             with contextlib.suppress(Exception):

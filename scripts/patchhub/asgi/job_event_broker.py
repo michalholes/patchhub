@@ -82,11 +82,11 @@ class JobEventBroker:
             async with self._mu:
                 self._subs.discard(q)
 
-    def publish(self, line: str, end_offset: int) -> None:
+    def publish(self, raw: str, end_offset: int) -> None:
         if self._closed:
             return
 
-        item = (int(end_offset), line)
+        item = (int(end_offset), raw)
         self._recent.append(item)
         for q in list(self._subs):
             ok, dropped = _enqueue_item(q, item)

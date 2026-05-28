@@ -3,15 +3,19 @@ from __future__ import annotations
 import re
 import zipfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Protocol
 
 from .web_jobs_derived import read_effective_applied_files
 
 if TYPE_CHECKING:
     from .web_jobs_db import WebJobsDatabase
 
-_SUMMARY_STOP_RE = re.compile(r"^[A-Z][A-Z_ ]+:\s*")
-_ISSUE_DIFF_LINE_RE = re.compile(r"^issue_diff_zip=(.+)$")
+_SUMMARY_STOP_RE: re.Pattern[str] = re.compile(r"^[A-Z][A-Z_ ]+:\s*")
+
+
+class JobLike(Protocol):
+    status: object
+    job_id: object
 
 
 def _parse_diff_manifest(data: bytes) -> list[str]:
@@ -60,11 +64,12 @@ def _parse_final_summary_files(text: str) -> list[str]:
 
 def _parse_issue_diff_zip_from_log(text: str) -> str | None:
     match_value: str | None = None
+    prefix = "issue_diff_zip="
     for raw in text.splitlines():
-        match = _ISSUE_DIFF_LINE_RE.match(raw.strip())
-        if not match:
+        line = raw.strip()
+        if not line.startswith(prefix):
             continue
-        value = match.group(1).strip()
+        value = line[len(prefix) :].strip()
         if value:
             match_value = value
     return match_value
@@ -128,16 +133,16 @@ def collect_job_applied_files(
     *,
     patches_root: Path,
     jobs_root: Path,
-    job: Any,
+    job: JobLike,
     job_db: WebJobsDatabase | None = None,
 ) -> tuple[list[str], str]:
-    if str(getattr(job, "status", "")) != "success":
+    if str(job.status) != "success":
         return [], "non_success"
 
     if job_db is not None:
-        return read_effective_applied_files(job_db, str(getattr(job, "job_id", "")))
+        return read_effective_applied_files(job_db, str(job.job_id))
 
-    log_path = Path(jobs_root) / str(getattr(job, "job_id", "")) / "runner.log"
+    log_path = Path(jobs_root) / str(job.job_id) / "runner.log"
     try:
         log_text = log_path.read_text(encoding="utf-8", errors="replace")
     except Exception:

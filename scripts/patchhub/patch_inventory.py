@@ -5,8 +5,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha1
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
+from .config import AppConfig
+from .fs_jail import FsJail
 from .zip_commit_message import (
     ZipCommitConfig,
     ZipIssueConfig,
@@ -47,11 +49,16 @@ class _ScanRoot:
     rel_under_patches_root: str
 
 
-def _patches_root_prefix(cfg: Any) -> str:
+class PatchInventoryCore(Protocol):
+    cfg: AppConfig
+    jail: FsJail
+
+
+def _patches_root_prefix(cfg: AppConfig) -> str:
     return str(cfg.paths.patches_root or "patches").replace("\\", "/").rstrip("/")
 
 
-def _rel_under_patches_root(cfg: Any, raw_value: str) -> str | None:
+def _rel_under_patches_root(cfg: AppConfig, raw_value: str) -> str | None:
     value = str(raw_value or "").strip().replace("\\", "/").lstrip("/")
     prefix = _patches_root_prefix(cfg)
     if not prefix:
@@ -63,7 +70,7 @@ def _rel_under_patches_root(cfg: Any, raw_value: str) -> str | None:
     return None
 
 
-def _stored_rel_path(cfg: Any, rel_under_root: str, filename: str) -> str:
+def _stored_rel_path(cfg: AppConfig, rel_under_root: str, filename: str) -> str:
     del cfg
     if rel_under_root:
         return f"{rel_under_root}/{filename}"
@@ -74,7 +81,7 @@ def _utc_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def derive_filename_metadata(cfg: Any, filename: str) -> tuple[str | None, str | None]:
+def derive_filename_metadata(cfg: AppConfig, filename: str) -> tuple[str | None, str | None]:
     if not cfg.autofill.derive_enabled:
         return None, None
 
@@ -133,7 +140,7 @@ def derive_filename_metadata(cfg: Any, filename: str) -> tuple[str | None, str |
     return issue_id, commit_msg
 
 
-def _zip_commit_cfg(cfg: Any) -> ZipCommitConfig:
+def _zip_commit_cfg(cfg: AppConfig) -> ZipCommitConfig:
     return ZipCommitConfig(
         enabled=True,
         filename=cfg.autofill.zip_commit_filename,
@@ -142,7 +149,7 @@ def _zip_commit_cfg(cfg: Any) -> ZipCommitConfig:
     )
 
 
-def _zip_issue_cfg(cfg: Any) -> ZipIssueConfig:
+def _zip_issue_cfg(cfg: AppConfig) -> ZipIssueConfig:
     return ZipIssueConfig(
         enabled=True,
         filename=cfg.autofill.zip_issue_filename,
@@ -160,7 +167,7 @@ def _zip_target_cfg() -> ZipTargetConfig:
     )
 
 
-def derive_patch_metadata(core: Any, *, filename: str, path: Path) -> PatchMetadata:
+def derive_patch_metadata(core: PatchInventoryCore, *, filename: str, path: Path) -> PatchMetadata:
     issue_id, commit_msg = derive_filename_metadata(core.cfg, filename)
     target_repo: str | None = None
     zip_commit_used = False
@@ -200,9 +207,9 @@ def derive_patch_metadata(core: Any, *, filename: str, path: Path) -> PatchMetad
     )
 
 
-def _scan_roots(core: Any) -> list[_ScanRoot]:
+def _scan_roots(core: PatchInventoryCore) -> list[_ScanRoot]:
     out = [_ScanRoot(source_bucket="patches_root", rel_under_patches_root="")]
-    upload_dir = str(getattr(core.cfg.paths, "upload_dir", "") or "")
+    upload_dir = str(core.cfg.paths.upload_dir or "")
     upload_rel = _rel_under_patches_root(core.cfg, upload_dir)
     if upload_rel is None or upload_rel == "":
         return out
@@ -222,7 +229,15 @@ def _candidate_kind(path: Path) -> str | None:
     return None
 
 
-def autofill_ignore_reason(cfg: Any, filename: str) -> str | None:
+def _direntry_name(entry: os.DirEntry[str]) -> str:
+    return str(entry.name)
+
+
+def _inventory_sort_key(row: _PatchInventoryRecord) -> tuple[int, str]:
+    return -int(row.mtime_ns), str(row.stored_rel_path)
+
+
+def autofill_ignore_reason(cfg: AppConfig, filename: str) -> str | None:
     if filename in {str(x) for x in cfg.autofill.scan_ignore_filenames}:
         return "name"
     prefixes = tuple(str(x) for x in cfg.autofill.scan_ignore_prefixes)
@@ -231,7 +246,7 @@ def autofill_ignore_reason(cfg: Any, filename: str) -> str | None:
     return None
 
 
-def build_patch_inventory(core: Any) -> tuple[str, list[dict[str, Any]]]:
+def build_patch_inventory(core: PatchInventoryCore) -> tuple[str, list[dict[str, object]]]:
     rows: list[_PatchInventoryRecord] = []
     seen_paths: set[str] = set()
 
@@ -245,7 +260,7 @@ def build_patch_inventory(core: Any) -> tuple[str, list[dict[str, Any]]]:
         except (FileNotFoundError, NotADirectoryError, PermissionError):
             continue
         with it:
-            entries = sorted(it, key=lambda entry: entry.name)
+            entries = sorted(it, key=_direntry_name)
         for entry in entries:
             try:
                 if not entry.is_file():
@@ -271,7 +286,7 @@ def build_patch_inventory(core: Any) -> tuple[str, list[dict[str, Any]]]:
                 stat = entry.stat()
             except Exception:
                 continue
-            mtime_ns = int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000)))
+            mtime_ns = int(stat.st_mtime_ns)
             metadata = derive_patch_metadata(core, filename=entry.name, path=path)
             rows.append(
                 _PatchInventoryRecord(
@@ -285,7 +300,7 @@ def build_patch_inventory(core: Any) -> tuple[str, list[dict[str, Any]]]:
                 )
             )
 
-    rows.sort(key=lambda row: (-row.mtime_ns, row.stored_rel_path))
+    rows.sort(key=_inventory_sort_key)
 
     sig_parts = [
         "|".join(
@@ -304,8 +319,9 @@ def build_patch_inventory(core: Any) -> tuple[str, list[dict[str, Any]]]:
     ]
     sig = "patches:" + sha1("\n".join(sig_parts).encode("utf-8")).hexdigest()
 
-    items = [
-        {
+    items: list[dict[str, object]] = []
+    for row in rows:
+        item: dict[str, object] = {
             "stored_rel_path": row.stored_rel_path,
             "filename": row.filename,
             "kind": row.kind,
@@ -315,6 +331,5 @@ def build_patch_inventory(core: Any) -> tuple[str, list[dict[str, Any]]]:
             "derived_commit_message": row.metadata.derived_commit_message,
             "derived_target_repo": row.metadata.derived_target_repo,
         }
-        for row in rows
-    ]
+        items.append(item)
     return sig, items

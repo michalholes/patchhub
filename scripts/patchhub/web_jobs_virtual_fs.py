@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any
 
 from .web_jobs_db import VirtualEntry, WebJobsDatabase
 
 _BASE = PurePosixPath("artifacts/web_jobs")
+_BASE_PREFIX: tuple[str, str] = ("artifacts", "web_jobs")
+
+
+def _is_base_prefix(parts: tuple[str, ...]) -> bool:
+    return len(parts) >= 2 and parts[0] == _BASE_PREFIX[0] and parts[1] == _BASE_PREFIX[1]
 
 
 @dataclass(frozen=True)
@@ -38,7 +42,7 @@ class WebJobsVirtualFs:
             return False
         if parts == ("artifacts",):
             return True
-        return parts[:2] == _BASE.parts
+        return _is_base_prefix(parts)
 
     def is_mutable_path(self, rel_path: str) -> bool:
         return self.handles(rel_path)
@@ -46,16 +50,16 @@ class WebJobsVirtualFs:
     def _entry_for_parts(self, parts: tuple[str, ...]) -> VirtualEntry:
         if parts == ("artifacts",):
             return VirtualEntry(rel_path="artifacts", is_dir=True, exists=True)
-        if parts == _BASE.parts:
+        if parts == _BASE_PREFIX:
             return VirtualEntry(rel_path=str(_BASE), is_dir=True, exists=True)
-        if len(parts) == 3 and parts[:2] == _BASE.parts:
+        if len(parts) == 3 and _is_base_prefix(parts):
             job = self._db.load_job_json(parts[2])
             return VirtualEntry(
                 rel_path="/".join(parts),
                 is_dir=True,
                 exists=job is not None,
             )
-        if len(parts) != 4 or parts[:2] != _BASE.parts:
+        if len(parts) != 4 or not _is_base_prefix(parts):
             return VirtualEntry(rel_path="/".join(parts), is_dir=False, exists=False)
         job_id = parts[2]
         if self._db.load_job_json(job_id) is None:
@@ -74,15 +78,15 @@ class WebJobsVirtualFs:
     def stat(self, rel_path: str) -> VirtualEntry:
         return self._entry_for_parts(self._parts(rel_path))
 
-    def list_dir(self, rel_path: str) -> list[dict[str, Any]]:
+    def list_dir(self, rel_path: str) -> list[dict[str, object]]:
         parts = self._parts(rel_path)
         if parts == ("artifacts",):
             return [{"name": "web_jobs", "is_dir": True}]
-        if parts == _BASE.parts:
+        if parts == _BASE_PREFIX:
             return [
                 {"name": job_id, "is_dir": True} for job_id in self._db.list_job_ids(limit=10000)
             ]
-        if len(parts) == 3 and parts[:2] == _BASE.parts:
+        if len(parts) == 3 and _is_base_prefix(parts):
             job_id = parts[2]
             job = self._db.load_job_json(job_id)
             if job is None:
@@ -103,7 +107,7 @@ class WebJobsVirtualFs:
         max_bytes: int = 2_000_000,
     ) -> str | None:
         parts = self._parts(rel_path)
-        if len(parts) != 4 or parts[:2] != _BASE.parts:
+        if len(parts) != 4 or not _is_base_prefix(parts):
             return None
         job_id = parts[2]
         name = parts[3]
@@ -133,7 +137,7 @@ class WebJobsVirtualFs:
             filename=name,
         )
 
-    def json_stat_payload(self, rel_path: str) -> dict[str, Any]:
+    def json_stat_payload(self, rel_path: str) -> dict[str, object]:
         entry = self.stat(rel_path)
         return {
             "path": str(rel_path),

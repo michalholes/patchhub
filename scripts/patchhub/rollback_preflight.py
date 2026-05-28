@@ -5,10 +5,11 @@ import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Protocol, TypedDict, cast
 
 from .models import JobRecord
 from .rollback_scope_manifest import (
+    NormalizedSelection,
     entry_display_label,
     load_manifest,
     normalize_selected_entries,
@@ -17,6 +18,26 @@ from .rollback_scope_manifest import (
 
 class RollbackPreflightError(RuntimeError):
     pass
+
+
+class RollbackManifestStore(Protocol):
+    def load_rollback_manifest(self, job_id: str) -> dict[str, object] | None: ...
+
+
+class LaterOverlapJob(TypedDict):
+    job: JobRecord
+    selected_repo_paths: list[str]
+    selected_entry_ids: list[str]
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
+
+
+def _str_list(value: object) -> list[str]:
+    return [str(item) for item in _obj_list(value) if str(item)]
 
 
 def run_rollback_preflight(
@@ -29,9 +50,9 @@ def run_rollback_preflight(
     scope_kind: str,
     selected_repo_paths: list[str] | None,
     all_jobs: list[JobRecord],
-    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None = None,
+    load_manifest_for_job: Callable[[JobRecord], dict[str, object] | None] | None = None,
     allow_filesystem_fallback: bool = True,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     manifest = _load_authority_manifest(
         jobs_root=jobs_root,
         job=source_job,
@@ -40,7 +61,7 @@ def run_rollback_preflight(
         load_manifest_for_job=load_manifest_for_job,
         allow_filesystem_fallback=allow_filesystem_fallback,
     )
-    selected = normalize_selected_entries(
+    selected: NormalizedSelection = normalize_selected_entries(
         manifest,
         scope_kind=scope_kind,
         selected_repo_paths=selected_repo_paths,
@@ -72,7 +93,7 @@ def run_rollback_preflight(
         selected_restore_paths=selected["restore_paths"],
     )
     selected_rows = [_entry_summary(item) for item in selected["entries"]]
-    chain_rows = [_chain_summary(item) for item in later_jobs]
+    chain_rows: list[dict[str, object]] = [_chain_summary(item) for item in later_jobs]
     can_execute = not dirty_overlap and not sync_paths
     token = _build_token(
         source_job=source_job,
@@ -120,15 +141,15 @@ def run_rollback_preflight(
     }
 
 
-def preflight_matches_token(preflight: dict[str, Any], token: str) -> bool:
+def preflight_matches_token(preflight: dict[str, object], token: str) -> bool:
     return str(preflight.get("rollback_preflight_token") or "") == str(token or "")
 
 
 def validate_source_job_authority(job: JobRecord) -> tuple[str, str, str, str]:
-    rel_path = str(getattr(job, "rollback_scope_manifest_rel_path", "") or "").strip()
-    manifest_hash = str(getattr(job, "rollback_scope_manifest_hash", "") or "").strip()
-    authority_kind = str(getattr(job, "rollback_authority_kind", "") or "").strip()
-    authority_source_ref = str(getattr(job, "rollback_authority_source_ref", "") or "").strip()
+    rel_path = str(job.rollback_scope_manifest_rel_path or "").strip()
+    manifest_hash = str(job.rollback_scope_manifest_hash or "").strip()
+    authority_kind = str(job.rollback_authority_kind or "").strip()
+    authority_source_ref = str(job.rollback_authority_source_ref or "").strip()
     required = [
         str(job.effective_runner_target_repo or "").strip(),
         str(job.run_start_sha or "").strip(),
@@ -145,17 +166,17 @@ def load_job_manifest_authority(
     *,
     jobs_root: Path,
     job: JobRecord,
-    manifest_loader: Callable[[JobRecord], dict[str, Any] | None] | None,
+    manifest_loader: Callable[[JobRecord], dict[str, object] | None] | None,
     allow_filesystem_fallback: bool = True,
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
     if manifest_loader is not None:
         manifest = manifest_loader(job)
         if isinstance(manifest, dict):
             return manifest
         if not allow_filesystem_fallback:
             return None
-    rel_path = str(getattr(job, "rollback_scope_manifest_rel_path", "") or "").strip()
-    manifest_hash = str(getattr(job, "rollback_scope_manifest_hash", "") or "").strip()
+    rel_path = str(job.rollback_scope_manifest_rel_path or "").strip()
+    manifest_hash = str(job.rollback_scope_manifest_hash or "").strip()
     if not rel_path or not manifest_hash:
         return None
     try:
@@ -170,9 +191,9 @@ def _load_authority_manifest(
     job: JobRecord,
     source_manifest_rel_path: str,
     source_manifest_hash: str,
-    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None,
+    load_manifest_for_job: Callable[[JobRecord], dict[str, object] | None] | None,
     allow_filesystem_fallback: bool = True,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     manifest = load_job_manifest_authority(
         jobs_root=jobs_root,
         job=job,
@@ -190,7 +211,7 @@ def _job_has_manifest_authority(
     job: JobRecord,
     *,
     jobs_root: Path,
-    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None,
+    load_manifest_for_job: Callable[[JobRecord], dict[str, object] | None] | None,
     allow_filesystem_fallback: bool = True,
 ) -> bool:
     return (
@@ -204,7 +225,9 @@ def _job_has_manifest_authority(
     )
 
 
-def job_db_manifest_loader(job_db: Any) -> Callable[[JobRecord], dict[str, Any] | None] | None:
+def job_db_manifest_loader(
+    job_db: RollbackManifestStore | None,
+) -> Callable[[JobRecord], dict[str, object] | None] | None:
     if job_db is None:
         return None
     return lambda job: job_db.load_rollback_manifest(job.job_id)
@@ -212,13 +235,13 @@ def job_db_manifest_loader(job_db: Any) -> Callable[[JobRecord], dict[str, Any] 
 
 def _helper_state(
     *,
-    selected_rows: list[dict[str, Any]],
+    selected_rows: list[dict[str, object]],
     dirty_overlap: list[str],
     dirty_nonoverlap: list[str],
     sync_paths: list[str],
-    chain_rows: list[dict[str, Any]],
+    chain_rows: list[dict[str, object]],
     can_execute: bool,
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
     blockers: list[str] = []
     advice: list[str] = []
     actions = ["refresh"]
@@ -250,19 +273,19 @@ def _helper_state(
     }
 
 
-def _entry_summary(entry: dict[str, Any]) -> dict[str, Any]:
+def _entry_summary(entry: dict[str, object]) -> dict[str, object]:
     return {
         "entry_id": str(entry.get("entry_id") or ""),
         "lifecycle_kind": str(entry.get("lifecycle_kind") or ""),
         "old_path": str(entry.get("old_path") or ""),
         "new_path": str(entry.get("new_path") or ""),
-        "selection_paths": [str(item) for item in list(entry.get("selection_paths") or [])],
-        "restore_paths": [str(item) for item in list(entry.get("restore_paths") or [])],
+        "selection_paths": _str_list(entry.get("selection_paths")),
+        "restore_paths": _str_list(entry.get("restore_paths")),
         "label": entry_display_label(entry),
     }
 
 
-def _chain_summary(item: dict[str, Any]) -> dict[str, Any]:
+def _chain_summary(item: LaterOverlapJob) -> dict[str, object]:
     job = item["job"]
     return {
         "job_id": str(job.job_id),
@@ -358,32 +381,31 @@ def _later_overlap_jobs(
     source_job: JobRecord,
     all_jobs: list[JobRecord],
     selected_restore_paths: list[str],
-    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None,
+    load_manifest_for_job: Callable[[JobRecord], dict[str, object] | None] | None,
     allow_filesystem_fallback: bool = True,
-) -> list[dict[str, Any]]:
-    source_created = int(getattr(source_job, "created_unix_ms", 0) or 0)
+) -> list[LaterOverlapJob]:
+    def _created_desc_key(item: JobRecord) -> int:
+        return int(item.created_unix_ms or 0)
+
+    source_created = int(source_job.created_unix_ms or 0)
     target_token = str(source_job.effective_runner_target_repo or "")
     selected_set = set(selected_restore_paths)
-    out: list[dict[str, Any]] = []
-    for job in sorted(all_jobs, key=lambda item: int(item.created_unix_ms or 0), reverse=True):
+    out: list[LaterOverlapJob] = []
+    for job in sorted(all_jobs, key=_created_desc_key, reverse=True):
         if str(job.job_id) == str(source_job.job_id):
             continue
         if str(job.status or "") != "success":
             continue
         if str(job.effective_runner_target_repo or "") != target_token:
             continue
-        if int(getattr(job, "created_unix_ms", 0) or 0) <= source_created:
+        if int(job.created_unix_ms or 0) <= source_created:
             continue
         try:
             manifest = _load_authority_manifest(
                 jobs_root=jobs_root,
                 job=job,
-                source_manifest_rel_path=str(
-                    getattr(job, "rollback_scope_manifest_rel_path", "") or ""
-                ).strip(),
-                source_manifest_hash=str(
-                    getattr(job, "rollback_scope_manifest_hash", "") or ""
-                ).strip(),
+                source_manifest_rel_path=str(job.rollback_scope_manifest_rel_path or "").strip(),
+                source_manifest_hash=str(job.rollback_scope_manifest_hash or "").strip(),
                 load_manifest_for_job=load_manifest_for_job,
                 allow_filesystem_fallback=allow_filesystem_fallback,
             )
@@ -420,9 +442,12 @@ def _latest_authority_job(
     target_token: str,
     *,
     jobs_root: Path,
-    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None,
+    load_manifest_for_job: Callable[[JobRecord], dict[str, object] | None] | None,
     allow_filesystem_fallback: bool = True,
 ) -> JobRecord | None:
+    def _created_desc_key(item: JobRecord) -> int:
+        return int(item.created_unix_ms or 0)
+
     items = [
         item
         for item in all_jobs
@@ -438,7 +463,7 @@ def _latest_authority_job(
     ]
     if not items:
         return None
-    items.sort(key=lambda item: int(item.created_unix_ms or 0), reverse=True)
+    items.sort(key=_created_desc_key, reverse=True)
     return items[0]
 
 
@@ -463,12 +488,13 @@ def _sync_overlap_paths(
     )
     if result.returncode != 0:
         raise RollbackPreflightError(_git_error("cannot inspect live-vs-authority diff", result))
-    changed = {
+    changed: set[str] = {
         str(line or "").strip()
         for line in str(result.stdout or "").splitlines()
         if str(line or "").strip()
     }
-    return sorted(changed.intersection(set(selected_restore_paths)))
+    selected_set: set[str] = set(selected_restore_paths)
+    return sorted(changed.intersection(selected_set))
 
 
 def _git_error(prefix: str, result: subprocess.CompletedProcess[str]) -> str:

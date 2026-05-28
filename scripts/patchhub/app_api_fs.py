@@ -5,10 +5,12 @@ import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 from .app_support import _err, _ok, read_tail
-from .fs_jail import FsJailError, list_dir, safe_rename
+from .config import AppConfig
+from .fs_jail import FsJail, FsJailError, list_dir, safe_rename
+from .web_jobs_virtual_fs import WebJobsVirtualFs
 
 
 @dataclass(frozen=True)
@@ -19,20 +21,33 @@ class FsDownloadPayload:
     path: Path | None = None
 
 
+class FsApiContext(Protocol):
+    cfg: AppConfig
+    jail: FsJail
+    virtual_jobs_fs: WebJobsVirtualFs | None
+
+
 def _guess_content_type(path: Path) -> str:
     guessed, _enc = mimetypes.guess_type(path.name)
     return guessed or "application/octet-stream"
 
 
-def _virtual_denied(self, rel: str) -> tuple[int, bytes] | None:
-    vfs = getattr(self, "virtual_jobs_fs", None)
+def _virtual_jobs_fs(self: FsApiContext) -> WebJobsVirtualFs | None:
+    try:
+        return self.virtual_jobs_fs
+    except AttributeError:
+        return None
+
+
+def _virtual_denied(self: FsApiContext, rel: str) -> tuple[int, bytes] | None:
+    vfs = _virtual_jobs_fs(self)
     if vfs is not None and vfs.is_mutable_path(rel):
         return _err("Virtual DB-backed path is read-only", status=409)
     return None
 
 
-def api_fs_list(self, rel_path: str) -> tuple[int, bytes]:
-    vfs = getattr(self, "virtual_jobs_fs", None)
+def api_fs_list(self: FsApiContext, rel_path: str) -> tuple[int, bytes]:
+    vfs = _virtual_jobs_fs(self)
     if vfs is not None and vfs.handles(rel_path):
         return _ok({"path": rel_path, "items": vfs.list_dir(rel_path), "virtual": True})
     try:
@@ -44,8 +59,8 @@ def api_fs_list(self, rel_path: str) -> tuple[int, bytes]:
     return _ok({"path": rel_path, "items": list_dir(path)})
 
 
-def api_fs_stat(self, rel_path: str) -> tuple[int, bytes]:
-    vfs = getattr(self, "virtual_jobs_fs", None)
+def api_fs_stat(self: FsApiContext, rel_path: str) -> tuple[int, bytes]:
+    vfs = _virtual_jobs_fs(self)
     if vfs is not None and vfs.handles(rel_path):
         return _ok(vfs.json_stat_payload(rel_path))
     if rel_path == "":
@@ -57,11 +72,11 @@ def api_fs_stat(self, rel_path: str) -> tuple[int, bytes]:
     return _ok({"path": rel_path, "exists": path.exists()})
 
 
-def api_fs_read_text(self, qs: dict[str, str]) -> tuple[int, bytes]:
+def api_fs_read_text(self: FsApiContext, qs: dict[str, str]) -> tuple[int, bytes]:
     rel = str(qs.get("path", ""))
     tail_lines_s = qs.get("tail_lines", "")
     max_bytes = max(1, min(int(qs.get("max_bytes", "200000")), 2000000))
-    vfs = getattr(self, "virtual_jobs_fs", None)
+    vfs = _virtual_jobs_fs(self)
     if vfs is not None and vfs.handles(rel):
         tail_lines = int(tail_lines_s) if tail_lines_s else None
         text = vfs.read_text(rel, tail_lines=tail_lines, max_bytes=max_bytes)
@@ -93,8 +108,11 @@ def api_fs_read_text(self, qs: dict[str, str]) -> tuple[int, bytes]:
     return _ok({"path": rel, "text": text, "truncated": truncated})
 
 
-def api_fs_download(self, rel_path: str) -> tuple[int, bytes] | FsDownloadPayload:
-    vfs = getattr(self, "virtual_jobs_fs", None)
+def api_fs_download(
+    self: FsApiContext,
+    rel_path: str,
+) -> tuple[int, bytes] | FsDownloadPayload:
+    vfs = _virtual_jobs_fs(self)
     if vfs is not None and vfs.handles(rel_path):
         download = vfs.download(rel_path)
         if download is None:
@@ -117,7 +135,7 @@ def api_fs_download(self, rel_path: str) -> tuple[int, bytes] | FsDownloadPayloa
     )
 
 
-def api_fs_mkdir(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_fs_mkdir(self: FsApiContext, body: dict[str, object]) -> tuple[int, bytes]:
     rel = str(body.get("path", ""))
     denied = _virtual_denied(self, rel)
     if denied is not None:
@@ -131,7 +149,7 @@ def api_fs_mkdir(self, body: dict[str, Any]) -> tuple[int, bytes]:
     return _ok({"path": rel})
 
 
-def api_fs_rename(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_fs_rename(self: FsApiContext, body: dict[str, object]) -> tuple[int, bytes]:
     src_rel = str(body.get("src", ""))
     dst_rel = str(body.get("dst", ""))
     denied = _virtual_denied(self, src_rel) or _virtual_denied(self, dst_rel)
@@ -150,7 +168,7 @@ def api_fs_rename(self, body: dict[str, Any]) -> tuple[int, bytes]:
     return _ok({"src": src_rel, "dst": dst_rel})
 
 
-def api_fs_delete(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_fs_delete(self: FsApiContext, body: dict[str, object]) -> tuple[int, bytes]:
     rel = str(body.get("path", ""))
     denied = _virtual_denied(self, rel)
     if denied is not None:
@@ -169,7 +187,7 @@ def api_fs_delete(self, body: dict[str, Any]) -> tuple[int, bytes]:
     return _ok({"path": rel, "deleted": True})
 
 
-def api_fs_unzip(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_fs_unzip(self: FsApiContext, body: dict[str, object]) -> tuple[int, bytes]:
     zip_rel = str(body.get("zip_path", ""))
     dest_rel = str(body.get("dest_dir", ""))
     denied = _virtual_denied(self, zip_rel) or _virtual_denied(self, dest_rel)

@@ -6,18 +6,22 @@ import tempfile
 import threading
 import uuid
 from collections import OrderedDict
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast
 
 from .app_support import _err, _ok
+from .config import AppConfig
 from .editor_action_preview import preview_action
 from .editor_codec import (
     DOCUMENT_PATHS,
     FORMAT_NAME,
     OBJECT_TYPE_ORDER,
+    FailurePayload,
+    ObjectRecord,
     document_relpath,
     human_text_from_jsonl_text,
     human_text_from_objects,
@@ -37,7 +41,12 @@ from .governance_toolkit_runtime import (
     GovernanceToolkitSelection,
     resolve_governance_toolkit,
 )
-from .targeting import resolve_targeting_runtime, validate_selected_target_repo
+from .targeting import (
+    TargetCfgLike,
+    TargetingRuntime,
+    resolve_targeting_runtime,
+    validate_selected_target_repo,
+)
 
 DOC_OPTIONS = OrderedDict(
     {
@@ -78,15 +87,20 @@ class RevisionState:
     target_repo: str
     document: str
     loaded_text: str
-    loaded_objects: list[dict[str, Any]]
+    loaded_objects: list[ObjectRecord]
     current_text: str
     toolkit_selection: GovernanceToolkitSelection | None
-    toolkit_resolution: dict[str, Any]
+    toolkit_resolution: dict[str, object]
 
 
 _REVISION_CACHE: OrderedDict[str, RevisionState] = OrderedDict()
 _REVISION_LOCK = threading.Lock()
 _MAX_REVISIONS = 64
+
+
+class EditorApiContext(Protocol):
+    repo_root: Path
+    cfg: AppConfig
 
 
 def _now() -> str:
@@ -104,7 +118,7 @@ def _store_state(
     target_repo: str,
     document: str,
     loaded_text: str,
-    loaded_objects: list[dict[str, Any]],
+    loaded_objects: list[ObjectRecord],
     current_text: str,
     toolkit_selection: GovernanceToolkitSelection | None = None,
     session_id: str | None = None,
@@ -140,15 +154,16 @@ def _state(token: str, target_repo: str, document: str) -> RevisionState | None:
     return None
 
 
-def _runtime(self: Any):
+def _runtime(self: EditorApiContext) -> TargetingRuntime:
+    runner_config_toml = str(self.cfg.runner.runner_config_toml).strip()
     return resolve_targeting_runtime(
         repo_root=self.repo_root,
-        runner_config_toml=self.cfg.runner.runner_config_toml,
-        target_cfg=getattr(self.cfg, "targeting", None),
+        runner_config_toml=runner_config_toml,
+        target_cfg=cast(TargetCfgLike, self.cfg.targeting),
     )
 
 
-def _target_root(self: Any, target_repo: str) -> Path:
+def _target_root(self: EditorApiContext, target_repo: str) -> Path:
     runtime = _runtime(self)
     token = validate_selected_target_repo(target_repo, runtime.options)
     root = runtime.resolved_roots_by_token.get(token)
@@ -157,7 +172,7 @@ def _target_root(self: Any, target_repo: str) -> Path:
     return Path(root)
 
 
-def _doc_path(self: Any, target_repo: str, document: str) -> Path:
+def _doc_path(self: EditorApiContext, target_repo: str, document: str) -> Path:
     root = _target_root(self, target_repo)
     path = (root / document_relpath(document)).resolve()
     if root not in path.parents:
@@ -184,11 +199,11 @@ def _persist(
     document: str,
     state: RevisionState | None,
     human_text: str,
-    objects: list[dict[str, Any]],
+    objects: list[ObjectRecord],
     *,
     loaded_text: str | None = None,
     toolkit_selection: GovernanceToolkitSelection | None = None,
-):
+) -> tuple[str, RevisionState]:
     return _store_state(
         target_repo=target_repo,
         document=document,
@@ -212,11 +227,11 @@ def _workspace_payload(
     *,
     target_repo: str,
     document: str,
-    objects: list[dict[str, Any]],
+    objects: list[ObjectRecord],
     validated: bool,
-    failure: dict[str, Any] | None = None,
+    failure: FailurePayload | None = None,
     selected_id: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     return build_workspace(
         objects=objects,
         target_repo=target_repo,
@@ -231,8 +246,8 @@ def _validate_current(
     *,
     validator_path: Path,
     human_text: str,
-    loaded_objects: list[dict[str, Any]],
-) -> tuple[bool, list[dict[str, Any]], dict[str, Any] | None]:
+    loaded_objects: list[ObjectRecord],
+) -> tuple[bool, list[ObjectRecord], FailurePayload | None]:
     return validate_human_text(
         validator_path=validator_path,
         human_text=human_text,
@@ -255,7 +270,7 @@ def _toolkit_status_message(selection: GovernanceToolkitSelection) -> str:
     )
 
 
-def _toolkit_failure_message(resolution: dict[str, Any]) -> str:
+def _toolkit_failure_message(resolution: dict[str, object]) -> str:
     selected = str(resolution.get("selected_sig", "")).strip()
     mode = str(resolution.get("resolution_mode", "")).strip()
     error = str(resolution.get("error", "")).strip()
@@ -265,8 +280,8 @@ def _toolkit_failure_message(resolution: dict[str, Any]) -> str:
     )
 
 
-def _missing_revision_failure(kind: str, message: str) -> dict[str, Any]:
-    return empty_failure(kind, message)
+def _missing_revision_failure(kind: str, message: str) -> FailurePayload:
+    return cast(FailurePayload, empty_failure(kind, message))
 
 
 def _scaffold_text_map() -> dict[str, str]:
@@ -278,7 +293,10 @@ def _scaffold_text_map() -> dict[str, str]:
     return out
 
 
-def api_editor_bootstrap(self: Any, qs: dict[str, str] | None = None) -> tuple[int, bytes]:
+def api_editor_bootstrap(
+    self: EditorApiContext,
+    qs: dict[str, str] | None = None,
+) -> tuple[int, bytes]:
     try:
         runtime = _runtime(self)
     except (OSError, ValueError) as exc:
@@ -298,16 +316,19 @@ def api_editor_bootstrap(self: Any, qs: dict[str, str] | None = None) -> tuple[i
     )
 
 
-def api_editor_document(self: Any, qs: dict[str, str] | None = None) -> tuple[int, bytes]:
+def api_editor_document(
+    self: EditorApiContext,
+    qs: dict[str, str] | None = None,
+) -> tuple[int, bytes]:
     qs = qs or {}
     target_repo = str(qs.get("target_repo", "")).strip()
     document = str(qs.get("document", "")).strip()
     ops = [_op("Info", "LOAD_START", f"Loading {document}")]
-    toolkit_resolution: dict[str, Any] = {}
+    toolkit_resolution: dict[str, object] = {}
     try:
         ops.append(_op("Info", "TOOLKIT_START", f"Resolving toolkit for {document}"))
         toolkit = resolve_governance_toolkit(self.cfg)
-        toolkit_resolution = dict(toolkit.resolution)
+        toolkit_resolution = {str(k): v for k, v in toolkit.resolution.items()}
         ops.append(_op("Info", "TOOLKIT_OK", _toolkit_status_message(toolkit)))
         path = _doc_path(self, target_repo, document)
         raw = path.read_text(encoding="utf-8")
@@ -355,33 +376,34 @@ def api_editor_document(self: Any, qs: dict[str, str] | None = None) -> tuple[in
             }
         )
     except GovernanceToolkitRuntimeError as exc:
-        toolkit_resolution = dict(exc.resolution)
+        toolkit_resolution = {str(k): v for k, v in exc.resolution.items()}
         ops.append(_op("Error", "TOOLKIT_FAIL", _toolkit_failure_message(toolkit_resolution)))
+        error_payload: dict[str, object] = {
+            "ops": ops,
+            "error": str(exc),
+            "toolkit_resolution": toolkit_resolution,
+        }
         return _err(
-            json.dumps(
-                {
-                    "ops": ops,
-                    "error": str(exc),
-                    "toolkit_resolution": toolkit_resolution,
-                }
-            ),
+            json.dumps(error_payload),
             status=400,
         )
     except Exception as exc:
         ops.append(_op("Error", "LOAD_FAIL", str(exc)))
+        load_error_payload: dict[str, object] = {
+            "ops": ops,
+            "error": str(exc),
+            "toolkit_resolution": toolkit_resolution,
+        }
         return _err(
-            json.dumps(
-                {
-                    "ops": ops,
-                    "error": str(exc),
-                    "toolkit_resolution": toolkit_resolution,
-                }
-            ),
+            json.dumps(load_error_payload),
             status=400,
         )
 
 
-def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_editor_validate(
+    self: EditorApiContext,
+    body: Mapping[str, object],
+) -> tuple[int, bytes]:
     target_repo = str(body.get("target_repo", "")).strip()
     document = str(body.get("document", "")).strip()
     human_text = str(body.get("human_text", ""))
@@ -392,7 +414,7 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
             "missing_revision_state",
             "Missing or stale revision_token",
         )
-        ops.append(_op("Error", "VALIDATE_FAIL", failed["failure_code"]))
+        ops.append(_op("Error", "VALIDATE_FAIL", str(failed.get("failure_code", ""))))
         return _ok(
             {
                 "validated": False,
@@ -419,7 +441,7 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
         )
         if not ok:
             failed = failure or empty_failure("validate_failure", "Validation failed")
-            ops.append(_op("Error", "VALIDATE_FAIL", failed["failure_code"]))
+            ops.append(_op("Error", "VALIDATE_FAIL", str(failed.get("failure_code", ""))))
             return _ok(
                 {
                     "validated": False,
@@ -485,7 +507,10 @@ def api_editor_validate(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
         )
 
 
-def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_editor_save(
+    self: EditorApiContext,
+    body: Mapping[str, object],
+) -> tuple[int, bytes]:
     target_repo = str(body.get("target_repo", "")).strip()
     document = str(body.get("document", "")).strip()
     human_text = str(body.get("human_text", ""))
@@ -496,7 +521,7 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
             "missing_revision_state",
             "Missing or stale revision_token",
         )
-        ops.append(_op("Error", "SAVE_FAIL", failed["failure_code"]))
+        ops.append(_op("Error", "SAVE_FAIL", str(failed.get("failure_code", ""))))
         return _ok(
             {
                 "saved": False,
@@ -523,7 +548,7 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
         )
         if not ok:
             failed = failure or empty_failure("save_failure", "Save failed")
-            ops.append(_op("Error", "SAVE_FAIL", failed["failure_code"]))
+            ops.append(_op("Error", "SAVE_FAIL", str(failed.get("failure_code", ""))))
             return _ok(
                 {
                     "saved": False,
@@ -592,7 +617,10 @@ def api_editor_save(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
         )
 
 
-def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_editor_save_unsafe(
+    self: EditorApiContext,
+    body: Mapping[str, object],
+) -> tuple[int, bytes]:
     target_repo = str(body.get("target_repo", "")).strip()
     document = str(body.get("document", "")).strip()
     human_text = str(body.get("human_text", ""))
@@ -661,7 +689,10 @@ def api_editor_save_unsafe(self: Any, body: dict[str, Any]) -> tuple[int, bytes]
         )
 
 
-def api_editor_preview_action(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_editor_preview_action(
+    self: EditorApiContext,
+    body: Mapping[str, object],
+) -> tuple[int, bytes]:
     target_repo = str(body.get("target_repo", "")).strip()
     document = str(body.get("document", "")).strip()
     action_id = str(body.get("action_id", "")).strip()
@@ -698,7 +729,10 @@ def api_editor_preview_action(self: Any, body: dict[str, Any]) -> tuple[int, byt
         return _ok({"ok": False, "error": str(exc), "ops": ops})
 
 
-def api_editor_apply_fix(self: Any, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_editor_apply_fix(
+    self: EditorApiContext,
+    body: Mapping[str, object],
+) -> tuple[int, bytes]:
     required = {
         "target_repo",
         "document",

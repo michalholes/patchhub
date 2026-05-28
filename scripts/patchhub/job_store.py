@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import UTC, datetime
-from typing import Any
+from typing import Protocol, TypeAlias, cast, runtime_checkable
 
 from .models import (
     EventRow,
@@ -185,25 +185,25 @@ def _safe_issue_id_int(value: str) -> int | None:
     return int(raw) if raw.isdigit() else None
 
 
-def _json_dumps(value: Any) -> str:
+def _json_dumps(value: object) -> str:
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
 
 
-def _int_or_none(value: Any) -> int | None:
+def _int_or_none(value: object) -> int | None:
     if value is None or value == "":
         return None
     try:
-        return int(value)
+        return int(str(value))
     except (TypeError, ValueError):
         return None
 
 
-def _none_if_blank(value: Any) -> str | None:
+def _none_if_blank(value: object) -> str | None:
     text = str(value or "").strip()
     return text or None
 
 
-def _rollback_authority_role(value: Any) -> RollbackAuthorityRole:
+def _rollback_authority_role(value: object) -> RollbackAuthorityRole:
     text = str(value or "").strip()
     if text == "manifest":
         return "manifest"
@@ -214,12 +214,77 @@ def _rollback_authority_role(value: Any) -> RollbackAuthorityRole:
     raise ValueError(f"invalid rollback authority role: {text}")
 
 
-def _read_event_frame(text: str) -> dict[str, Any] | None:
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _json_loads_obj(text: str) -> object:
+    parsed: object = json.loads(text)
+    return parsed
+
+
+SqlParams: TypeAlias = tuple[object, ...]
+
+
+@runtime_checkable
+class _RowLike(Protocol):
+    def keys(self) -> object: ...
+
+    def __getitem__(self, key: object, /) -> object: ...
+
+
+def _row_dict(value: object) -> dict[str, object]:
+    row = _obj_dict(value)
+    if row is not None:
+        return row
+    if not isinstance(value, _RowLike):
+        return {}
+    out: dict[str, object] = {}
+    keys_raw = value.keys()
+    keys: list[object]
+    if isinstance(keys_raw, list):
+        keys = list(cast(list[object], keys_raw))
+    elif isinstance(keys_raw, tuple):
+        keys = list(cast(tuple[object, ...], keys_raw))
+    else:
+        return {}
+    for key_obj in keys:
+        key = str(key_obj)
+        out[key] = value[key]
+    return out
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    parsed = _int_or_none(value)
+    return parsed if parsed is not None else default
+
+
+def _query_one_dict(
+    conn: sqlite3.Connection,
+    sql: str,
+    params: SqlParams = (),
+) -> dict[str, object]:
+    row_obj = cast(object, conn.execute(sql, params).fetchone())
+    return _row_dict(row_obj)
+
+
+def _sqlite_row_factory(cursor: sqlite3.Cursor, row: tuple[object, ...]) -> object:
+    return sqlite3.Row(cursor, row)
+
+
+def _read_event_frame(text: str) -> dict[str, object] | None:
     try:
-        parsed = json.loads(text)
+        parsed = _json_loads_obj(text)
     except Exception:
         return None
-    return parsed if isinstance(parsed, dict) else None
+    return _obj_dict(parsed)
 
 
 _WEB_JOBS_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -244,8 +309,19 @@ _WEB_JOBS_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
 
 
 def _ensure_web_jobs_additive_columns(conn: sqlite3.Connection) -> None:
-    rows = conn.execute("PRAGMA table_info(web_jobs)").fetchall()
-    existing = {str(row[1]) for row in rows}
+    rows_obj = cast(object, conn.execute("PRAGMA table_info(web_jobs)").fetchall())
+    rows = cast(list[object], rows_obj) if isinstance(rows_obj, list) else []
+    existing: set[str] = set()
+    for row in rows:
+        row_dict = _row_dict(row)
+        name = row_dict.get("name")
+        if name is not None:
+            existing.add(str(name))
+            continue
+        if isinstance(row, tuple):
+            row_tuple = cast(tuple[object, ...], row)
+            if len(row_tuple) > 1:
+                existing.add(str(row_tuple[1]))
     for name, ddl in _WEB_JOBS_ADDITIVE_COLUMNS:
         if name in existing:
             continue
@@ -254,13 +330,38 @@ def _ensure_web_jobs_additive_columns(conn: sqlite3.Connection) -> None:
 
 
 def _event_row_from_sql(row: sqlite3.Row) -> EventRow:
+    payload = _row_dict(row)
     return EventRow(
-        seq=int(row["seq"]),
-        raw_line=str(row["raw_line"]),
-        ipc_seq=_int_or_none(row["ipc_seq"]),
-        frame_type=_none_if_blank(row["frame_type"]),
-        frame_event=_none_if_blank(row["frame_event"]),
+        seq=_as_int(payload.get("seq"), 0),
+        raw_line=str(payload.get("raw_line", "")),
+        ipc_seq=_int_or_none(payload.get("ipc_seq")),
+        frame_type=_none_if_blank(payload.get("frame_type")),
+        frame_event=_none_if_blank(payload.get("frame_event")),
     )
+
+
+def utc_now_ms() -> int:
+    return _utc_now_ms()
+
+
+def int_or_none(value: object) -> int | None:
+    return _int_or_none(value)
+
+
+def json_dumps(value: object) -> str:
+    return _json_dumps(value)
+
+
+def none_if_blank(value: object) -> str | None:
+    return _none_if_blank(value)
+
+
+def read_event_frame(text: str) -> dict[str, object] | None:
+    return _read_event_frame(text)
+
+
+def event_row_from_sql(row: sqlite3.Row) -> EventRow:
+    return _event_row_from_sql(row)
 
 
 class SqliteWebJobsStore:
@@ -275,18 +376,27 @@ class SqliteWebJobsStore:
             timeout=float(self.cfg.connect_timeout_s),
             isolation_level=None,
         )
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = _sqlite_row_factory
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=FULL")
         conn.execute(f"PRAGMA busy_timeout={int(self.cfg.busy_timeout_ms)}")
         return conn
+
+    def connect(self) -> sqlite3.Connection:
+        return self._connect()
 
     def _init_db(self) -> None:
         with self._connect() as conn:
             conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
             conn.executescript(_SCHEMA)
             _ensure_web_jobs_additive_columns(conn)
-            auto_vacuum = int(conn.execute("PRAGMA auto_vacuum").fetchone()[0])
+            auto_vacuum_row = _query_one_dict(conn, "PRAGMA auto_vacuum")
+            auto_vacuum = _as_int(auto_vacuum_row.get("auto_vacuum"), 0)
+            if auto_vacuum <= 0:
+                raw_row = cast(object, conn.execute("PRAGMA auto_vacuum").fetchone())
+                if isinstance(raw_row, tuple) and raw_row:
+                    raw_tuple = cast(tuple[object, ...], raw_row)
+                    auto_vacuum = _as_int(raw_tuple[0], 0)
             if auto_vacuum != 2:
                 conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
                 conn.execute("VACUUM")
@@ -300,6 +410,7 @@ class SqliteWebJobsStore:
                 """,
                 (now_ms,),
             )
+
             conn.execute(
                 """
                 INSERT INTO run_stats_meta(
@@ -327,6 +438,9 @@ class SqliteWebJobsStore:
                 (now_ms,),
             )
 
+    def init_db(self) -> None:
+        self._init_db()
+
     def _touch_meta(
         self,
         conn: sqlite3.Connection,
@@ -347,95 +461,134 @@ class SqliteWebJobsStore:
             (jobs_delta, logs_delta, events_delta, _utc_now_ms()),
         )
 
-    def _row_to_job_json(self, row: sqlite3.Row) -> dict[str, Any]:
-        row_keys = set(row.keys())
+    def touch_meta(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        jobs_delta: int = 0,
+        logs_delta: int = 0,
+        events_delta: int = 0,
+    ) -> None:
+        self._touch_meta(
+            conn,
+            jobs_delta=jobs_delta,
+            logs_delta=logs_delta,
+            events_delta=events_delta,
+        )
+
+    def _row_to_job_json(self, row: sqlite3.Row) -> dict[str, object]:
+        payload_row = _row_dict(row)
+        row_keys = set(payload_row.keys())
         rollback_source_job_id = (
-            row["rollback_source_job_id"]
-            if "rollback_source_job_id" in row_keys and row["rollback_source_job_id"] is not None
+            payload_row.get("rollback_source_job_id")
+            if "rollback_source_job_id" in row_keys
+            and payload_row.get("rollback_source_job_id") is not None
             else (
-                row["revert_source_job_id"]
-                if "revert_source_job_id" in row_keys and row["revert_source_job_id"] is not None
+                payload_row.get("revert_source_job_id")
+                if "revert_source_job_id" in row_keys
+                and payload_row.get("revert_source_job_id") is not None
                 else None
             )
         )
-        payload = {
-            "job_id": str(row["job_id"]),
-            "created_utc": str(row["created_utc"]),
-            "created_unix_ms": int(row["created_unix_ms"]),
-            "mode": str(row["mode"]),
-            "issue_id": str(row["issue_id_raw"]),
-            "commit_summary": str(row["commit_summary"]),
-            "commit_message": row["commit_message"],
-            "patch_basename": row["patch_basename"],
-            "raw_command": str(row["raw_command"]),
-            "canonical_command": json.loads(str(row["canonical_command_json"])),
-            "status": str(row["status"]),
-            "started_utc": row["started_utc"],
-            "ended_utc": row["ended_utc"],
-            "return_code": row["return_code"],
-            "error": row["error"],
-            "cancel_requested_utc": row["cancel_requested_utc"],
-            "cancel_ack_utc": row["cancel_ack_utc"],
-            "cancel_source": row["cancel_source"],
-            "original_patch_path": row["original_patch_path"],
-            "effective_patch_path": row["effective_patch_path"],
-            "effective_patch_kind": row["effective_patch_kind"],
-            "selected_patch_entries": json.loads(str(row["selected_patch_entries_json"])),
-            "selected_repo_paths": json.loads(str(row["selected_repo_paths_json"])),
-            "zip_target_repo": row["zip_target_repo"],
-            "selected_target_repo": row["selected_target_repo"],
-            "effective_runner_target_repo": row["effective_runner_target_repo"],
-            "target_mismatch": bool(row["target_mismatch"]),
-            "run_start_sha": row["run_start_sha"],
-            "run_end_sha": row["run_end_sha"],
+        payload: dict[str, object] = {
+            "job_id": str(payload_row.get("job_id", "")),
+            "created_utc": str(payload_row.get("created_utc", "")),
+            "created_unix_ms": _as_int(payload_row.get("created_unix_ms"), 0),
+            "mode": str(payload_row.get("mode", "")),
+            "issue_id": str(payload_row.get("issue_id_raw", "")),
+            "commit_summary": str(payload_row.get("commit_summary", "")),
+            "commit_message": payload_row.get("commit_message"),
+            "patch_basename": payload_row.get("patch_basename"),
+            "raw_command": str(payload_row.get("raw_command", "")),
+            "canonical_command": _json_loads_obj(
+                str(payload_row.get("canonical_command_json", "[]"))
+            ),
+            "status": str(payload_row.get("status", "")),
+            "started_utc": payload_row.get("started_utc"),
+            "ended_utc": payload_row.get("ended_utc"),
+            "return_code": payload_row.get("return_code"),
+            "error": payload_row.get("error"),
+            "cancel_requested_utc": payload_row.get("cancel_requested_utc"),
+            "cancel_ack_utc": payload_row.get("cancel_ack_utc"),
+            "cancel_source": payload_row.get("cancel_source"),
+            "original_patch_path": payload_row.get("original_patch_path"),
+            "effective_patch_path": payload_row.get("effective_patch_path"),
+            "effective_patch_kind": payload_row.get("effective_patch_kind"),
+            "selected_patch_entries": _json_loads_obj(
+                str(payload_row.get("selected_patch_entries_json", "[]"))
+            ),
+            "selected_repo_paths": _json_loads_obj(
+                str(payload_row.get("selected_repo_paths_json", "[]"))
+            ),
+            "zip_target_repo": payload_row.get("zip_target_repo"),
+            "selected_target_repo": payload_row.get("selected_target_repo"),
+            "effective_runner_target_repo": payload_row.get("effective_runner_target_repo"),
+            "target_mismatch": bool(payload_row.get("target_mismatch")),
+            "run_start_sha": payload_row.get("run_start_sha"),
+            "run_end_sha": payload_row.get("run_end_sha"),
             "revert_source_job_id": rollback_source_job_id,
             "rollback_source_job_id": rollback_source_job_id,
-            "rollback_scope_manifest_rel_path": row["rollback_scope_manifest_rel_path"],
-            "rollback_scope_manifest_hash": row["rollback_scope_manifest_hash"],
-            "rollback_authority_kind": row["rollback_authority_kind"],
-            "rollback_authority_source_ref": row["rollback_authority_source_ref"],
-            "applied_files": json.loads(str(row["applied_files_json"])),
-            "applied_files_source": str(row["applied_files_source"]),
-            "last_log_seq": int(row["last_log_seq"]),
-            "last_event_seq": int(row["last_event_seq"]),
-            "row_rev": int(row["row_rev"]),
+            "rollback_scope_manifest_rel_path": payload_row.get("rollback_scope_manifest_rel_path"),
+            "rollback_scope_manifest_hash": payload_row.get("rollback_scope_manifest_hash"),
+            "rollback_authority_kind": payload_row.get("rollback_authority_kind"),
+            "rollback_authority_source_ref": payload_row.get("rollback_authority_source_ref"),
+            "applied_files": _json_loads_obj(str(payload_row.get("applied_files_json", "[]"))),
+            "applied_files_source": str(payload_row.get("applied_files_source", "unavailable")),
+            "last_log_seq": _as_int(payload_row.get("last_log_seq"), 0),
+            "last_event_seq": _as_int(payload_row.get("last_event_seq"), 0),
+            "row_rev": _as_int(payload_row.get("row_rev"), 0),
         }
-        if row["origin_backend_mode"] is not None:
-            payload["origin_backend_mode"] = row["origin_backend_mode"]
-        if row["origin_authoritative_backend"] is not None:
-            payload["origin_authoritative_backend"] = row["origin_authoritative_backend"]
-        if row["origin_backend_session_id"] is not None:
-            payload["origin_backend_session_id"] = row["origin_backend_session_id"]
-        if row["origin_recovery_json"] is not None:
-            payload["origin_recovery_json"] = row["origin_recovery_json"]
+        if payload_row.get("origin_backend_mode") is not None:
+            payload["origin_backend_mode"] = payload_row.get("origin_backend_mode")
+        if payload_row.get("origin_authoritative_backend") is not None:
+            payload["origin_authoritative_backend"] = payload_row.get(
+                "origin_authoritative_backend"
+            )
+        if payload_row.get("origin_backend_session_id") is not None:
+            payload["origin_backend_session_id"] = payload_row.get("origin_backend_session_id")
+        if payload_row.get("origin_recovery_json") is not None:
+            payload["origin_recovery_json"] = payload_row.get("origin_recovery_json")
         return payload
 
+    def row_to_job_json(self, row: sqlite3.Row) -> dict[str, object]:
+        return self._row_to_job_json(row)
+
     def _row_to_rollback_authority_record(self, row: sqlite3.Row) -> RollbackAuthorityRecord:
+        payload = _row_dict(row)
         return RollbackAuthorityRecord(
-            job_id=str(row["job_id"]),
-            authority_role=_rollback_authority_role(row["authority_role"]),
-            manifest_version=_int_or_none(row["manifest_version"]),
-            manifest_source_job_id=_none_if_blank(row["manifest_source_job_id"]),
-            manifest_issue_id=_none_if_blank(row["manifest_issue_id"]),
+            job_id=str(payload.get("job_id", "")),
+            authority_role=_rollback_authority_role(payload.get("authority_role")),
+            manifest_version=_int_or_none(payload.get("manifest_version")),
+            manifest_source_job_id=_none_if_blank(payload.get("manifest_source_job_id")),
+            manifest_issue_id=_none_if_blank(payload.get("manifest_issue_id")),
             manifest_selected_target_repo_token=_none_if_blank(
-                row["manifest_selected_target_repo_token"]
+                payload.get("manifest_selected_target_repo_token")
             ),
             manifest_effective_runner_target_repo=_none_if_blank(
-                row["manifest_effective_runner_target_repo"]
+                payload.get("manifest_effective_runner_target_repo")
             ),
-            manifest_authority_kind=_none_if_blank(row["manifest_authority_kind"]),
-            manifest_authority_source_ref=_none_if_blank(row["manifest_authority_source_ref"]),
-            manifest_entries=json.loads(str(row["manifest_entries_json"] or "[]")),
-            request_source_job_id=_none_if_blank(row["request_source_job_id"]),
-            request_scope_kind=_none_if_blank(row["request_scope_kind"]),
-            request_selected_repo_paths=json.loads(
-                str(row["request_selected_repo_paths_json"] or "[]")
+            manifest_authority_kind=_none_if_blank(payload.get("manifest_authority_kind")),
+            manifest_authority_source_ref=_none_if_blank(
+                payload.get("manifest_authority_source_ref")
             ),
-            request_preflight_token=_none_if_blank(row["request_preflight_token"]),
-            updated_unix_ms=int(row["updated_unix_ms"] or 0),
+            manifest_entries=cast(
+                list[dict[str, object]],
+                _json_loads_obj(str(payload.get("manifest_entries_json") or "[]")),
+            ),
+            request_source_job_id=_none_if_blank(payload.get("request_source_job_id")),
+            request_scope_kind=_none_if_blank(payload.get("request_scope_kind")),
+            request_selected_repo_paths=cast(
+                list[str],
+                _json_loads_obj(str(payload.get("request_selected_repo_paths_json") or "[]")),
+            ),
+            request_preflight_token=_none_if_blank(payload.get("request_preflight_token")),
+            updated_unix_ms=_as_int(payload.get("updated_unix_ms"), 0),
         )
 
-    def _rollback_authority_values(self, authority: RollbackAuthorityRecord) -> tuple[Any, ...]:
+    def row_to_rollback_authority_record(self, row: sqlite3.Row) -> RollbackAuthorityRecord:
+        return self._row_to_rollback_authority_record(row)
+
+    def _rollback_authority_values(self, authority: RollbackAuthorityRecord) -> tuple[object, ...]:
         return (
             authority.job_id,
             authority.authority_role,
@@ -490,12 +643,23 @@ class SqliteWebJobsStore:
             self._rollback_authority_values(authority),
         )
 
+    def upsert_rollback_authority_row(
+        self,
+        conn: sqlite3.Connection,
+        authority: RollbackAuthorityRecord,
+    ) -> None:
+        self._upsert_rollback_authority_row(conn, authority)
+
     def _current_row_rev(self, conn: sqlite3.Connection, job_id: str) -> int:
-        row = conn.execute(
+        row = _query_one_dict(
+            conn,
             "SELECT row_rev FROM web_jobs WHERE job_id = ?",
             (job_id,),
-        ).fetchone()
-        return int(row["row_rev"]) if row is not None else 0
+        )
+        return _as_int(row.get("row_rev"), 0)
+
+    def current_row_rev(self, conn: sqlite3.Connection, job_id: str) -> int:
+        return self._current_row_rev(conn, job_id)
 
     def _job_values(
         self,
@@ -504,12 +668,15 @@ class SqliteWebJobsStore:
         log_count: int | None = None,
         event_count: int | None = None,
         row_rev: int,
-    ) -> tuple[Any, ...]:
+    ) -> tuple[object, ...]:
         payload = job.to_json()
+        created_unix_ms = _int_or_none(payload.get("created_unix_ms"))
         return (
             job.job_id,
             str(payload.get("created_utc", "")),
-            int(payload.get("created_unix_ms", 0) or _utc_to_unix_ms(job.created_utc)),
+            int(
+                created_unix_ms if created_unix_ms is not None else _utc_to_unix_ms(job.created_utc)
+            ),
             str(job.mode),
             str(job.issue_id),
             _safe_issue_id_int(job.issue_id),
@@ -673,3 +840,20 @@ class SqliteWebJobsStore:
                 expected_log_count=expected_log_count,
                 expected_event_count=expected_event_count,
             )
+
+    def upsert_job_row(
+        self,
+        conn: sqlite3.Connection,
+        job: JobRecord,
+        *,
+        log_count: int | None = None,
+        event_count: int | None = None,
+        row_rev: int,
+    ) -> None:
+        self._upsert_job_row(
+            conn,
+            job,
+            log_count=log_count,
+            event_count=event_count,
+            row_rev=row_rev,
+        )

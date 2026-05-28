@@ -7,18 +7,21 @@ import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, cast
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
 from patchhub import app_api_core as _core_api
-from patchhub.models import job_to_list_item_json
+from patchhub.config import AppConfig
+from patchhub.models import JobRecord, job_to_list_item_json
 from patchhub.patch_inventory import build_patch_inventory
 
 from ..repo_snapshot_cleanup import execute_repo_snapshot_cleanup
 from .async_app_core import AsyncAppCore
+from .async_jobs_runs_indexer import IndexerSnapshot
 from .async_offload import to_thread
+from .job_event_broker import JobEventBroker
 from .job_events_db_stream import stream_job_events_db_live
 from .json_contract import (
     json_bytes_response,
@@ -41,7 +44,7 @@ from .route_workspaces import handle_api_workspaces
 from .snapshot_change_broker import SnapshotChangeBroker
 from .snapshot_delta_store import SnapshotDeltaStore
 
-UPLOAD_PATCH_FILE: Any = File(...)
+UploadPatchParam = Annotated[UploadFile, File(...)]
 
 
 def _json_bytes_response(
@@ -55,7 +58,7 @@ def _json_bytes_response(
 
 def _json_response_obj(
     status: int,
-    data: Any,
+    data: object,
     *,
     headers: dict[str, str] | None = None,
 ) -> Response:
@@ -91,8 +94,8 @@ def _head_json_response(status: int, *, etag: str = "") -> Response:
 
 def _write_cleanup_summary_record_direct(
     patches_root: Path,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
+    payload: dict[str, object],
+) -> dict[str, object]:
     path = operator_info_runtime_path(patches_root)
     text = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,15 +107,20 @@ def _write_cleanup_summary_record_direct(
 
 def _persist_cleanup_summary_record(
     patches_root: Path,
-    cleanup_summary: dict[str, Any],
-) -> tuple[dict[str, Any], bool]:
+    cleanup_summary: dict[str, object],
+) -> tuple[dict[str, object], bool]:
     try:
         return append_cleanup_recent_status(patches_root, cleanup_summary), True
     except Exception:
         operator_info = load_operator_info(patches_root)
-        cleanup_recent_status = list(operator_info.get("cleanup_recent_status") or [])
+        raw_recent = operator_info.get("cleanup_recent_status")
+        cleanup_recent_status: list[object] = (
+            list(raw_recent) if isinstance(raw_recent, list) else []
+        )
         cleanup_recent_status.append(dict(cleanup_summary))
-        merged_payload = {"cleanup_recent_status": cleanup_recent_status}
+        merged_payload: dict[str, object] = {
+            "cleanup_recent_status": cleanup_recent_status,
+        }
         try:
             return write_operator_info(patches_root, merged_payload), True
         except Exception:
@@ -134,70 +142,68 @@ def _persist_cleanup_summary_record(
                 )
 
 
-async def _publish_cleanup_refresh_fallback(core: Any) -> bool:
-    install_snapshot = getattr(core.indexer, "install_external_snapshot_payload", None)
-    if install_snapshot is None:
-        return False
+async def _publish_cleanup_refresh_fallback(core: AsyncAppCore) -> bool:
     try:
         payload = await _legacy_snapshot_payload(core)
     except Exception:
         return False
     try:
-        install_snapshot(payload)
+        core.indexer.install_external_snapshot_payload(payload)
         return True
     except Exception:
         return False
 
 
-async def _refresh_after_cleanup(core: Any) -> bool:
+async def _refresh_after_cleanup(core: AsyncAppCore) -> bool:
     try:
         await core.indexer.force_rescan()
         return True
     except Exception:
         pass
 
-    rebuild = getattr(core.indexer, "_rebuild", None)
-    if rebuild is not None:
-        try:
-            await rebuild(reason="patch_success_cleanup")
-            return True
-        except Exception:
-            pass
+    try:
+        await core.indexer._rebuild(reason="patch_success_cleanup")
+        return True
+    except Exception:
+        pass
 
     return await _publish_cleanup_refresh_fallback(core)
 
 
-async def run_terminal_job_cleanup(core: Any, job: Any) -> None:
+async def run_terminal_job_cleanup(core: AsyncAppCore, job: JobRecord) -> None:
     created_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     summary = await to_thread(
         execute_repo_snapshot_cleanup,
         patches_root=core.patches_root,
         config=core.cfg.repo_snapshot_cleanup,
-        job_id=str(getattr(job, "job_id", "")),
-        issue_id=str(getattr(job, "issue_id", "")),
+        job_id=str(job.job_id),
+        issue_id=str(job.issue_id),
         created_utc=created_utc,
     )
-    _, persisted = await to_thread(
-        _persist_cleanup_summary_record,
-        core.patches_root,
-        summary.to_json(),
+    _record, persisted = cast(
+        tuple[dict[str, object], bool],
+        await to_thread(
+            _persist_cleanup_summary_record,
+            core.patches_root,
+            summary.to_json(),
+        ),
     )
     if not persisted:
         return
     await _refresh_after_cleanup(core)
 
 
-async def run_patch_job_success_cleanup(core: Any, job: Any) -> None:
+async def run_patch_job_success_cleanup(core: AsyncAppCore, job: JobRecord) -> None:
     await run_terminal_job_cleanup(core, job)
 
 
-def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
+def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
     app = FastAPI()
     core = AsyncAppCore(repo_root=repo_root, cfg=cfg)
     snapshot_change_broker = SnapshotChangeBroker()
     snapshot_delta_store = SnapshotDeltaStore()
 
-    async def _handle_terminal_job_cleanup(job: Any) -> None:
+    async def _handle_terminal_job_cleanup(job: JobRecord) -> None:
         try:
             await run_patch_job_success_cleanup(core, job)
         except Exception:
@@ -205,11 +211,11 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
 
     core.register_terminal_job_callback(_handle_terminal_job_cleanup)
 
-    def _publish_snapshot_change(snap: Any) -> None:
+    def _publish_snapshot_change(snap: IndexerSnapshot) -> None:
         snapshot_delta_store.record_snapshot(snap)
         snapshot_change_broker.publish(
             {
-                "seq": int(getattr(snap, "seq", 0) or 0),
+                "seq": int(snap.seq),
                 "sigs": {
                     "jobs": str(snap.jobs_sig),
                     "runs": str(snap.runs_sig),
@@ -280,32 +286,32 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         return _json_bytes_response(status, data)
 
     @app.post("/api/editor/validate")
-    async def api_editor_validate(body: dict[str, Any]) -> Response:
+    async def api_editor_validate(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_editor_validate, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/editor/save")
-    async def api_editor_save(body: dict[str, Any]) -> Response:
+    async def api_editor_save(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_editor_save, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/editor/save_unsafe")
-    async def api_editor_save_unsafe_compat(body: dict[str, Any]) -> Response:
+    async def api_editor_save_unsafe_compat(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_editor_save_unsafe, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/editor/save-unsafe")
-    async def api_editor_save_unsafe(body: dict[str, Any]) -> Response:
+    async def api_editor_save_unsafe(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_editor_save_unsafe, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/editor/apply_fix")
-    async def api_editor_apply_fix(body: dict[str, Any]) -> Response:
+    async def api_editor_apply_fix(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_editor_apply_fix, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/editor/preview_action")
-    async def api_editor_preview_action(body: dict[str, Any]) -> Response:
+    async def api_editor_preview_action(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_editor_preview_action, body)
         return _json_bytes_response(status, data)
 
@@ -325,7 +331,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         return _json_bytes_response(status, data)
 
     @app.post("/api/amp/config")
-    async def api_amp_config_post(body: dict[str, Any]) -> Response:
+    async def api_amp_config_post(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_amp_config_post, body)
         return _json_bytes_response(status, data)
 
@@ -444,7 +450,9 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
                             400,
                             {"ok": False, "error": "Invalid issue_id"},
                         )
-                    runs_items = [r for r in runs_items if int(r.get("issue_id", 0) or 0) == iid]
+                    runs_items = [
+                        r for r in runs_items if int(str(r.get("issue_id", 0) or 0)) == iid
+                    ]
 
                 if result:
                     if result not in ("success", "fail", "unknown", "canceled"):
@@ -604,11 +612,11 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
 
         # Build payload only when changed.
 
-        def _load_disk_jobs_sync(mem_by_id: dict[str, object]) -> list[Any]:
+        def _load_disk_jobs_sync(mem_by_id: dict[str, JobRecord]) -> list[JobRecord]:
             from datetime import UTC, datetime
 
             disk_raw = core.list_job_jsons_sync(limit=200)
-            disk: list[Any] = []
+            disk: list[JobRecord] = []
             for r in disk_raw:
                 jid = str(r.get("job_id", ""))
                 if not jid or jid in mem_by_id:
@@ -705,12 +713,12 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         return _json_bytes_response(status, data)
 
     @app.post("/api/rollback/preflight")
-    async def api_rollback_preflight(body: dict[str, Any]) -> Response:
+    async def api_rollback_preflight(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_rollback_preflight, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/rollback/helper_action")
-    async def api_rollback_helper_action(body: dict[str, Any]) -> Response:
+    async def api_rollback_helper_action(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_rollback_helper_action, body)
         return _json_bytes_response(status, data)
 
@@ -729,7 +737,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         return _json_response_obj(200, {"ok": True, "job_id": job_id})
 
     @app.post("/api/jobs/enqueue")
-    async def api_jobs_enqueue(body: dict[str, Any]) -> Response:
+    async def api_jobs_enqueue(body: dict[str, object]) -> Response:
         from patchhub.app_api_jobs import api_jobs_enqueue
 
         # Reuse legacy parsing/validation logic, but enqueue via async queue.
@@ -760,19 +768,19 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
             def queue_block_reason(self) -> str | None:
                 return core.queue_block_reason()
 
-            def list_jobs(self):
+            def list_jobs(self) -> list[JobRecord]:
                 return list(core.queue._jobs.values())
 
-            async def _enqueue_async(self, job: Any) -> None:
+            async def _enqueue_async(self, job: JobRecord) -> None:
                 await core.queue.enqueue(job)
 
-            def enqueue(self, job: Any) -> None:
+            def enqueue(self, job: JobRecord) -> None:
                 t = asyncio.get_running_loop().create_task(self._enqueue_async(job))
                 self._pending.append(t)
 
         adapter = _Adapter(core)
         try:
-            status, data = api_jobs_enqueue(adapter, body)
+            status, data = api_jobs_enqueue(cast("AsyncAppCore", adapter), body)
         except Exception as exc:
             return _error_response(exc)
         if status < 400 and adapter._pending:
@@ -783,39 +791,39 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
         return _json_bytes_response(status, data)
 
     @app.post("/api/parse_command")
-    async def api_parse_command(body: dict[str, Any]) -> Response:
+    async def api_parse_command(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_parse_command, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/upload/patch")
-    async def api_upload_patch(file: UploadFile = UPLOAD_PATCH_FILE) -> Response:
+    async def api_upload_patch(file: UploadPatchParam) -> Response:
         filename = os.path.basename(file.filename or "")
         data = await file.read()
         status, resp = await to_thread(core.api_upload_patch, filename, data)
         return _json_bytes_response(status, resp)
 
     @app.post("/api/fs/mkdir")
-    async def api_fs_mkdir(body: dict[str, Any]) -> Response:
+    async def api_fs_mkdir(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_fs_mkdir, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/fs/rename")
-    async def api_fs_rename(body: dict[str, Any]) -> Response:
+    async def api_fs_rename(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_fs_rename, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/fs/delete")
-    async def api_fs_delete(body: dict[str, Any]) -> Response:
+    async def api_fs_delete(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_fs_delete, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/fs/unzip")
-    async def api_fs_unzip(body: dict[str, Any]) -> Response:
+    async def api_fs_unzip(body: dict[str, object]) -> Response:
         status, data = await to_thread(core.api_fs_unzip, body)
         return _json_bytes_response(status, data)
 
     @app.post("/api/fs/archive")
-    async def api_fs_archive(body: dict[str, Any]) -> Response:
+    async def api_fs_archive(body: dict[str, object]) -> Response:
         paths = body.get("paths")
         if not isinstance(paths, list) or not paths:
             return _json_response_obj(
@@ -930,7 +938,7 @@ def create_app(*, repo_root: Path, cfg: Any) -> FastAPI:
                     current = disk_job
                 return str(current.status) if current is not None else None
 
-            async def get_broker() -> Any:
+            async def get_broker() -> JobEventBroker | None:
                 if job is None:
                     return None
                 return await core.queue.get_broker(job_id)

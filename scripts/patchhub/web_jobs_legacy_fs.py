@@ -4,7 +4,7 @@ import json
 import os
 import stat as statlib
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from .models import JobRecord, LegacyJobSnapshot
 
@@ -18,19 +18,30 @@ __all__ = [
     "read_legacy_job_snapshot",
 ]
 
-_LIST_CACHE: dict[str, tuple[tuple[int, int], int, list[dict[str, Any]]]] = {}
+_LIST_CACHE: dict[str, tuple[tuple[int, int], int, list[dict[str, object]]]] = {}
 
 
-def _read_json_file(path: Path) -> dict[str, Any] | None:
+def _dir_name_key(path: Path) -> str:
+    return str(path.name)
+
+
+def _read_json_file(path: Path) -> dict[str, object] | None:
     try:
         raw = path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return None
     try:
-        obj = json.loads(raw)
+        parsed: object = json.loads(raw)
     except Exception:
         return None
-    return obj if isinstance(obj, dict) else None
+    if not isinstance(parsed, dict):
+        return None
+    parsed_dict = cast(dict[object, object], parsed)
+    out: dict[str, object] = {}
+    for key, value in parsed_dict.items():
+        if isinstance(key, str):
+            out[key] = value
+    return out
 
 
 def _scan_job_dirs_and_names(jobs_root: Path) -> tuple[tuple[int, int], list[str]]:
@@ -60,7 +71,7 @@ def _scan_job_dirs_and_names(jobs_root: Path) -> tuple[tuple[int, int], list[str
     return (count, max_mtime_ns), names
 
 
-def load_legacy_job_json(jobs_root: Path, job_id: str) -> dict[str, Any] | None:
+def load_legacy_job_json(jobs_root: Path, job_id: str) -> dict[str, object] | None:
     return _read_json_file(jobs_root / str(job_id) / "job.json")
 
 
@@ -83,7 +94,7 @@ def list_legacy_job_jsons_and_signature(
     jobs_root: Path,
     *,
     limit: int = 200,
-) -> tuple[tuple[int, int], list[dict[str, Any]]]:
+) -> tuple[tuple[int, int], list[dict[str, object]]]:
     limit = max(1, min(int(limit), 2000))
     key = str(jobs_root.resolve())
     sig, names = _scan_job_dirs_and_names(jobs_root)
@@ -93,7 +104,7 @@ def list_legacy_job_jsons_and_signature(
         if cached_sig == sig and limit <= cached_limit:
             return sig, list(cached_items[:limit])
 
-    items: list[dict[str, Any]] = []
+    items: list[dict[str, object]] = []
     for name in names:
         obj = load_legacy_job_json(jobs_root, name)
         if obj is None:
@@ -105,7 +116,7 @@ def list_legacy_job_jsons_and_signature(
     return sig, items
 
 
-def list_legacy_job_jsons(jobs_root: Path, *, limit: int = 200) -> list[dict[str, Any]]:
+def list_legacy_job_jsons(jobs_root: Path, *, limit: int = 200) -> list[dict[str, object]]:
     _sig, items = list_legacy_job_jsons_and_signature(jobs_root, limit=limit)
     return items
 
@@ -135,5 +146,5 @@ def iter_legacy_job_dirs(jobs_root: Path) -> list[Path]:
     if not jobs_root.is_dir():
         return []
     items = [path for path in jobs_root.iterdir() if path.is_dir()]
-    items.sort(key=lambda path: path.name)
+    items.sort(key=_dir_name_key)
     return items

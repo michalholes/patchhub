@@ -1,48 +1,55 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
 
-from .editor_codec import recompute_meta_counts, scaffold_object
+from .editor_codec import ObjectRecord, recompute_meta_counts, scaffold_object
 from .editor_fixup_shared import CLIENT_ONLY_ACTIONS, EditorFixupError
 
 
-def _sid(obj: dict[str, Any]) -> str:
+def _sid(obj: ObjectRecord) -> str:
     return str(obj.get("id", "")).strip()
 
 
-def _by_id(items: list[dict[str, Any]], obj_id: str) -> dict[str, Any] | None:
+def _by_id(items: list[ObjectRecord], obj_id: str) -> ObjectRecord | None:
     return next((obj for obj in items if _sid(obj) == obj_id), None)
 
 
-def _obj(items: list[dict[str, Any]], obj_id: str) -> dict[str, Any]:
+def _obj(items: list[ObjectRecord], obj_id: str) -> ObjectRecord:
     obj = _by_id(items, obj_id)
     if obj is None:
         raise EditorFixupError(f"Object not found: {obj_id}")
     return obj
 
 
-def _items(items: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+def _items(items: list[ObjectRecord], kind: str) -> list[ObjectRecord]:
     return [obj for obj in items if obj.get("type") == kind]
 
 
-def _str_list(values: Any) -> list[str]:
-    return [str(x) for x in values]
+def _iter_values(values: object) -> list[object]:
+    if isinstance(values, list | tuple | set):
+        return list(values)
+    if values in (None, ""):
+        return []
+    return [values]
 
 
-def _swap(values: Any, old: str, new: str) -> list[str]:
-    return [new if str(x) == old else str(x) for x in values]
+def _str_list(values: object) -> list[str]:
+    return [str(x) for x in _iter_values(values)]
 
 
-def _drop(values: Any, old: str) -> list[str]:
-    return [str(x) for x in values if str(x) != old]
+def _swap(values: object, old: str, new: str) -> list[str]:
+    return [new if str(x) == old else str(x) for x in _iter_values(values)]
 
 
-def _remove(items: list[dict[str, Any]], obj_id: str) -> None:
+def _drop(values: object, old: str) -> list[str]:
+    return [str(x) for x in _iter_values(values) if str(x) != old]
+
+
+def _remove(items: list[ObjectRecord], obj_id: str) -> None:
     items[:] = [obj for obj in items if _sid(obj) != obj_id]
 
 
-def _replace(items: list[dict[str, Any]], obj_id: str, new_obj: dict[str, Any]) -> None:
+def _replace(items: list[ObjectRecord], obj_id: str, new_obj: ObjectRecord) -> None:
     for idx, obj in enumerate(items):
         if _sid(obj) == obj_id:
             items[idx] = new_obj
@@ -50,7 +57,7 @@ def _replace(items: list[dict[str, Any]], obj_id: str, new_obj: dict[str, Any]) 
     raise EditorFixupError(f"Object not found: {obj_id}")
 
 
-def _unique(items: list[dict[str, Any]], base: str) -> str:
+def _unique(items: list[ObjectRecord], base: str) -> str:
     used = {_sid(obj) for obj in items}
     if base not in used:
         return base
@@ -60,14 +67,14 @@ def _unique(items: list[dict[str, Any]], base: str) -> str:
     return f"{base}.{idx}"
 
 
-def _append(items: list[dict[str, Any]], kind: str, preferred_id: str) -> dict[str, Any]:
+def _append(items: list[ObjectRecord], kind: str, preferred_id: str) -> ObjectRecord:
     obj = deepcopy(scaffold_object(kind))
     obj["id"] = _unique(items, preferred_id or str(obj.get("id", kind.upper() + ".NEW")))
     items.append(obj)
     return obj
 
 
-def _first(items: list[dict[str, Any]], kind: str, *, route_ref: str = "") -> dict[str, Any]:
+def _first(items: list[ObjectRecord], kind: str, *, route_ref: str = "") -> ObjectRecord:
     matches = [obj for obj in items if obj.get("type") == kind]
     if route_ref:
         matches = [obj for obj in matches if str(obj.get("route_ref", "")) == route_ref]
@@ -76,11 +83,11 @@ def _first(items: list[dict[str, Any]], kind: str, *, route_ref: str = "") -> di
     return sorted(matches, key=_sid)[0]
 
 
-def _first_id(items: list[dict[str, Any]], kind: str) -> str:
+def _first_id(items: list[ObjectRecord], kind: str) -> str:
     return _sid(_first(items, kind))
 
 
-def _set_route_ref(obj: dict[str, Any], route_id: str) -> None:
+def _set_route_ref(obj: ObjectRecord, route_id: str) -> None:
     field = {
         "surface": "route_ref",
         "implementation": "implements_route",
@@ -91,17 +98,17 @@ def _set_route_ref(obj: dict[str, Any], route_id: str) -> None:
     obj[field] = route_id
 
 
-FixContext = tuple[str, str, list[dict[str, Any]]]
+FixContext = tuple[str, str, list[ObjectRecord]]
 
 
 def apply_fix_action(
     *,
     action_id: str,
-    objects: list[dict[str, Any]],
+    objects: list[ObjectRecord],
     primary_id: str,
     secondary_id: str,
-    loaded_objects: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    loaded_objects: list[ObjectRecord],
+) -> list[ObjectRecord]:
     if action_id in CLIENT_ONLY_ACTIONS:
         raise EditorFixupError(f"Action {action_id} is client-side only")
     items = deepcopy(objects)
@@ -111,7 +118,7 @@ def apply_fix_action(
     return items
 
 
-def _providers(items: list[dict[str, Any]], route: dict[str, Any]) -> list[dict[str, Any]]:
+def _providers(items: list[ObjectRecord], route: ObjectRecord) -> list[ObjectRecord]:
     return [
         obj
         for pid in map(str, route.get("provider_chain", []))
@@ -119,7 +126,7 @@ def _providers(items: list[dict[str, Any]], route: dict[str, Any]) -> list[dict[
     ]
 
 
-def _missing_cap_id(items: list[dict[str, Any]], primary_id: str) -> str:
+def _missing_cap_id(items: list[ObjectRecord], primary_id: str) -> str:
     primary = _by_id(items, primary_id)
     field = (
         "requires_capabilities"
@@ -132,7 +139,7 @@ def _missing_cap_id(items: list[dict[str, Any]], primary_id: str) -> str:
     return "CAP.FIX"
 
 
-def _apply(items: list[dict[str, Any]], ctx: FixContext, action_id: str) -> None:
+def _apply(items: list[ObjectRecord], ctx: FixContext, action_id: str) -> None:
     primary_id, secondary_id, loaded_objects = ctx
     if action_id == "delete_unsaved_block":
         _remove(items, primary_id)

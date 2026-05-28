@@ -12,7 +12,6 @@ import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from badguys import suite_jail_runtime
 from badguys.bdg_ops_ipc import runner_socket_name
@@ -217,11 +216,11 @@ def _ensure_repo_root_in_syspath(repo_root: Path) -> None:
         sys.path.insert(0, s)
 
 
-def _json_line(obj: dict[str, Any]) -> str:
+def _json_line(obj: dict[str, object]) -> str:
     return json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n"
 
 
-def _append_jsonl(path: Path, obj: dict[str, Any]) -> None:
+def _append_jsonl(path: Path, obj: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8", newline="\n") as f:
         f.write(_json_line(obj))
@@ -251,7 +250,7 @@ def _ensure_test_artifacts(ctx: Ctx, test_id: str) -> None:
     )
 
 
-def _log(ctx: Ctx, *, level: str, test_id: str | None, obj: dict[str, Any]) -> None:
+def _log(ctx: Ctx, *, level: str, test_id: str | None, obj: dict[str, object]) -> None:
     if not _want(ctx.log_verbosity, level):
         return
 
@@ -541,7 +540,7 @@ def _run_test_plan(test, ctx: Ctx) -> bool:
                         },
                     )
 
-        step_obj: dict[str, Any] = {
+        step_obj: dict[str, object] = {
             "type": "step",
             "step_index": int(idx),
             "op": str(step.op),

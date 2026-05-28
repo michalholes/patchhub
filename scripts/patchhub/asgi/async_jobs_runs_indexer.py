@@ -11,12 +11,14 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha1
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Protocol
 
 from patchhub.app_support import compute_success_archive_rel
 from patchhub.indexing import compute_stats, iter_runs_with_signature
 from patchhub.models import (
+    AppStats,
     RunEntry,
+    StatsWindow,
     job_to_list_item_json,
     run_to_list_item_json,
     workspace_to_list_item_json,
@@ -27,25 +29,106 @@ from patchhub.workspace_inventory import list_workspaces
 from .async_offload import to_thread
 from .operator_info_runtime import build_operator_info_sig, load_operator_info
 
+if TYPE_CHECKING:
+    from patchhub.asgi.async_queue import AsyncJobQueue
+    from patchhub.config import AppConfig
+    from patchhub.fs_jail import FsJail
+    from patchhub.models import JobRecord
+    from patchhub.run_stats_store import RunStatsStore
+    from patchhub.web_jobs_db import WebJobsDatabase
 
-def _empty_operator_info() -> dict[str, Any]:
+
+class CoreLike(Protocol):
+    cfg: AppConfig
+    queue: AsyncJobQueue
+    patches_root: Path
+    jobs_root: Path
+    repo_root: Path
+    run_stats_store: RunStatsStore | None
+    jail: FsJail
+    web_jobs_db: WebJobsDatabase | None
+
+    def list_live_job_jsons_sync(self, *, limit: int | None = None) -> list[dict[str, object]]: ...
+
+    def mark_orphaned_sync(self, job_id: str) -> JobRecord | None: ...
+
+    def jobs_signature_sync(self) -> tuple[int, int]: ...
+
+    def list_job_jsons_sync(self, *, limit: int = 200) -> list[dict[str, object]]: ...
+
+    def _load_job_from_disk(self, job_id: str) -> JobRecord | None: ...
+
+
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    out: dict[str, object] = {}
+    for key, item in value.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(value)
+    return []
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    try:
+        return int(str(value))
+    except Exception:
+        return default
+
+
+def _empty_operator_info() -> dict[str, object]:
     return {"cleanup_recent_status": []}
+
+
+def _job_order_key(job: JobRecord) -> str:
+    return str(job.created_utc or "")
+
+
+def _job_id_key(job: JobRecord) -> str:
+    return str(job.job_id)
+
+
+def _run_order_key(run: RunEntry) -> tuple[str, int]:
+    return str(run.mtime_utc), int(run.issue_id)
+
+
+def _stats_window_json(window: StatsWindow) -> dict[str, object]:
+    return {
+        "days": int(window.days),
+        "total": int(window.total),
+        "success": int(window.success),
+        "fail": int(window.fail),
+        "unknown": int(window.unknown),
+    }
+
+
+def _stats_json(stats: AppStats) -> dict[str, object]:
+    return {
+        "all_time": _stats_window_json(stats.all_time),
+        "windows": [_stats_window_json(w) for w in stats.windows],
+    }
 
 
 @dataclass(frozen=True)
 class IndexerSnapshot:
-    jobs_items: list[dict[str, Any]]
-    runs_items: list[dict[str, Any]]
-    workspaces_items: list[dict[str, Any]]
-    header_body: dict[str, Any]
+    jobs_items: list[dict[str, object]]
+    runs_items: list[dict[str, object]]
+    workspaces_items: list[dict[str, object]]
+    header_body: dict[str, object]
     jobs_sig: str
     runs_sig: str
     workspaces_sig: str
     header_sig: str
     snapshot_sig: str
-    patches_items: list[dict[str, Any]] = field(default_factory=list)
+    patches_items: list[dict[str, object]] = field(default_factory=list)
     patches_sig: str = ""
-    operator_info: dict[str, Any] = field(default_factory=_empty_operator_info)
+    operator_info: dict[str, object] = field(default_factory=_empty_operator_info)
     operator_info_sig: str = ""
     seq: int = 0
 
@@ -54,14 +137,14 @@ def _utc_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _etag_sig_jobs(*, disk_sig: tuple[int, int], mem: list[Any]) -> str:
+def _etag_sig_jobs(*, disk_sig: tuple[int, int], mem: list[JobRecord]) -> str:
     mem_parts: list[str] = []
-    for j in sorted(mem, key=lambda x: str(getattr(x, "job_id", ""))):
-        jid = str(getattr(j, "job_id", ""))
-        st = str(getattr(j, "status", ""))
-        isu = str(getattr(j, "issue_id", ""))
-        su = str(getattr(j, "started_utc", ""))
-        eu = str(getattr(j, "ended_utc", ""))
+    for j in sorted(mem, key=_job_id_key):
+        jid = str(j.job_id)
+        st = str(j.status)
+        isu = str(j.issue_id)
+        su = str(j.started_utc)
+        eu = str(j.ended_utc)
         mem_parts.append("|".join([jid, st, isu, su, eu]))
     mem_sig = sha1("\n".join(mem_parts).encode("utf-8")).hexdigest()
     return f"jobs:d={disk_sig[0]}:{disk_sig[1]}:m={mem_sig}"
@@ -69,13 +152,16 @@ def _etag_sig_jobs(*, disk_sig: tuple[int, int], mem: list[Any]) -> str:
 
 def build_header_summary(
     *,
-    core: Any,
+    core: CoreLike,
     queued: int,
     running: int,
     lock_held: bool,
     base_runs: list[RunEntry],
-) -> dict[str, Any]:
-    store = getattr(core, "run_stats_store", None)
+) -> dict[str, object]:
+    try:
+        store = core.run_stats_store
+    except AttributeError:
+        store = None
     if store is not None:
         summary = store.build_summary(core.cfg.indexing.stats_windows_days)
         runs_count = summary.count
@@ -90,14 +176,11 @@ def build_header_summary(
             "held": bool(lock_held),
         },
         "runs": {"count": runs_count},
-        "stats": {
-            "all_time": stats.all_time.__dict__,
-            "windows": [w.__dict__ for w in stats.windows],
-        },
+        "stats": _stats_json(stats),
     }
 
 
-def build_header_sig(header_body: dict[str, Any]) -> str:
+def build_header_sig(header_body: dict[str, object]) -> str:
     payload = json.dumps(
         header_body,
         sort_keys=True,
@@ -136,7 +219,7 @@ def _latest_by_issue(
             if not statlib.S_ISREG(st.st_mode):
                 continue
 
-            mt = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+            mt = int(st.st_mtime_ns)
             cand = (mt, name)
             prev = best.get(issue_id)
             if prev is None or cand[0] > prev[0] or (cand[0] == prev[0] and cand[1] > prev[1]):
@@ -185,7 +268,7 @@ def _decorate_runs_in_place(
 
 
 class AsyncJobsRunsIndexer:
-    def __init__(self, *, core: Any) -> None:
+    def __init__(self, *, core: CoreLike) -> None:
         self._core = core
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
@@ -234,13 +317,13 @@ class AsyncJobsRunsIndexer:
     def last_error(self) -> str | None:
         return self._last_err
 
-    def get_jobs(self) -> tuple[str, list[dict[str, Any]]] | None:
+    def get_jobs(self) -> tuple[str, list[dict[str, object]]] | None:
         snap = self._snap
         if snap is None:
             return None
         return snap.jobs_sig, list(snap.jobs_items)
 
-    def get_runs(self) -> tuple[str, list[dict[str, Any]]] | None:
+    def get_runs(self) -> tuple[str, list[dict[str, object]]] | None:
         snap = self._snap
         if snap is None:
             return None
@@ -249,28 +332,38 @@ class AsyncJobsRunsIndexer:
     def get_ui_snapshot(self) -> IndexerSnapshot | None:
         return self._snap
 
-    def install_external_snapshot_payload(self, payload: dict[str, Any]) -> IndexerSnapshot:
-        snapshot = payload.get("snapshot") if isinstance(payload, dict) else None
-        sigs = payload.get("sigs") if isinstance(payload, dict) else None
-        if not isinstance(snapshot, dict):
+    def install_external_snapshot_payload(self, payload: dict[str, object]) -> IndexerSnapshot:
+        snapshot = _obj_dict(payload.get("snapshot"))
+        sigs = _obj_dict(payload.get("sigs"))
+        if snapshot is None:
             raise TypeError("payload.snapshot must be a mapping")
-        if not isinstance(sigs, dict):
+        if sigs is None:
             raise TypeError("payload.sigs must be a mapping")
 
         next_seq = (
             max(
                 int(self._snapshot_seq),
-                int(payload.get("seq", 0) or 0),
+                _as_int(payload.get("seq", 0), 0),
             )
             + 1
         )
+        raw_jobs = _obj_list(snapshot.get("jobs"))
+        raw_runs = _obj_list(snapshot.get("runs"))
+        raw_patches = _obj_list(snapshot.get("patches"))
+        raw_workspaces = _obj_list(snapshot.get("workspaces"))
+        raw_header = _obj_dict(snapshot.get("header")) or {}
+        raw_operator_info = _obj_dict(snapshot.get("operator_info")) or _empty_operator_info()
         snap = IndexerSnapshot(
-            jobs_items=[dict(item) for item in list(snapshot.get("jobs") or [])],
-            runs_items=[dict(item) for item in list(snapshot.get("runs") or [])],
-            patches_items=[dict(item) for item in list(snapshot.get("patches") or [])],
-            workspaces_items=[dict(item) for item in list(snapshot.get("workspaces") or [])],
-            header_body=dict(snapshot.get("header") or {}),
-            operator_info=dict(snapshot.get("operator_info") or _empty_operator_info()),
+            jobs_items=[item for item in (_obj_dict(i) for i in raw_jobs) if item is not None],
+            runs_items=[item for item in (_obj_dict(i) for i in raw_runs) if item is not None],
+            patches_items=[
+                item for item in (_obj_dict(i) for i in raw_patches) if item is not None
+            ],
+            workspaces_items=[
+                item for item in (_obj_dict(i) for i in raw_workspaces) if item is not None
+            ],
+            header_body=raw_header,
+            operator_info=raw_operator_info,
             jobs_sig=str(sigs.get("jobs", "")),
             runs_sig=str(sigs.get("runs", "")),
             patches_sig=str(sigs.get("patches", "")),
@@ -294,7 +387,7 @@ class AsyncJobsRunsIndexer:
         self._wake.set()
 
     async def _run_loop(self) -> None:
-        poll = int(getattr(self._core.cfg.indexing, "poll_interval_seconds", 2) or 2)
+        poll = int(self._core.cfg.indexing.poll_interval_seconds or 2)
         poll = max(1, min(poll, 3600))
 
         while not self._stop.is_set():
@@ -330,12 +423,12 @@ class AsyncJobsRunsIndexer:
             qstate = await self._core.queue.state()
         except Exception:
             qstate = None
-        queued = int(getattr(qstate, "queued", 0) or 0) if qstate is not None else 0
-        running = int(getattr(qstate, "running", 0) or 0) if qstate is not None else 0
+        queued = int(qstate.queued) if qstate is not None else 0
+        running = int(qstate.running) if qstate is not None else 0
 
         def _sync_build() -> IndexerSnapshot:
-            mem_by_id = {str(getattr(j, "job_id", "")) for j in mem}
-            disk_jobs: list[Any] = []
+            mem_by_id = {str(j.job_id) for j in mem}
+            disk_jobs: list[JobRecord] = []
 
             live_raw = self._core.list_live_job_jsons_sync()
             for r in live_raw:
@@ -359,7 +452,7 @@ class AsyncJobsRunsIndexer:
                 disk_jobs.append(j)
 
             jobs = list(mem) + disk_jobs
-            jobs.sort(key=lambda j: str(getattr(j, "created_utc", "")) or "", reverse=True)
+            jobs.sort(key=_job_order_key, reverse=True)
             jobs_items = [job_to_list_item_json(j) for j in jobs]
 
             base_sig, base_runs = iter_runs_with_signature(
@@ -378,7 +471,7 @@ class AsyncJobsRunsIndexer:
             )
 
             runs = list(base_runs) + canceled_runs
-            runs.sort(key=lambda r: (r.mtime_utc, r.issue_id), reverse=True)
+            runs.sort(key=_run_order_key, reverse=True)
             runs = runs[:500]
             _decorate_runs_in_place(
                 runs,
@@ -396,7 +489,10 @@ class AsyncJobsRunsIndexer:
                 lock_held = 0
 
             patches_sig, patches_items = build_patch_inventory(self._core)
-            workspaces_sig, workspaces_raw = list_workspaces(self._core, mem_jobs=mem)
+            workspaces_sig, workspaces_raw = list_workspaces(
+                self._core,
+                mem_jobs=mem,
+            )
             workspaces_items = [workspace_to_list_item_json(it) for it in workspaces_raw]
 
             header_body = build_header_summary(
@@ -495,6 +591,6 @@ class AsyncJobsRunsIndexer:
                 )
             )
             count += 1
-            max_rev = max(max_rev, int(raw.get("row_rev", 0) or 0))
-        out.sort(key=lambda r: (r.mtime_utc, r.issue_id), reverse=True)
+            max_rev = max(max_rev, _as_int(raw.get("row_rev", 0), 0))
+        out.sort(key=_run_order_key, reverse=True)
         return out, (count, max_rev)

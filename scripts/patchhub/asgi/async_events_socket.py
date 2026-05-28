@@ -6,7 +6,6 @@ import json
 import socket
 import uuid
 from pathlib import Path
-from typing import Any
 
 _PROTOCOL = "am_patch_ipc/1"
 CANCEL_REPLY_TIMEOUT_S = 3.0
@@ -17,7 +16,7 @@ def job_socket_path(job_id: str) -> str:
 
 
 def _cancel_payload(cmd_id: str) -> bytes:
-    req: dict[str, Any] = {
+    req: dict[str, object] = {
         "protocol": _PROTOCOL,
         "type": "cmd",
         "cmd_id": cmd_id,

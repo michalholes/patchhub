@@ -4,7 +4,6 @@ import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 _FORBIDDEN_EVAL_KEYS = {
     "rc_eq",
@@ -74,7 +73,7 @@ class BdgAsset:
 @dataclass(frozen=True)
 class BdgStep:
     op: str
-    params: dict[str, Any]
+    params: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -87,14 +86,14 @@ class BdgTest:
     subjects: dict[str, str] = field(default_factory=dict)
 
 
-def _as_str(d: dict[str, Any], key: str, default: str = "") -> str:
+def _as_str(d: dict[str, object], key: str, default: str = "") -> str:
     v = d.get(key, default)
     if not isinstance(v, str):
         raise SystemExit(f"FAIL: bdg: key '{key}' must be a string")
     return v
 
 
-def _as_bool(d: dict[str, Any], key: str, default: bool = False) -> bool:
+def _as_bool(d: dict[str, object], key: str, default: bool = False) -> bool:
     v = d.get(key, default)
     if not isinstance(v, bool):
         raise SystemExit(f"FAIL: bdg: key '{key}' must be a bool")
@@ -167,7 +166,7 @@ def _validate_zip_entry(*, asset_id: str, entry_id: str, content: str) -> None:
         _validate_python_payload(label=label, content=content)
 
 
-def _validate_asset(item: dict[str, Any], *, asset_id: str, kind: str) -> None:
+def _validate_asset(item: dict[str, object], *, asset_id: str, kind: str) -> None:
     content = item.get("content")
     if content is not None and not isinstance(content, str):
         raise SystemExit("FAIL: bdg: asset content must be string or omitted")

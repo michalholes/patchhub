@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import shutil
 import tempfile
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from zipfile import ZipFile
+
+from .config import AppConfig
 
 _REQUIRED_ENTRYPOINTS = {
     "pm_validator.py": "governance/pm_validator.py",
@@ -43,11 +44,11 @@ class GovernanceToolkitSelection:
     execution_root: Path
     pm_validator_path: Path
     validate_master_spec_v2_path: Path
-    resolution: dict[str, Any]
+    resolution: dict[str, object]
 
 
 class GovernanceToolkitRuntimeError(RuntimeError):
-    def __init__(self, message: str, *, resolution: dict[str, Any]) -> None:
+    def __init__(self, message: str, *, resolution: dict[str, object]) -> None:
         super().__init__(message)
         self.resolution = resolution
 
@@ -60,7 +61,7 @@ def _sha256_bytes(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _clean_ascii_token(value: Any, *, field: str) -> str:
+def _clean_ascii_token(value: object, *, field: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise ValueError(f"{field} must be non-empty")
@@ -81,17 +82,25 @@ def _clean_github_url(value: str, *, field: str) -> str:
     return text
 
 
-def _cache_root(cfg: Any) -> Path:
-    ref = str(getattr(getattr(cfg, "governance_toolkit", object()), "cache_root", "")).strip()
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    out: dict[str, object] = {}
+    for key, item in value.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _cache_root(cfg: AppConfig) -> Path:
+    ref = str(cfg.governance_toolkit.cache_root).strip()
     if not ref:
         raise ValueError("governance_toolkit.cache_root must be configured")
     return Path(ref).expanduser().resolve()
 
 
-def _github_manifest_url(cfg: Any) -> str:
-    ref = str(
-        getattr(getattr(cfg, "governance_toolkit", object()), "github_manifest_url", "")
-    ).strip()
+def _github_manifest_url(cfg: AppConfig) -> str:
+    ref = str(cfg.governance_toolkit.github_manifest_url).strip()
     if not ref:
         raise ValueError("governance_toolkit.github_manifest_url must be configured")
     return _clean_github_url(ref, field="governance_toolkit.github_manifest_url")
@@ -105,25 +114,42 @@ def _authority_root(cache_root: Path, authority_source: str) -> Path:
     return cache_root / "authorities" / _authority_key(authority_source)
 
 
-def _allow_stale(cfg: Any) -> bool:
-    return bool(getattr(getattr(cfg, "governance_toolkit", object()), "allow_stale", False))
+def _allow_stale(cfg: AppConfig) -> bool:
+    return bool(cfg.governance_toolkit.allow_stale)
 
 
-def _request_timeout_s(cfg: Any) -> int:
-    raw = int(getattr(getattr(cfg, "governance_toolkit", object()), "request_timeout_s", 3))
+def _request_timeout_s(cfg: AppConfig) -> int:
+    raw = int(cfg.governance_toolkit.request_timeout_s)
     return max(1, raw)
 
 
 def _read_remote_bytes(url: str, *, timeout_s: int) -> bytes:
-    with urllib.request.urlopen(url, timeout=timeout_s) as response:  # noqa: S310
-        return response.read()
+    parsed = urllib.parse.urlparse(url)
+    host = str(parsed.netloc or "").strip()
+    if not host:
+        raise ValueError("invalid_url_host")
+    path = str(parsed.path or "/")
+    if parsed.query:
+        path += "?" + str(parsed.query)
+    conn = http.client.HTTPSConnection(host, timeout=timeout_s)
+    try:
+        conn.request("GET", path, headers={"User-Agent": "patchhub-toolkit"})
+        response = conn.getresponse()
+        raw = response.read()
+        status = int(response.status)
+        if status >= 400:
+            raise ValueError(f"remote_http_status:{status}")
+        return bytes(raw)
+    finally:
+        conn.close()
 
 
-def load_governance_toolkit_manifest(cfg: Any) -> GovernanceToolkitManifest:
+def load_governance_toolkit_manifest(cfg: AppConfig) -> GovernanceToolkitManifest:
     manifest_url = _github_manifest_url(cfg)
     raw = _read_remote_bytes(manifest_url, timeout_s=_request_timeout_s(cfg))
-    data = json.loads(raw.decode("utf-8"))
-    if not isinstance(data, dict):
+    parsed: object = json.loads(raw.decode("utf-8"))
+    data = _obj_dict(parsed)
+    if data is None:
         raise ValueError("governance toolkit manifest must be a JSON object")
     remote_sig = _clean_ascii_token(data.get("remote_sig"), field="manifest.remote_sig")
     archive_url = _clean_github_url(
@@ -167,15 +193,15 @@ def _read_last_selected(authority_root: Path) -> str:
         return ""
 
 
-def _read_meta(root: Path) -> dict[str, Any] | None:
+def _read_meta(root: Path) -> dict[str, object] | None:
     path = root / _META_FILE
     if not path.is_file():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        parsed: object = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
-    return data if isinstance(data, dict) else None
+    return _obj_dict(parsed)
 
 
 def _cache_state(
@@ -242,13 +268,14 @@ def _materialize_selected_toolkit(
         with ZipFile(archive_path, "r") as zf:
             zf.extractall(tmp_root)
         layout_root = _resolve_archive_layout_root(tmp_root)
+        meta_payload: dict[str, str] = {
+            "selected_sig": manifest.remote_sig,
+            "archive_sha256": manifest.archive_sha256,
+            "authority_source": manifest.authority_source,
+        }
         (layout_root / _META_FILE).write_text(
             json.dumps(
-                {
-                    "selected_sig": manifest.remote_sig,
-                    "archive_sha256": manifest.archive_sha256,
-                    "authority_source": manifest.authority_source,
-                },
+                meta_payload,
                 ensure_ascii=True,
                 sort_keys=True,
             )
@@ -261,7 +288,7 @@ def _materialize_selected_toolkit(
     return final_root, "pass"
 
 
-def _resolution_record() -> dict[str, Any]:
+def _resolution_record() -> dict[str, object]:
     return {
         "remote_sig": "",
         "cached_sig_before": "",
@@ -275,12 +302,16 @@ def _resolution_record() -> dict[str, Any]:
     }
 
 
+def _resolution_str(resolution: dict[str, object], key: str) -> str:
+    return str(resolution.get(key, "") or "").strip()
+
+
 def _selection_from_root(
     *,
     authority_source: str,
     sig: str,
     root: Path,
-    resolution: dict[str, Any],
+    resolution: dict[str, object],
 ) -> GovernanceToolkitSelection:
     pm_validator_path, validate_master_spec_v2_path = _entrypoint_paths(root)
     return GovernanceToolkitSelection(
@@ -293,7 +324,7 @@ def _selection_from_root(
     )
 
 
-def resolve_governance_toolkit(cfg: Any) -> GovernanceToolkitSelection:
+def resolve_governance_toolkit(cfg: AppConfig) -> GovernanceToolkitSelection:
     resolution = _resolution_record()
     cache_root: Path | None = None
     manifest_url = ""
@@ -336,7 +367,7 @@ def resolve_governance_toolkit(cfg: Any) -> GovernanceToolkitSelection:
         )
     except Exception as exc:
         resolution["error"] = str(exc)
-        stale_sig = resolution["cached_sig_before"]
+        stale_sig = _resolution_str(resolution, "cached_sig_before")
         if cache_root is None or not manifest_url or not _allow_stale(cfg) or not stale_sig:
             resolution["resolution_mode"] = "fail-closed"
             raise GovernanceToolkitRuntimeError(str(exc), resolution=resolution) from exc

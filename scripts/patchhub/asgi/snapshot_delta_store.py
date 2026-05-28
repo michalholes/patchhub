@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Any
 
 from .async_jobs_runs_indexer import IndexerSnapshot
 
@@ -10,54 +9,54 @@ from .async_jobs_runs_indexer import IndexerSnapshot
 @dataclass(frozen=True)
 class SnapshotRecord:
     seq: int
-    jobs: list[dict[str, Any]]
-    runs: list[dict[str, Any]]
-    patches: list[dict[str, Any]]
-    workspaces: list[dict[str, Any]]
-    header: dict[str, Any]
-    operator_info: dict[str, Any]
+    jobs: list[dict[str, object]]
+    runs: list[dict[str, object]]
+    patches: list[dict[str, object]]
+    workspaces: list[dict[str, object]]
+    header: dict[str, object]
+    operator_info: dict[str, object]
     sigs: dict[str, str]
 
 
-def _copy_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _copy_items(items: list[dict[str, object]]) -> list[dict[str, object]]:
     return [dict(item) for item in items]
 
 
-def _job_key(item: dict[str, Any]) -> str:
+def _job_key(item: dict[str, object]) -> str:
     return str(item.get("job_id", ""))
 
 
-def _run_key(item: dict[str, Any]) -> str:
+def _run_key(item: dict[str, object]) -> str:
     return f"{item.get('issue_id', '')}|{item.get('mtime_utc', '')}"
 
 
-def _workspace_key(item: dict[str, Any]) -> str:
+def _workspace_key(item: dict[str, object]) -> str:
     return f"{item.get('issue_id', '')}|{item.get('workspace_rel_path', '')}"
 
 
-def _removed_job(item: dict[str, Any]) -> dict[str, Any]:
+def _removed_job(item: dict[str, object]) -> dict[str, object]:
     return {"job_id": str(item.get("job_id", ""))}
 
 
-def _removed_run(item: dict[str, Any]) -> dict[str, Any]:
+def _removed_run(item: dict[str, object]) -> dict[str, object]:
     return {
         "issue_id": item.get("issue_id"),
         "mtime_utc": item.get("mtime_utc"),
     }
 
 
-def _removed_workspace(item: dict[str, Any]) -> dict[str, Any]:
+def _removed_workspace(item: dict[str, object]) -> dict[str, object]:
     return {
         "issue_id": item.get("issue_id"),
         "workspace_rel_path": item.get("workspace_rel_path"),
     }
 
 
-def _patch_key(item: dict[str, Any]) -> str:
+def _patch_key(item: dict[str, object]) -> str:
     return str(item.get("stored_rel_path", ""))
 
 
-def _removed_patch(item: dict[str, Any]) -> dict[str, Any]:
+def _removed_patch(item: dict[str, object]) -> dict[str, object]:
     return {"stored_rel_path": item.get("stored_rel_path")}
 
 
@@ -92,7 +91,7 @@ class SnapshotDeltaStore:
             return 0
         return int(self._records[-1].seq)
 
-    def build_delta(self, since_seq: int) -> dict[str, Any]:
+    def build_delta(self, since_seq: int) -> dict[str, object]:
         if not self._records:
             return {"ok": True, "resync_needed": True, "seq": 0}
 
@@ -152,18 +151,18 @@ class SnapshotDeltaStore:
 
     def _diff(
         self,
-        before: list[dict[str, Any]],
-        after: list[dict[str, Any]],
-        key_fn: Any,
-        removed_fn: Any,
+        before: list[dict[str, object]],
+        after: list[dict[str, object]],
+        key_fn: object,
+        removed_fn: object,
         *,
         include_order: bool = False,
-    ) -> dict[str, Any]:
+    ) -> dict[str, object]:
         before_map = {str(key_fn(item)): item for item in before}
         after_map = {str(key_fn(item)): item for item in after}
-        added: list[dict[str, Any]] = []
-        updated: list[dict[str, Any]] = []
-        removed: list[dict[str, Any]] = []
+        added: list[dict[str, object]] = []
+        updated: list[dict[str, object]] = []
+        removed: list[dict[str, object]] = []
 
         for key, item in after_map.items():
             prev = before_map.get(key)
@@ -176,7 +175,7 @@ class SnapshotDeltaStore:
             if key not in after_map:
                 removed.append(removed_fn(item))
 
-        payload: dict[str, Any] = {"added": added, "updated": updated, "removed": removed}
+        payload: dict[str, object] = {"added": added, "updated": updated, "removed": removed}
         if include_order:
             payload["ordered_keys"] = [str(key_fn(item)) for item in after]
         return payload

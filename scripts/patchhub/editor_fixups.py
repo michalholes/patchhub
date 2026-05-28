@@ -5,9 +5,11 @@ import base64
 import json
 import zlib
 from copy import deepcopy
-from typing import Any
+from typing import cast
 
 from .editor_codec import (
+    FailurePayload,
+    ObjectRecord,
     last_error_detail,
     parse_entry_tuple,
     parse_list_head,
@@ -16,42 +18,50 @@ from .editor_codec import (
 from .editor_fixup_shared import EditorFixupError
 
 
-def _sid(obj: dict[str, Any]) -> str:
+def _sid(obj: ObjectRecord) -> str:
     return str(obj.get("id", "")).strip()
 
 
-def _by_id(items: list[dict[str, Any]], obj_id: str) -> dict[str, Any] | None:
+def _by_id(items: list[ObjectRecord], obj_id: str) -> ObjectRecord | None:
     return next((obj for obj in items if _sid(obj) == obj_id), None)
 
 
-def _obj(items: list[dict[str, Any]], obj_id: str) -> dict[str, Any]:
+def _obj(items: list[ObjectRecord], obj_id: str) -> ObjectRecord:
     obj = _by_id(items, obj_id)
     if obj is None:
         raise EditorFixupError(f"Object not found: {obj_id}")
     return obj
 
 
-def _items(items: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+def _items(items: list[ObjectRecord], kind: str) -> list[ObjectRecord]:
     return [obj for obj in items if obj.get("type") == kind]
 
 
-def _str_list(values: Any) -> list[str]:
-    return [str(x) for x in values]
+def _iter_values(values: object) -> list[object]:
+    if isinstance(values, list | tuple | set):
+        return list(values)
+    if values in (None, ""):
+        return []
+    return [values]
 
 
-def _swap(values: Any, old: str, new: str) -> list[str]:
-    return [new if str(x) == old else str(x) for x in values]
+def _str_list(values: object) -> list[str]:
+    return [str(x) for x in _iter_values(values)]
 
 
-def _drop(values: Any, old: str) -> list[str]:
-    return [str(x) for x in values if str(x) != old]
+def _swap(values: object, old: str, new: str) -> list[str]:
+    return [new if str(x) == old else str(x) for x in _iter_values(values)]
 
 
-def _remove(items: list[dict[str, Any]], obj_id: str) -> None:
+def _drop(values: object, old: str) -> list[str]:
+    return [str(x) for x in _iter_values(values) if str(x) != old]
+
+
+def _remove(items: list[ObjectRecord], obj_id: str) -> None:
     items[:] = [obj for obj in items if _sid(obj) != obj_id]
 
 
-def _replace(items: list[dict[str, Any]], obj_id: str, new_obj: dict[str, Any]) -> None:
+def _replace(items: list[ObjectRecord], obj_id: str, new_obj: ObjectRecord) -> None:
     for idx, obj in enumerate(items):
         if _sid(obj) == obj_id:
             items[idx] = new_obj
@@ -59,7 +69,7 @@ def _replace(items: list[dict[str, Any]], obj_id: str, new_obj: dict[str, Any]) 
     raise EditorFixupError(f"Object not found: {obj_id}")
 
 
-def _unique(items: list[dict[str, Any]], base: str) -> str:
+def _unique(items: list[ObjectRecord], base: str) -> str:
     used = {_sid(obj) for obj in items}
     if base not in used:
         return base
@@ -69,14 +79,14 @@ def _unique(items: list[dict[str, Any]], base: str) -> str:
     return f"{base}.{idx}"
 
 
-def _append(items: list[dict[str, Any]], kind: str, preferred_id: str) -> dict[str, Any]:
+def _append(items: list[ObjectRecord], kind: str, preferred_id: str) -> ObjectRecord:
     obj = deepcopy(scaffold_object(kind))
     obj["id"] = _unique(items, preferred_id or str(obj.get("id", kind.upper() + ".NEW")))
     items.append(obj)
     return obj
 
 
-def _first(items: list[dict[str, Any]], kind: str, *, route_ref: str = "") -> dict[str, Any]:
+def _first(items: list[ObjectRecord], kind: str, *, route_ref: str = "") -> ObjectRecord:
     matches = [obj for obj in items if obj.get("type") == kind]
     if route_ref:
         matches = [obj for obj in matches if str(obj.get("route_ref", "")) == route_ref]
@@ -85,11 +95,11 @@ def _first(items: list[dict[str, Any]], kind: str, *, route_ref: str = "") -> di
     return sorted(matches, key=_sid)[0]
 
 
-def _first_id(items: list[dict[str, Any]], kind: str) -> str:
+def _first_id(items: list[ObjectRecord], kind: str) -> str:
     return _sid(_first(items, kind))
 
 
-def _set_route_ref(obj: dict[str, Any], route_id: str) -> None:
+def _set_route_ref(obj: ObjectRecord, route_id: str) -> None:
     field = {
         "surface": "route_ref",
         "implementation": "implements_route",
@@ -104,7 +114,7 @@ def _pairs(blob: str) -> dict[str, str]:
     return dict(item.split("|", 1) for item in blob.replace("\n", ";").split(";") if item.strip())
 
 
-def _catalog_payload() -> dict[str, Any]:
+def _catalog_payload() -> dict[str, object]:
     blob = "".join(
         (
             "c-qxj&5q+X41N{CX9B(J*3JS&feu<^4?PSPhGHvOcN8m?<!lFwdH3qyk}b=gO)fo6Mx-cyBt=s6_",
@@ -136,8 +146,11 @@ def _catalog_payload() -> dict[str, Any]:
 
 
 _PAYLOAD = _catalog_payload()
-ACTION_LABELS: dict[str, str] = _PAYLOAD["labels"]
-FAILURE_ACTION_CATALOG: dict[str, dict[str, Any]] = _PAYLOAD["catalog"]
+ACTION_LABELS: dict[str, str] = cast(dict[str, str], _PAYLOAD["labels"])
+FAILURE_ACTION_CATALOG: dict[str, dict[str, object]] = cast(
+    dict[str, dict[str, object]],
+    _PAYLOAD["catalog"],
+)
 ACTION_LABELS.update(
     {
         "create_entry_gate_block": "Create entry gate block",
@@ -154,7 +167,7 @@ FAILURE_ACTION_CATALOG["workflow_missing_entry_gate_root"] = {
 }
 
 
-FixContext = tuple[str, str, list[dict[str, Any]]]
+FixContext = tuple[str, str, list[ObjectRecord]]
 
 
 def _pair(detail: str, failure_class: str, primary_idx: int = 2) -> tuple[str, str, str]:
@@ -162,7 +175,7 @@ def _pair(detail: str, failure_class: str, primary_idx: int = 2) -> tuple[str, s
     return failure_class, parts[primary_idx], parts[-1]
 
 
-def _entry_matches(objects: list[dict[str, Any]], scope: str, mode: str) -> list[str]:
+def _entry_matches(objects: list[ObjectRecord], scope: str, mode: str) -> list[str]:
     return sorted(
         str(obj.get("id", ""))
         for obj in objects
@@ -174,13 +187,13 @@ def _entry_matches(objects: list[dict[str, Any]], scope: str, mode: str) -> list
 
 def build_failure(
     *,
-    objects: list[dict[str, Any]],
-    loaded_objects: list[dict[str, Any]],
+    objects: list[ObjectRecord],
+    loaded_objects: list[ObjectRecord],
     error_text: str,
     code: str,
     primary_id: str = "",
     secondary_id: str = "",
-) -> dict[str, Any]:
+) -> FailurePayload:
     detail = last_error_detail(error_text)
     failure_class = "conversion_failure"
     if "duplicate id " in detail:
@@ -257,7 +270,7 @@ def build_failure(
     }
 
 
-def empty_failure(code: str, text: str, **extra: str) -> dict[str, Any]:
+def empty_failure(code: str, text: str, **extra: str) -> FailurePayload:
     return build_failure(objects=[], loaded_objects=[], error_text=text, code=code, **extra)
 
 
@@ -266,8 +279,8 @@ def available_actions(
     *,
     primary_id: str,
     secondary_id: str,
-    objects: list[dict[str, Any]],
-    loaded_objects: list[dict[str, Any]],
+    objects: list[ObjectRecord],
+    loaded_objects: list[ObjectRecord],
 ) -> list[dict[str, str]]:
     out = []
     for action_id, label in FAILURE_ACTION_CATALOG[failure_class]["actions"]:

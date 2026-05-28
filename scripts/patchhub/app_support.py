@@ -5,14 +5,14 @@ import os
 from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Protocol
 
 from .models import RunEntry
 from .web_jobs_db import WebJobsDatabase
 from .web_jobs_legacy_fs import list_legacy_job_jsons
 
 
-def _json_bytes(obj: Any, status: int = 200) -> tuple[int, bytes]:
+def _json_bytes(obj: object, status: int = 200) -> tuple[int, bytes]:
     return status, json.dumps(obj, ensure_ascii=True, indent=2).encode("utf-8")
 
 
@@ -20,8 +20,8 @@ def _err(msg: str, status: int = 400) -> tuple[int, bytes]:
     return _json_bytes({"ok": False, "error": msg}, status=status)
 
 
-def _ok(obj: dict[str, Any] | None = None) -> tuple[int, bytes]:
-    out: dict[str, Any] = {"ok": True}
+def _ok(obj: dict[str, object] | None = None) -> tuple[int, bytes]:
+    out: dict[str, object] = {"ok": True}
     if obj:
         out.update(obj)
     return _json_bytes(out, status=200)
@@ -44,7 +44,40 @@ def _tail_stat_fingerprint(path: Path) -> tuple[int, int] | None:
         st = path.stat()
     except Exception:
         return None
-    return int(st.st_size), int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+    return int(st.st_size), int(st.st_mtime_ns)
+
+
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    out: dict[str, object] = {}
+    for key, item in value.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _toml_table(value: object) -> dict[str, object]:
+    table = _obj_dict(value)
+    return table if table is not None else {}
+
+
+def _row_rev(row: dict[str, object]) -> int:
+    raw = row.get("row_rev", 0)
+    try:
+        return int(str(raw or 0))
+    except Exception:
+        return 0
+
+
+def _run_sort_key(run: RunEntry) -> tuple[str, int]:
+    return str(run.mtime_utc), int(run.issue_id)
+
+
+class CanceledRunsOwner(Protocol):
+    patches_root: Path
+    jobs_root: Path
+    web_jobs_db: WebJobsDatabase | None
 
 
 def _tail_read_suffix(
@@ -90,7 +123,7 @@ def _tail_read_suffix(
 
 
 _TAIL_CACHE_TEXT: OrderedDict[tuple[str, int], tuple[tuple[int, int], str]] = OrderedDict()
-_TAIL_CACHE_JSONL: OrderedDict[tuple[str, int], tuple[tuple[int, int], list[dict[str, Any]]]] = (
+_TAIL_CACHE_JSONL: OrderedDict[tuple[str, int], tuple[tuple[int, int], list[dict[str, object]]]] = (
     OrderedDict()
 )
 
@@ -123,7 +156,7 @@ def _tail_cache_put_text(
 def _tail_cache_get_jsonl(
     key: tuple[str, int],
     fp: tuple[int, int],
-) -> list[dict[str, Any]] | None:
+) -> list[dict[str, object]] | None:
     hit = _TAIL_CACHE_JSONL.get(key)
     if not hit:
         return None
@@ -136,7 +169,7 @@ def _tail_cache_get_jsonl(
 def _tail_cache_put_jsonl(
     key: tuple[str, int],
     fp: tuple[int, int],
-    val: list[dict[str, Any]],
+    val: list[dict[str, object]],
     *,
     max_entries: int,
 ) -> None:
@@ -187,7 +220,7 @@ def read_tail_jsonl(
     *,
     max_bytes: int = 8_388_608,
     cache_max_entries: int = 32,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, object]]:
     if not path.exists():
         return []
     lines = max(1, min(int(lines), 5000))
@@ -206,7 +239,7 @@ def read_tail_jsonl(
 
     raw = _tail_read_suffix(path, max_bytes=max_bytes, min_newlines=lines + 1)
     if not raw:
-        out: list[dict[str, Any]] = []
+        out: list[dict[str, object]] = []
     else:
         text = raw.decode("utf-8", errors="replace")
         out = []
@@ -216,11 +249,12 @@ def read_tail_jsonl(
             if not s:
                 continue
             try:
-                obj = json.loads(s)
+                parsed: object = json.loads(s)
             except Exception:
                 continue
-            if isinstance(obj, dict):
-                out.append(cast(dict[str, Any], obj))
+            obj = _obj_dict(parsed)
+            if obj is not None:
+                out.append(obj)
 
     if cache_max_entries > 0:
         _tail_cache_put_jsonl(key, fp, out, max_entries=cache_max_entries)
@@ -233,8 +267,12 @@ def compute_success_archive_rel(
     import subprocess
     import tomllib
 
-    raw = tomllib.loads(runner_config_toml.read_text(encoding="utf-8"))
-    name = raw.get("paths", {}).get("success_archive_name")
+    raw_obj: object = tomllib.loads(runner_config_toml.read_text(encoding="utf-8"))
+    raw = _toml_table(raw_obj)
+    paths = _toml_table(raw.get("paths", {}))
+    git = _toml_table(raw.get("git", {}))
+    name_raw = paths.get("success_archive_name")
+    name = str(name_raw).strip() if isinstance(name_raw, str) else ""
     if not name:
         name = "{repo}-{branch}.zip"
 
@@ -247,9 +285,11 @@ def compute_success_archive_rel(
         if out and out != "HEAD":
             branch = out
         else:
-            branch = str(raw.get("git", {}).get("default_branch") or "main")
+            branch_raw = git.get("default_branch")
+            branch = str(branch_raw or "main")
     except Exception:
-        branch = str(raw.get("git", {}).get("default_branch") or "main")
+        branch_raw = git.get("default_branch")
+        branch = str(branch_raw or "main")
 
     name = name.replace("{repo}", repo).replace("{branch}", branch)
     name = os.path.basename(name)
@@ -338,17 +378,12 @@ def _jobs_source_path(source: WebJobsDatabase | Path) -> WebJobsDatabase | Path:
     return source
 
 
-def active_canceled_runs_source(owner: Any) -> WebJobsDatabase | Path:
-    source = getattr(owner, "web_jobs_db", None)
-    if isinstance(source, WebJobsDatabase):
-        return source
-    jobs_root = getattr(owner, "jobs_root", None)
-    if isinstance(jobs_root, Path):
-        return jobs_root
-    patches_root = getattr(owner, "patches_root", None)
-    if isinstance(patches_root, Path):
-        return patches_root
-    raise TypeError("owner must expose web_jobs_db, jobs_root, or patches_root")
+def active_canceled_runs_source(owner: CanceledRunsOwner) -> WebJobsDatabase | Path:
+    if owner.web_jobs_db is not None:
+        return owner.web_jobs_db
+    if isinstance(owner.jobs_root, Path):
+        return owner.jobs_root
+    return owner.patches_root
 
 
 def canceled_runs_signature(source: WebJobsDatabase | Path) -> tuple[int, int]:
@@ -360,7 +395,7 @@ def canceled_runs_signature(source: WebJobsDatabase | Path) -> tuple[int, int]:
     canceled = [row for row in rows if str(row.get("status", "")) == "canceled"]
     max_rev = 0
     for row in canceled:
-        max_rev = max(max_rev, int(row.get("row_rev", 0) or 0))
+        max_rev = max(max_rev, _row_rev(row))
     return len(canceled), max_rev
 
 
@@ -407,5 +442,5 @@ def _iter_canceled_runs(source: WebJobsDatabase | Path) -> list[RunEntry]:
                 mtime_utc=mtime_utc,
             )
         )
-    out.sort(key=lambda r: (r.mtime_utc, r.issue_id), reverse=True)
+    out.sort(key=_run_sort_key, reverse=True)
     return out

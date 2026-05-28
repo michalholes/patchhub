@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 from .app_support import _err, _is_ascii, _ok
+from .config import AppConfig
+from .fs_jail import FsJail
 from .zip_commit_message import (
     ZipCommitConfig,
     ZipIssueConfig,
@@ -15,7 +17,14 @@ from .zip_commit_message import (
 )
 
 
-def api_upload_patch(self, filename: str, data: bytes) -> tuple[int, bytes]:
+class UploadApiContext(Protocol):
+    cfg: AppConfig
+    jail: FsJail
+
+    def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]: ...
+
+
+def api_upload_patch(self: UploadApiContext, filename: str, data: bytes) -> tuple[int, bytes]:
     status_msgs: list[str] = []
     if self.cfg.upload.ascii_only_names and not _is_ascii(filename):
         return _err("Filename must be ASCII", status=400)
@@ -79,7 +88,7 @@ def api_upload_patch(self, filename: str, data: bytes) -> tuple[int, bytes]:
             status_msgs.append("autofill: target from zip target.txt")
         elif zterr is not None:
             status_msgs.append(f"autofill: zip target ignored ({zterr})")
-    payload: dict[str, Any] = {"stored_rel_path": rel, "bytes": len(data)}
+    payload: dict[str, object] = {"stored_rel_path": rel, "bytes": len(data)}
     if self.cfg.autofill.derive_enabled:
         payload["derived_issue"] = issue_id
         payload["derived_commit_message"] = commit_msg

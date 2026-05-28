@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Protocol, TypeAlias, cast, runtime_checkable
 
-from .job_store import _json_dumps
+from .job_store import json_dumps
 from .live_event_retention import clamp_live_event_retention
 
 if TYPE_CHECKING:
@@ -23,6 +23,89 @@ __all__ = [
 ]
 
 
+SqlParams: TypeAlias = tuple[object, ...]
+
+
+@runtime_checkable
+class _RowLike(Protocol):
+    def keys(self) -> object: ...
+
+    def __getitem__(self, key: object, /) -> object: ...
+
+
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
+
+
+def _row_dict(value: object) -> dict[str, object]:
+    row = _obj_dict(value)
+    if row is not None:
+        return row
+    if not isinstance(value, _RowLike):
+        return {}
+    out: dict[str, object] = {}
+    keys = _obj_list(value.keys())
+    for key_raw in keys:
+        key = str(key_raw)
+        out[key] = value[key]
+    return out
+
+
+def _query_one_dict(
+    conn: sqlite3.Connection,
+    sql: str,
+    params: SqlParams = (),
+) -> dict[str, object]:
+    row_obj = cast(object, conn.execute(sql, params).fetchone())
+    return _row_dict(row_obj)
+
+
+def _query_all_dicts(
+    conn: sqlite3.Connection,
+    sql: str,
+    params: SqlParams = (),
+) -> list[dict[str, object]]:
+    rows_obj = cast(object, conn.execute(sql, params).fetchall())
+    rows_raw = _obj_list(rows_obj)
+    return [_row_dict(item) for item in rows_raw]
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    try:
+        return int(str(value if value is not None else default))
+    except Exception:
+        return default
+
+
+def _as_optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
+def _json_loads_obj(text: str) -> object:
+    parsed: object = json.loads(text)
+    return parsed
+
+
+def _str_list(value: object) -> list[str]:
+    return [str(item) for item in _obj_list(value)]
+
+
 def _utc_now_parts() -> tuple[str, int]:
     now = datetime.now(UTC)
     return now.strftime("%Y-%m-%dT%H:%M:%SZ"), int(now.timestamp() * 1000)
@@ -36,7 +119,8 @@ def _raw_tail_text(
     job_id: str,
     lines: int,
 ) -> str:
-    rows = conn.execute(
+    rows = _query_all_dicts(
+        conn,
         f"""
         SELECT {column} FROM {table}
          WHERE job_id = ?
@@ -44,23 +128,22 @@ def _raw_tail_text(
          LIMIT ?
         """,
         (str(job_id), max(1, int(lines))),
-    ).fetchall()
-    return "\n".join(str(row[column]) for row in reversed(rows))
+    )
+    return "\n".join(str(row.get(column, "")) for row in reversed(rows))
 
 
 def _current_raw_counts(conn: sqlite3.Connection, job_id: str) -> tuple[int, int]:
-    log_row = conn.execute(
+    log_row = _query_one_dict(
+        conn,
         "SELECT COUNT(*) AS n FROM web_job_log_lines WHERE job_id = ?",
         (str(job_id),),
-    ).fetchone()
-    event_row = conn.execute(
+    )
+    event_row = _query_one_dict(
+        conn,
         "SELECT COUNT(*) AS n FROM web_job_event_lines WHERE job_id = ?",
         (str(job_id),),
-    ).fetchone()
-    return (
-        int(log_row["n"]) if log_row is not None else 0,
-        int(event_row["n"]) if event_row is not None else 0,
     )
+    return (_as_int(log_row.get("n"), 0), _as_int(event_row.get("n"), 0))
 
 
 def _preserved_tail(
@@ -92,15 +175,18 @@ def ensure_job_derived_row(
     event_count: int,
     keep_tail_lines: int = 200,
 ) -> None:
+    del cfg, log_count, event_count
     raw_log_count, raw_event_count = _current_raw_counts(conn, job.job_id)
-    existing = conn.execute(
+    existing = _query_one_dict(
+        conn,
         "SELECT * FROM web_job_derived WHERE job_id = ?",
         (str(job.job_id),),
-    ).fetchone()
-    existing_rev = int(existing["derived_rev"]) if existing is not None else 0
+    )
+    has_existing = bool(existing)
+    existing_rev = _as_int(existing.get("derived_rev"), 0)
     now_utc, now_unix_ms = _utc_now_parts()
-    created_utc = str(existing["created_utc"]) if existing is not None else now_utc
-    created_unix_ms = int(existing["created_unix_ms"]) if existing is not None else now_unix_ms
+    created_utc = str(existing.get("created_utc")) if has_existing else now_utc
+    created_unix_ms = _as_int(existing.get("created_unix_ms"), now_unix_ms)
     updated_utc, updated_unix_ms = now_utc, now_unix_ms
 
     compact_log_tail_text = _preserved_tail(
@@ -108,7 +194,7 @@ def ensure_job_derived_row(
         job_id=job.job_id,
         table="web_job_log_lines",
         column="line",
-        current_text=(existing["compact_log_tail_text"] if existing is not None else None),
+        current_text=_as_optional_str(existing.get("compact_log_tail_text")),
         fallback_lines=keep_tail_lines,
     )
     compact_event_tail_text = _preserved_tail(
@@ -116,22 +202,22 @@ def ensure_job_derived_row(
         job_id=job.job_id,
         table="web_job_event_lines",
         column="raw_line",
-        current_text=(existing["compact_event_tail_text"] if existing is not None else None),
+        current_text=_as_optional_str(existing.get("compact_event_tail_text")),
         fallback_lines=keep_tail_lines,
     )
 
-    source_row_rev = int(getattr(job, "row_rev", 0) or 0)
+    source_row_rev = _as_int(job.row_rev, 0)
     if source_row_rev <= 0:
-        source_row_rev = int(
-            conn.execute(
-                "SELECT row_rev FROM web_jobs WHERE job_id = ?",
-                (str(job.job_id),),
-            ).fetchone()["row_rev"]
+        source_row = _query_one_dict(
+            conn,
+            "SELECT row_rev FROM web_jobs WHERE job_id = ?",
+            (str(job.job_id),),
         )
+        source_row_rev = _as_int(source_row.get("row_rev"), 0)
 
     payload = (
         str(job.job_id),
-        _json_dumps(list(job.applied_files)),
+        json_dumps(list(job.applied_files)),
         str(job.applied_files_source or "unavailable"),
         compact_log_tail_text,
         compact_event_tail_text,
@@ -143,8 +229,8 @@ def ensure_job_derived_row(
         source_row_rev,
         raw_log_count,
         raw_event_count,
-        str(getattr(job, "status", "") or ""),
-        str(getattr(job, "ended_utc", "") or ""),
+        str(job.status or ""),
+        str(job.ended_utc or ""),
     )
     conn.execute(
         """
@@ -186,36 +272,38 @@ def ensure_job_derived_row(
 def load_derived_payload(
     source: WebJobsDatabase | sqlite3.Connection,
     job_id: str,
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
+    row: dict[str, object]
     if isinstance(source, sqlite3.Connection):
-        row = source.execute(
+        row = _query_one_dict(
+            source,
             "SELECT * FROM web_job_derived WHERE job_id = ?",
             (str(job_id),),
-        ).fetchone()
-    elif hasattr(source, "_store") and hasattr(source._store, "_connect"):
-        with source._store._connect() as conn:  # noqa: SLF001
-            row = conn.execute(
+        )
+    else:
+        with source.connect() as conn:
+            row = _query_one_dict(
+                conn,
                 "SELECT * FROM web_job_derived WHERE job_id = ?",
                 (str(job_id),),
-            ).fetchone()
-    else:
+            )
+    if not row:
         return None
-    if row is None:
-        return None
+    applied_raw = _json_loads_obj(str(row.get("applied_files_json", "[]")))
     return {
-        "job_id": str(row["job_id"]),
-        "applied_files": json.loads(str(row["applied_files_json"])),
-        "applied_files_source": str(row["applied_files_source"]),
-        "compact_log_tail_text": str(row["compact_log_tail_text"] or ""),
-        "compact_event_tail_text": str(row["compact_event_tail_text"] or ""),
-        "derived_rev": int(row["derived_rev"]),
-        "source_row_rev": int(row["source_row_rev"]),
-        "updated_utc": str(row["updated_utc"]),
-        "updated_unix_ms": int(row["updated_unix_ms"]),
-        "raw_log_lines_compacted": int(row["raw_log_lines_compacted"]),
-        "raw_event_lines_compacted": int(row["raw_event_lines_compacted"]),
-        "terminal_status": str(row["terminal_status"]),
-        "terminal_utc": str(row["terminal_utc"] or ""),
+        "job_id": str(row.get("job_id", "")),
+        "applied_files": _str_list(applied_raw),
+        "applied_files_source": str(row.get("applied_files_source", "unavailable")),
+        "compact_log_tail_text": str(row.get("compact_log_tail_text") or ""),
+        "compact_event_tail_text": str(row.get("compact_event_tail_text") or ""),
+        "derived_rev": _as_int(row.get("derived_rev"), 0),
+        "source_row_rev": _as_int(row.get("source_row_rev"), 0),
+        "updated_utc": str(row.get("updated_utc", "")),
+        "updated_unix_ms": _as_int(row.get("updated_unix_ms"), 0),
+        "raw_log_lines_compacted": _as_int(row.get("raw_log_lines_compacted"), 0),
+        "raw_event_lines_compacted": _as_int(row.get("raw_event_lines_compacted"), 0),
+        "terminal_status": str(row.get("terminal_status", "")),
+        "terminal_utc": str(row.get("terminal_utc") or ""),
     }
 
 
@@ -234,7 +322,7 @@ def _derived_text(job_db: WebJobsDatabase, job_id: str, field: str) -> str:
 
 
 def read_effective_full_log(job_db: WebJobsDatabase, job_id: str) -> str:
-    raw_text = job_db._read_raw_full_log(job_id)
+    raw_text = job_db.read_raw_full_log(job_id)
     if raw_text:
         return raw_text
     return _derived_text(job_db, job_id, "compact_log_tail_text")
@@ -267,21 +355,21 @@ def read_effective_applied_files(job_db: WebJobsDatabase, job_id: str) -> tuple[
     derived = load_derived_payload(job_db, job_id)
     if derived is not None:
         return (
-            [str(item) for item in list(derived.get("applied_files") or [])],
+            _str_list(derived.get("applied_files")),
             str(derived.get("applied_files_source", "unavailable")),
         )
     raw = job_db.load_job_json(job_id)
     if raw is None:
         return [], "unavailable"
     return (
-        [str(item) for item in list(raw.get("applied_files") or [])],
+        _str_list(raw.get("applied_files")),
         str(raw.get("applied_files_source", "unavailable")),
     )
 
 
 def read_effective_log_tail(job_db: WebJobsDatabase, job_id: str, *, lines: int = 200) -> str:
     limit = clamp_live_event_retention(lines)
-    raw_tail = job_db._read_raw_log_tail(job_id, lines=limit)
+    raw_tail = job_db.read_raw_log_tail(job_id, lines=limit)
     if raw_tail:
         return raw_tail
     return _tail_slice(_derived_text(job_db, job_id, "compact_log_tail_text"), lines=limit)

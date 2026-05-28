@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import re
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 _PATCH_ENTRY_PREFIX = "patches/per_file/"
 _PATCH_SUFFIX = ".patch"
 _ROOT_METADATA_NAMES = ("COMMIT_MESSAGE.txt", "ISSUE_NUMBER.txt", "target.txt")
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+class JailLike(Protocol):
+    def resolve_rel(self, rel: str) -> Path: ...
 
 
 def normalize_patch_rel_path(*, patches_root_rel: str, patch_path: str) -> str:
@@ -25,7 +30,7 @@ def normalize_patch_rel_path(*, patches_root_rel: str, patch_path: str) -> str:
 
 def resolve_patch_zip_path(
     *,
-    jail: Any,
+    jail: JailLike,
     patches_root_rel: str,
     patch_path: str,
 ) -> tuple[str, Path]:
@@ -57,11 +62,11 @@ def _repo_path_from_patch_member(name: str) -> str | None:
     return repo_path
 
 
-def build_zip_patch_manifest(*, patch_path: str, zpath: Path) -> dict[str, Any]:
+def build_zip_patch_manifest(*, patch_path: str, zpath: Path) -> dict[str, object]:
     with zipfile.ZipFile(zpath, "r") as zf:
         names = sorted(zf.namelist())
 
-    entries: list[dict[str, Any]] = []
+    entries: list[dict[str, object]] = []
     root_metadata_present: list[str] = []
     for name in names:
         if name in _ROOT_METADATA_NAMES:
@@ -98,13 +103,13 @@ def build_zip_patch_manifest(*, patch_path: str, zpath: Path) -> dict[str, Any]:
 
 
 def selected_repo_paths_from_manifest(
-    manifest: dict[str, Any],
+    manifest: Mapping[str, object],
     selected_patch_entries: list[str],
 ) -> list[str]:
     selected = list(selected_patch_entries)
     allowed = {
         str(item.get("zip_member", "")): str(item.get("repo_path", ""))
-        for item in list(manifest.get("entries") or [])
+        for item in _manifest_entries(manifest)
         if item.get("selectable") and item.get("repo_path")
     }
     repo_paths: list[str] = []
@@ -116,7 +121,7 @@ def selected_repo_paths_from_manifest(
 
 
 def validate_selected_patch_entries(
-    manifest: dict[str, Any],
+    manifest: Mapping[str, object],
     selected_patch_entries: list[str],
 ) -> list[str]:
     if not manifest.get("selectable"):
@@ -124,7 +129,7 @@ def validate_selected_patch_entries(
 
     allowed = {
         str(item.get("zip_member", ""))
-        for item in list(manifest.get("entries") or [])
+        for item in _manifest_entries(manifest)
         if item.get("selectable")
     }
     if not allowed:
@@ -179,3 +184,14 @@ def create_subset_zip(
             dst.writestr(meta_name, data)
         for name in selected_patch_entries:
             dst.writestr(name, src.read(name))
+
+
+def _manifest_entries(manifest: Mapping[str, object]) -> list[dict[str, object]]:
+    raw = manifest.get("entries")
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, object]] = []
+    for item in raw:
+        if isinstance(item, dict):
+            out.append({str(k): v for k, v in item.items()})
+    return out

@@ -4,7 +4,7 @@ import os
 import shutil
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, cast
 
 from . import proc_resources
 from .app_support import (
@@ -20,20 +20,24 @@ from .app_support import (
 )
 from .command_parse import CommandParseError, parse_runner_command
 from .indexing import compute_stats, iter_runs, runs_signature
-from .models import run_to_list_item_json
+from .models import AppStats, RunEntry, StatsWindow, run_to_list_item_json
 from .patch_inventory import (
     autofill_ignore_reason,
     derive_filename_metadata,
     derive_patch_metadata,
 )
 from .targeting import (
+    TargetCfgLike,
     resolve_targeting_runtime,
     validate_selected_target_repo,
 )
 from .zip_commit_message import zip_contains_patch_file
 
+if TYPE_CHECKING:
+    from .asgi.async_app_core import AsyncAppCore
 
-def _autofill_scan_dir_rel(self) -> str | None:
+
+def _autofill_scan_dir_rel(self: AsyncAppCore) -> str | None:
     scan_dir = str(self.cfg.autofill.scan_dir or "").strip().replace("\\", "/")
     scan_dir = scan_dir.lstrip("/")
     if not scan_dir:
@@ -47,19 +51,62 @@ def _autofill_scan_dir_rel(self) -> str | None:
     return None
 
 
-def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]:
+def _derive_from_filename(
+    self: AsyncAppCore,
+    filename: str,
+) -> tuple[str | None, str | None]:
     return derive_filename_metadata(self.cfg, filename)
+
+
+def _run_sort_key(run: RunEntry) -> tuple[str, int]:
+    return str(run.mtime_utc), int(run.issue_id)
+
+
+def _stats_window_json(window: StatsWindow) -> dict[str, object]:
+    return {
+        "days": int(window.days),
+        "total": int(window.total),
+        "success": int(window.success),
+        "fail": int(window.fail),
+        "unknown": int(window.unknown),
+    }
+
+
+def _stats_json(stats: AppStats) -> dict[str, object]:
+    return {
+        "all_time": _stats_window_json(stats.all_time),
+        "windows": [_stats_window_json(w) for w in stats.windows],
+    }
+
+
+def _run_detail_json(run: RunEntry) -> dict[str, object]:
+    return {
+        "issue_id": int(run.issue_id),
+        "log_rel_path": str(run.log_rel_path),
+        "result": str(run.result),
+        "result_line": str(run.result_line) if run.result_line is not None else None,
+        "mtime_utc": str(run.mtime_utc),
+        "archived_patch_rel_path": (
+            str(run.archived_patch_rel_path) if run.archived_patch_rel_path is not None else None
+        ),
+        "diff_bundle_rel_path": (
+            str(run.diff_bundle_rel_path) if run.diff_bundle_rel_path is not None else None
+        ),
+        "success_zip_rel_path": (
+            str(run.success_zip_rel_path) if run.success_zip_rel_path is not None else None
+        ),
+    }
 
 
 # ---------------- API ----------------
 
 
-def api_config(self) -> tuple[int, bytes]:
+def api_config(self: AsyncAppCore) -> tuple[int, bytes]:
     try:
         runtime = resolve_targeting_runtime(
             repo_root=self.repo_root,
             runner_config_toml=self.cfg.runner.runner_config_toml,
-            target_cfg=getattr(self.cfg, "targeting", None),
+            target_cfg=cast(TargetCfgLike, self.cfg.targeting),
         )
     except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
         return _err(str(e), status=400)
@@ -67,7 +114,7 @@ def api_config(self) -> tuple[int, bytes]:
         self.repo_root, runtime.runner_config_toml, self.cfg.paths.patches_root
     )
 
-    data: dict[str, Any] = {
+    data: dict[str, object] = {
         "meta": {"version": self.cfg.meta.version},
         "server": {"host": self.cfg.server.host, "port": self.cfg.server.port},
         "runner": {
@@ -132,15 +179,16 @@ def api_config(self) -> tuple[int, bytes]:
         "targeting": {
             "options": runtime.options,
             "default_target_repo": runtime.default_target_repo,
-            "zip_target_prefill_enabled": bool(
-                getattr(getattr(self.cfg, "targeting", None), "zip_target_prefill_enabled", True)
-            ),
+            "zip_target_prefill_enabled": bool(self.cfg.targeting.zip_target_prefill_enabled),
         },
     }
     return _json_bytes(data)
 
 
-def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, bytes]:
+def api_patches_latest(
+    self: AsyncAppCore,
+    qs: dict[str, str] | None = None,
+) -> tuple[int, bytes]:
     if not self.cfg.autofill.enabled:
         return _ok({"found": False, "disabled": True})
     if self.cfg.autofill.choose_strategy != "mtime_ns":
@@ -153,7 +201,7 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
     if not since_token:
         since_token = str(qs.get("since_sig", "") or "").strip()
 
-    rel = self._autofill_scan_dir_rel()
+    rel = _autofill_scan_dir_rel(self)
     if rel is None:
         return _err("scan_dir must be under patches_root", status=400)
 
@@ -162,7 +210,7 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
     except Exception as e:
         return _err(str(e), status=400)
     if not d.exists() or not d.is_dir():
-        payload_nf: dict[str, Any] = {
+        payload_nf: dict[str, object] = {
             "found": False,
             "status": [
                 "autofill scan: scanned=0 ignored_name=0 ignored_prefix=0 "
@@ -203,13 +251,13 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
             st = p.stat()
         except Exception:
             continue
-        m_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+        m_ns = int(st.st_mtime_ns)
         if m_ns > best_m or (m_ns == best_m and (best_name is None or name < best_name)):
             best_m = m_ns
             best_name = name
 
     if not best_name:
-        payload_nf2: dict[str, Any] = {
+        payload_nf2: dict[str, object] = {
             "found": False,
             "status": [
                 "autofill scan: "
@@ -225,19 +273,21 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
     stored_rel = str(Path(rel_dir) / best_name)
     metadata = derive_patch_metadata(self, filename=best_name, path=d / best_name)
 
-    payload: dict[str, Any] = {
+    status_lines = [
+        "autofill scan: "
+        f"scanned={scanned} ignored_name={ignored_name} "
+        f"ignored_prefix={ignored_prefix} ignored_ext={ignored_ext} "
+        f"ignored_zip_no_patch={ignored_zip_no_patch} "
+        f"selected={best_name}",
+    ]
+
+    payload: dict[str, object] = {
         "found": True,
         "filename": best_name,
         "stored_rel_path": stored_rel,
         "mtime_ns": best_m,
         "token": f"{best_m}:{stored_rel}",
-        "status": [
-            "autofill scan: "
-            f"scanned={scanned} ignored_name={ignored_name} "
-            f"ignored_prefix={ignored_prefix} ignored_ext={ignored_ext} "
-            f"ignored_zip_no_patch={ignored_zip_no_patch} "
-            f"selected={best_name}",
-        ],
+        "status": status_lines,
     }
 
     if since_token and since_token == str(payload.get("token", "")):
@@ -248,23 +298,21 @@ def api_patches_latest(self, qs: dict[str, str] | None = None) -> tuple[int, byt
         payload["derived_commit_message"] = metadata.derived_commit_message
     payload["derived_target_repo"] = metadata.derived_target_repo
     if metadata.zip_commit_used:
-        payload["status"].append(
-            f"autofill: commit from zip {self.cfg.autofill.zip_commit_filename}"
-        )
+        status_lines.append(f"autofill: commit from zip {self.cfg.autofill.zip_commit_filename}")
     elif metadata.zip_commit_err:
-        payload["status"].append(f"autofill: zip commit ignored ({metadata.zip_commit_err})")
+        status_lines.append(f"autofill: zip commit ignored ({metadata.zip_commit_err})")
     if metadata.zip_issue_used:
-        payload["status"].append(f"autofill: issue from zip {self.cfg.autofill.zip_issue_filename}")
+        status_lines.append(f"autofill: issue from zip {self.cfg.autofill.zip_issue_filename}")
     elif metadata.zip_issue_err:
-        payload["status"].append(f"autofill: zip issue ignored ({metadata.zip_issue_err})")
+        status_lines.append(f"autofill: zip issue ignored ({metadata.zip_issue_err})")
     if metadata.derived_target_repo is not None:
-        payload["status"].append("autofill: target from zip target.txt")
+        status_lines.append("autofill: target from zip target.txt")
     elif metadata.zip_target_err:
-        payload["status"].append(f"autofill: zip target ignored ({metadata.zip_target_err})")
+        status_lines.append(f"autofill: zip target ignored ({metadata.zip_target_err})")
     return _ok(payload)
 
 
-def api_parse_command(self, body: dict[str, Any]) -> tuple[int, bytes]:
+def api_parse_command(self: AsyncAppCore, body: dict[str, object]) -> tuple[int, bytes]:
     raw = str(body.get("raw", ""))
     try:
         parsed = parse_runner_command(raw)
@@ -276,7 +324,7 @@ def api_parse_command(self, body: dict[str, Any]) -> tuple[int, bytes]:
             runtime = resolve_targeting_runtime(
                 repo_root=self.repo_root,
                 runner_config_toml=self.cfg.runner.runner_config_toml,
-                target_cfg=getattr(self.cfg, "targeting", None),
+                target_cfg=cast(TargetCfgLike, self.cfg.targeting),
             )
             validate_selected_target_repo(parsed.target_repo, runtime.options)
         except AttributeError:
@@ -302,7 +350,7 @@ def api_parse_command(self, body: dict[str, Any]) -> tuple[int, bytes]:
     )
 
 
-def api_runs(self, qs: dict[str, str]) -> tuple[int, bytes]:
+def api_runs(self: AsyncAppCore, qs: dict[str, str]) -> tuple[int, bytes]:
     since_sig = str(qs.get("since_sig", "")).strip()
     issue_id = qs.get("issue_id")
     result = qs.get("result")
@@ -341,12 +389,12 @@ def api_runs(self, qs: dict[str, str]) -> tuple[int, bytes]:
             return _err("Invalid result filter", status=400)
         runs = [r for r in runs if r.result == result]
 
-    runs.sort(key=lambda r: (r.mtime_utc, r.issue_id), reverse=True)
+    runs.sort(key=_run_sort_key, reverse=True)
     runs = runs[: max(1, min(limit, 500))]
     return _ok({"runs": [run_to_list_item_json(r) for r in runs], "sig": sig})
 
 
-def api_run_detail(self, issue_id: int) -> tuple[int, bytes]:
+def api_run_detail(self: AsyncAppCore, issue_id: int) -> tuple[int, bytes]:
     canceled_source = active_canceled_runs_source(self)
     runs = iter_runs(self.patches_root, self.cfg.indexing.log_filename_regex)
     runs.extend(_iter_canceled_runs(canceled_source))
@@ -362,11 +410,11 @@ def api_run_detail(self, issue_id: int) -> tuple[int, bytes]:
 
     for r in runs:
         if int(r.issue_id) == int(issue_id):
-            return _ok({"run": r.__dict__})
+            return _ok({"run": _run_detail_json(r)})
     return _err("Not found", status=404)
 
 
-def api_runner_tail(self, qs: dict[str, str]) -> tuple[int, bytes]:
+def api_runner_tail(self: AsyncAppCore, qs: dict[str, str]) -> tuple[int, bytes]:
     lines = int(qs.get("lines", "200"))
     tail = read_tail(
         self.patches_root / "am_patch.log",
@@ -377,10 +425,11 @@ def api_runner_tail(self, qs: dict[str, str]) -> tuple[int, bytes]:
     return _ok({"path": str(Path(self.cfg.paths.patches_root) / "am_patch.log"), "tail": tail})
 
 
-def diagnostics(self) -> dict[str, Any]:
+def diagnostics(self: AsyncAppCore) -> dict[str, object]:
     runs = iter_runs(self.patches_root, self.cfg.indexing.log_filename_regex)
     stats = compute_stats(runs, self.cfg.indexing.stats_windows_days)
-    qstate = self.queue.state()
+    queued = 0
+    running = 0
     lock_held = False
     try:
         from .job_ids import is_lock_held
@@ -391,7 +440,7 @@ def diagnostics(self) -> dict[str, Any]:
 
     usage = shutil.disk_usage(str(self.patches_root))
     return {
-        "queue": {"queued": qstate.queued, "running": qstate.running},
+        "queue": {"queued": queued, "running": running},
         "lock": {
             "path": str(Path(self.cfg.paths.patches_root) / "am_patch.lock"),
             "held": lock_held,
@@ -403,8 +452,5 @@ def diagnostics(self) -> dict[str, Any]:
         },
         "resources": proc_resources.snapshot(),
         "runs": {"count": len(runs)},
-        "stats": {
-            "all_time": stats.all_time.__dict__,
-            "windows": [w.__dict__ for w in stats.windows],
-        },
+        "stats": _stats_json(stats),
     }

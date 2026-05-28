@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
+from .editor_codec import ObjectRecord
 from .editor_fixup_apply import apply_fix_action
 from .editor_fixup_shared import CLIENT_ONLY_ACTIONS, EditorFixupError
 
@@ -15,7 +15,7 @@ _ACTION_TITLES = {
 }
 
 
-def _sid(obj: dict[str, Any]) -> str:
+def _sid(obj: ObjectRecord) -> str:
     return str(obj.get("id", "")).strip()
 
 
@@ -55,11 +55,11 @@ def _summary(action_id: str) -> str:
 def preview_action(
     *,
     action_id: str,
-    objects: list[dict[str, Any]],
-    loaded_objects: list[dict[str, Any]],
+    objects: list[ObjectRecord],
+    loaded_objects: list[ObjectRecord],
     primary_id: str,
     secondary_id: str,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+) -> tuple[dict[str, object], list[ObjectRecord]]:
     if action_id in CLIENT_ONLY_ACTIONS:
         raise EditorFixupError(f"Action {action_id} is client-side only")
     before_index = {

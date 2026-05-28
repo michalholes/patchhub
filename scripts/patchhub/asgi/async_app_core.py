@@ -5,7 +5,7 @@ import sqlite3
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from patchhub import app_api_amp as _amp
 from patchhub import app_api_core as _core
@@ -21,7 +21,7 @@ from patchhub.config import AppConfig
 from patchhub.fs_jail import FsJail
 from patchhub.models import JobRecord
 from patchhub.run_stats_store import RunStatsStore
-from patchhub.targeting import resolve_targeting_runtime
+from patchhub.targeting import TargetCfgLike, resolve_targeting_runtime
 from patchhub.web_jobs_backend_mode import WebJobsBackendModeState
 from patchhub.web_jobs_backup import (
     create_verified_backup,
@@ -55,11 +55,9 @@ from .operator_info_runtime import (
 
 
 class AsyncAppCore:
-    def __init__(self, *, repo_root: Path, cfg: Any) -> None:
+    def __init__(self, *, repo_root: Path, cfg: AppConfig) -> None:
         self.repo_root = repo_root
         self.cfg = cfg
-        if not isinstance(cfg, AppConfig):
-            raise TypeError("cfg must be patchhub.config.AppConfig")
         self.jail = FsJail(
             repo_root=repo_root,
             patches_root_rel=cfg.paths.patches_root,
@@ -100,7 +98,7 @@ class AsyncAppCore:
             targeting_runtime = resolve_targeting_runtime(
                 repo_root=self.repo_root,
                 runner_config_toml=self.cfg.runner.runner_config_toml,
-                target_cfg=getattr(self.cfg, "targeting", None),
+                target_cfg=cast(TargetCfgLike, self.cfg.targeting),
             )
             target_repo_roots = targeting_runtime.resolved_roots_by_token
         except (OSError, ValueError):
@@ -136,7 +134,7 @@ class AsyncAppCore:
     def queue_block_reason(self) -> str | None:
         return self.backend_mode_state.queue_block_reason()
 
-    def backend_debug_state(self) -> dict[str, Any]:
+    def backend_debug_state(self) -> dict[str, object]:
         return self.backend_mode_state.debug_payload()
 
     def _publish_backend_mode_status(self) -> None:
@@ -151,7 +149,7 @@ class AsyncAppCore:
             {"backend_mode_status": payload},
         )
 
-    def _enable_db_primary(self, job_db: WebJobsDatabase, recovery: dict[str, Any]) -> None:
+    def _enable_db_primary(self, job_db: WebJobsDatabase, recovery: dict[str, object]) -> None:
         self.web_jobs_db = job_db
         self.run_stats_store = RunStatsStore(self.web_jobs_db_cfg, self.patches_root)
         self.virtual_jobs_fs = WebJobsVirtualFs(
@@ -162,7 +160,7 @@ class AsyncAppCore:
         self.backend_mode_state.activate_db_primary(recovery)
         self._publish_backend_mode_status()
 
-    def _enable_file_emergency(self, recovery: dict[str, Any]) -> None:
+    def _enable_file_emergency(self, recovery: dict[str, object]) -> None:
         self.web_jobs_db = None
         self.run_stats_store = None
         self.virtual_jobs_fs = None
@@ -246,12 +244,12 @@ class AsyncAppCore:
             return self.web_jobs_db.jobs_signature()
         return legacy_jobs_signature(self.jobs_root)
 
-    def list_job_jsons_sync(self, *, limit: int = 200) -> list[dict[str, Any]]:
+    def list_job_jsons_sync(self, *, limit: int = 200) -> list[dict[str, object]]:
         if self.web_jobs_db is not None:
             return self.web_jobs_db.list_job_jsons(limit=limit)
         return list_legacy_job_jsons(self.jobs_root, limit=limit)
 
-    def list_live_job_jsons_sync(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+    def list_live_job_jsons_sync(self, *, limit: int | None = None) -> list[dict[str, object]]:
         if self.web_jobs_db is not None:
             return self.web_jobs_db.list_live_job_jsons(limit=limit)
         cap = 1_000_000 if limit is None else max(1, int(limit))
@@ -336,8 +334,10 @@ class AsyncAppCore:
             }
         try:
             with self.web_jobs_db._store._connect() as conn:
-                latest_rows = conn.execute(
-                    """
+                latest_rows = cast(
+                    list[sqlite3.Row],
+                    conn.execute(
+                        """
                     SELECT job_id, status, issue_id_raw AS issue_id,
                            issue_id_int, mode, created_utc, started_utc,
                            ended_utc, row_rev, last_log_seq, last_event_seq,
@@ -346,9 +346,12 @@ class AsyncAppCore:
                      ORDER BY created_unix_ms DESC, job_id DESC
                      LIMIT 20
                     """
-                ).fetchall()
-                running_rows = conn.execute(
-                    """
+                    ).fetchall(),
+                )
+                running_rows = cast(
+                    list[sqlite3.Row],
+                    conn.execute(
+                        """
                     SELECT job_id, status, issue_id_raw AS issue_id,
                            issue_id_int, mode, created_utc, started_utc,
                            ended_utc, row_rev, last_log_seq, last_event_seq,
@@ -357,7 +360,8 @@ class AsyncAppCore:
                      WHERE status IN ('running', 'queued')
                      ORDER BY created_unix_ms DESC, job_id DESC
                     """
-                ).fetchall()
+                    ).fetchall(),
+                )
         except sqlite3.Error as exc:
             return {
                 "status": "error",
@@ -365,7 +369,7 @@ class AsyncAppCore:
                 "error": f"{type(exc).__name__}:{exc}",
                 "live_summary": empty_summary,
             }
-        running_jobs = [dict(row) for row in running_rows]
+        running_jobs = [cast(dict[str, object], dict(row)) for row in running_rows]
         persisted_live_job_ids = [str(row.get("job_id", "")) for row in running_jobs]
         stale_live_job_ids = [
             job_id for job_id in persisted_live_job_ids if job_id and job_id not in memory_job_ids
@@ -373,7 +377,7 @@ class AsyncAppCore:
         return {
             "status": "ok",
             "db_path": db_path,
-            "latest_jobs": [dict(row) for row in latest_rows],
+            "latest_jobs": [cast(dict[str, object], dict(row)) for row in latest_rows],
             "running_jobs": running_jobs,
             "live_summary": {
                 "memory_live_job_ids": sorted(str(job_id) for job_id in memory_job_ids),
@@ -385,9 +389,9 @@ class AsyncAppCore:
         }
 
     async def diagnostics(self) -> dict[str, object]:
-        qstate: Any | None
+        qstate: object | None
         try:
-            qstate = await self.queue.state()
+            qstate = cast(object, await self.queue.state())
         except Exception:
             qstate = None
 
@@ -395,12 +399,10 @@ class AsyncAppCore:
         running = int(getattr(qstate, "running", 0) or 0) if qstate is not None else 0
 
         try:
-            mem_jobs = await self.queue.list_jobs()
+            mem_jobs = cast(list[JobRecord], await self.queue.list_jobs())
         except Exception:
             mem_jobs = []
-        memory_job_ids = {
-            str(getattr(job, "job_id", "")) for job in mem_jobs if str(getattr(job, "job_id", ""))
-        }
+        memory_job_ids = {str(job.job_id) for job in mem_jobs if str(job.job_id)}
 
         def _sync_part() -> dict[str, object]:
             lock_held = False
@@ -433,8 +435,8 @@ class AsyncAppCore:
                 "resources": proc_resources.snapshot(),
                 "runs": {"count": runs_count},
                 "stats": {
-                    "all_time": stats.all_time.__dict__,
-                    "windows": [w.__dict__ for w in stats.windows],
+                    "all_time": cast(dict[str, object], dict(stats.all_time.__dict__)),
+                    "windows": [cast(dict[str, object], dict(w.__dict__)) for w in stats.windows],
                 },
             }
 

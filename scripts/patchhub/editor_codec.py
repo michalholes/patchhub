@@ -5,11 +5,16 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Protocol, TypeAlias, cast
+
+ScalarValue: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = ScalarValue | list["JsonValue"] | dict[str, "JsonValue"]
+ObjectRecord: TypeAlias = dict[str, JsonValue]
+FailurePayload: TypeAlias = dict[str, object]
 
 FORMAT_NAME = "PHB-HR-TOML v1"
 FORMAT_HEADER = "# PHB-HR-TOML v1"
@@ -133,6 +138,24 @@ class EditorCodecError(Exception):
         return self.message
 
 
+@dataclass(frozen=True)
+class ParsedDocument:
+    objects: list[ObjectRecord]
+
+
+class FailureBuilder(Protocol):
+    def __call__(
+        self,
+        *,
+        objects: list[ObjectRecord],
+        loaded_objects: list[ObjectRecord],
+        error_text: str,
+        code: str,
+        primary_id: str = "",
+        secondary_id: str = "",
+    ) -> FailurePayload: ...
+
+
 def document_relpath(document: str) -> str:
     key = str(document or "").strip()
     if key not in DOCUMENT_PATHS:
@@ -140,44 +163,47 @@ def document_relpath(document: str) -> str:
     return DOCUMENT_PATHS[key]
 
 
-def parse_jsonl_text(text: str) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+def parse_jsonl_text(text: str) -> list[ObjectRecord]:
+    out: list[ObjectRecord] = []
     for idx, raw_line in enumerate(str(text or "").splitlines(), start=1):
         line = raw_line.strip()
         if not line:
             continue
         try:
-            obj = json.loads(line)
+            obj: object = json.loads(line)
         except json.JSONDecodeError as exc:
             msg = f"JSONL line {idx} parse failed: {exc.msg}"
             raise EditorCodecError("jsonl_invalid", msg) from exc
         if not isinstance(obj, dict):
             raise EditorCodecError("jsonl_non_object", f"JSONL line {idx} must contain an object")
-        out.append(obj)
+        out.append(_normalize_object(_string_key_mapping(cast(Mapping[object, object], obj))))
     return out
 
 
-def parse_human_text(text: str):
+def parse_human_text(text: str) -> ParsedDocument:
     first = next((line.strip() for line in str(text or "").splitlines() if line.strip()), "")
     if first != FORMAT_HEADER:
         msg = f"First non-empty line must be exactly {FORMAT_HEADER}"
         raise EditorCodecError("missing_header", msg)
     try:
-        payload = tomllib.loads(str(text or ""))
+        payload: object = tomllib.loads(str(text or ""))
     except tomllib.TOMLDecodeError as exc:
         raise EditorCodecError("toml_parse_failed", str(exc)) from exc
-    objects = payload.get("object")
+    payload_dict = _string_key_mapping(cast(Mapping[object, object], payload))
+    objects = payload_dict.get("object")
     if not isinstance(objects, list):
         raise EditorCodecError("object_table_missing", "TOML must define [[object]] blocks")
-    out = [_normalize_object(item) for item in objects if isinstance(item, dict)]
-    if len(out) != len(objects):
-        raise EditorCodecError("object_invalid", "Each [[object]] block must decode to a table")
+    out: list[ObjectRecord] = []
+    for item in cast(list[object], objects):
+        if not isinstance(item, dict):
+            raise EditorCodecError("object_invalid", "Each [[object]] block must decode to a table")
+        out.append(_normalize_object(_string_key_mapping(cast(Mapping[object, object], item))))
     for idx, obj in enumerate(out, start=1):
         if not str(obj.get("type", "")).strip():
             raise EditorCodecError("missing_type", f"[[object]] block {idx} missing type")
         if not str(obj.get("id", "")).strip():
             raise EditorCodecError("missing_id", f"[[object]] block {idx} missing id")
-    return type("ParsedDocument", (), {"objects": out})()
+    return ParsedDocument(objects=out)
 
 
 def scaffold_text(object_type: str) -> str:
@@ -187,7 +213,7 @@ def scaffold_text(object_type: str) -> str:
     return SCAFFOLD_CATALOG[key]
 
 
-def scaffold_object(object_type: str) -> dict[str, Any]:
+def scaffold_object(object_type: str) -> ObjectRecord:
     return parse_human_text(FORMAT_HEADER + "\n\n" + scaffold_text(object_type)).objects[0]
 
 
@@ -195,7 +221,7 @@ def human_text_from_jsonl_text(text: str) -> str:
     return human_text_from_objects(parse_jsonl_text(text))
 
 
-def human_text_from_objects(objects: Iterable[dict[str, Any]]) -> str:
+def human_text_from_objects(objects: Iterable[ObjectRecord]) -> str:
     lines = [FORMAT_HEADER, ""]
     for index, obj in enumerate(_normalize_object(o) for o in objects):
         if index:
@@ -204,16 +230,16 @@ def human_text_from_objects(objects: Iterable[dict[str, Any]]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def jsonl_text_from_objects(objects: Iterable[dict[str, Any]]) -> str:
+def jsonl_text_from_objects(objects: Iterable[ObjectRecord]) -> str:
     body = [json.dumps(_normalize_object(obj), ensure_ascii=False) for obj in objects]
     return "\n".join(body) + "\n"
 
 
-def recompute_meta_counts(objects: list[dict[str, Any]]) -> None:
+def recompute_meta_counts(objects: list[ObjectRecord]) -> None:
     meta = next((obj for obj in objects if obj.get("type") == "meta"), None)
     if meta is None:
         return
-    counts = {
+    counts: dict[str, JsonValue] = {
         "records": len(objects),
         "rules": _count(objects, "rule"),
         "binding_meta": _count(objects, "binding_meta"),
@@ -236,32 +262,39 @@ def recompute_meta_counts(objects: list[dict[str, Any]]) -> None:
     meta["counts"] = counts
 
 
-def _count(objects: list[dict[str, Any]], kind: str) -> int:
+def _count(objects: list[ObjectRecord], kind: str) -> int:
     return sum(obj.get("type") == kind for obj in objects)
 
 
-def _normalize_object(obj: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(obj, dict):
-        raise EditorCodecError("object_invalid", "Object must be a table")
-    out = {key: obj[key] for key in ("type", "id") if key in obj}
+def _normalize_object(obj: Mapping[str, object]) -> ObjectRecord:
+    out: ObjectRecord = {}
+    for key in ("type", "id"):
+        if key in obj:
+            out[key] = _normalize_value(obj[key])
     for key, value in obj.items():
         if key not in {"type", "id"}:
             out[str(key)] = _normalize_value(value)
     return out
 
 
-def _normalize_value(value: Any) -> Any:
+def _normalize_value(value: object) -> JsonValue:
     if isinstance(value, dict):
-        return {str(key): _normalize_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_normalize_value(item) for item in value]
-    return value
+        out: dict[str, JsonValue] = {}
+        for key, item in cast(Mapping[object, object], value).items():
+            out[str(key)] = _normalize_value(item)
+        return out
+    if isinstance(value, list | tuple):
+        return [_normalize_value(item) for item in cast(list[object] | tuple[object, ...], value)]
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return str(value)
 
 
-def _emit_object(lines: list[str], obj: dict[str, Any]) -> None:
+def _emit_object(lines: list[str], obj: ObjectRecord) -> None:
     lines.append("[[object]]")
-    tables = []
-    for key, value in sorted(obj.items(), key=lambda item: _field_sort_key(item[0])):
+    tables: list[tuple[str, dict[str, JsonValue]]] = []
+    for key in sorted(obj, key=_field_sort_key):
+        value = obj[key]
         if isinstance(value, dict):
             tables.append((key, value))
         else:
@@ -270,10 +303,11 @@ def _emit_object(lines: list[str], obj: dict[str, Any]) -> None:
         _emit_table(lines, ["object", key], value)
 
 
-def _emit_table(lines: list[str], path: list[str], table: dict[str, Any]) -> None:
+def _emit_table(lines: list[str], path: list[str], table: dict[str, JsonValue]) -> None:
     lines.append(f"[{'.'.join(path)}]")
-    tables = []
-    for key, value in sorted(table.items(), key=lambda item: _field_sort_key(item[0])):
+    tables: list[tuple[str, dict[str, JsonValue]]] = []
+    for key in sorted(table, key=_field_sort_key):
+        value = table[key]
         if isinstance(value, dict):
             tables.append((key, value))
         else:
@@ -286,7 +320,7 @@ def _field_sort_key(key: str) -> tuple[int, str]:
     return (0 if key == "type" else 1 if key == "id" else 2, key)
 
 
-def _format_toml_value(value: Any) -> str:
+def _format_toml_value(value: JsonValue) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
@@ -295,6 +329,8 @@ def _format_toml_value(value: Any) -> str:
         return json.dumps(value)
     if isinstance(value, list):
         return "[" + ", ".join(_format_toml_value(item) for item in value) + "]"
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
     text = "" if value is None else str(value)
     if "\n" in text:
         escaped = text.replace('"""', '"""')
@@ -302,17 +338,26 @@ def _format_toml_value(value: Any) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
-def surface_capability_check(objects: list[dict[str, Any]]) -> tuple[bool, str, str, str]:
+def _string_key_mapping(value: Mapping[object, object]) -> dict[str, object]:
+    out: dict[str, object] = {}
+    for raw_key, raw_value in value.items():
+        out[str(raw_key)] = raw_value
+    return out
+
+
+def surface_capability_check(objects: list[ObjectRecord]) -> tuple[bool, str, str, str]:
     caps = {str(obj.get("id", "")) for obj in objects if obj.get("type") == "capability"}
     for obj in objects:
         if obj.get("type") != "surface":
             continue
         sid = str(obj.get("id", ""))
-        for cap_id in obj.get("requires_capabilities", []):
-            cap = str(cap_id)
-            if cap not in caps:
-                msg = f"surface {sid} references missing capability {cap}"
-                return False, sid, cap, msg
+        requires = obj.get("requires_capabilities")
+        if isinstance(requires, list):
+            for cap_id in requires:
+                cap = str(cap_id)
+                if cap not in caps:
+                    msg = f"surface {sid} references missing capability {cap}"
+                    return False, sid, cap, msg
     return True, "", "", ""
 
 
@@ -334,7 +379,7 @@ def last_error_detail(error_text: str) -> str:
     return lines[-1] if lines else str(error_text)
 
 
-def _run_repo_validator(validator: Path, objects: list[dict[str, Any]]) -> tuple[bool, str]:
+def _run_repo_validator(validator: Path, objects: list[ObjectRecord]) -> tuple[bool, str]:
     validator = Path(validator).resolve()
     if not validator.is_file():
         return False, f"Validator not found: {validator}"
@@ -356,9 +401,9 @@ def validate_human_text(
     *,
     validator_path: Path,
     human_text: str,
-    loaded_objects: list[dict[str, Any]],
-    failure_builder,
-) -> tuple[bool, list[dict[str, Any]], dict[str, Any] | None]:
+    loaded_objects: list[ObjectRecord],
+    failure_builder: FailureBuilder,
+) -> tuple[bool, list[ObjectRecord], FailurePayload | None]:
     try:
         objects = deepcopy(parse_human_text(human_text).objects)
     except EditorCodecError as exc:

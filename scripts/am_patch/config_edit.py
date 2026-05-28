@@ -197,9 +197,7 @@ def _render_value(v: object, type_name: str) -> str:
         for key, values in cast(dict[object, object], v).items():
             if not isinstance(values, list):
                 raise RunnerError("CONFIG", "CONFIG", "expected dict[str,list[str]]")
-            rendered = ", ".join(
-                _toml_quote(str(item)) for item in cast(list[object], values)
-            )
+            rendered = ", ".join(_toml_quote(str(item)) for item in cast(list[object], values))
             parts.append(f"{_toml_quote(str(key))} = [{rendered}]")
         return "{" + ", ".join(parts) + "}"
     if type_name == "dict[str,str]":
@@ -228,9 +226,7 @@ def _render_table_lines(v: object, type_name: str) -> list[str]:
         for key, values in cast(dict[object, object], v).items():
             if not isinstance(values, list):
                 raise RunnerError("CONFIG", "CONFIG", "expected dict[str,list[str]]")
-            rendered = ", ".join(
-                _toml_quote(str(item)) for item in cast(list[object], values)
-            )
+            rendered = ", ".join(_toml_quote(str(item)) for item in cast(list[object], values))
             lines.append(f"{_toml_quote(str(key))} = [{rendered}]\n")
         return lines
     raise RunnerError("CONFIG", "CONFIG", f"cannot render table type: {type_name}")

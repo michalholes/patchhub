@@ -101,10 +101,7 @@ def read_ipc_result(
                 continue
             if not isinstance(parsed, dict):
                 continue
-            obj = {
-                str(key): value
-                for key, value in cast(dict[object, object], parsed).items()
-            }
+            obj = {str(key): value for key, value in cast(dict[object, object], parsed).items()}
 
             if not connected and _is_connected_event(obj):
                 connected = True

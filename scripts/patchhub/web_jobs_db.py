@@ -8,16 +8,16 @@ import tempfile
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias, cast
 
 from .job_store import (
     SqliteWebJobsStore,
-    _event_row_from_sql,
-    _int_or_none,
-    _json_dumps,
-    _none_if_blank,
-    _read_event_frame,
-    _utc_now_ms,
+    event_row_from_sql,
+    int_or_none,
+    json_dumps,
+    none_if_blank,
+    read_event_frame,
+    utc_now_ms,
 )
 from .live_event_retention import clamp_live_event_retention
 from .models import EventRow, JobRecord, RollbackAuthorityRecord, VirtualEntry, WebJobsDbConfig
@@ -43,25 +43,84 @@ def _resolve_under_patches(patches_root: Path, rel_or_abs: str) -> Path:
     return (patches_root / path).resolve()
 
 
-def _tuple_of_strings(raw: Any, default: tuple[str, ...]) -> tuple[str, ...]:
-    if not isinstance(raw, list | tuple):
+def _tuple_of_strings(raw: object, default: tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(raw, list):
+        values = cast(list[object], raw)
+    elif isinstance(raw, tuple):
+        values = list(cast(tuple[object, ...], raw))
+    else:
         return default
-    items = tuple(str(item).strip() for item in raw if str(item).strip())
+    items_raw = [str(item).strip() for item in values]
+    items = tuple(item for item in items_raw if item)
     return items or default
+
+
+def _obj_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _as_int(value: object, default: int) -> int:
+    try:
+        return int(str(value))
+    except Exception:
+        return default
+
+
+def _as_float(value: object, default: float) -> float:
+    try:
+        return float(str(value))
+    except Exception:
+        return default
+
+
+SqlParams: TypeAlias = tuple[object, ...]
+EventFrameTuple: TypeAlias = tuple[str, int | None, str | None, str | None]
+EventLineInsertTuple: TypeAlias = tuple[str, int, str, int | None, str | None, str | None]
+
+
+def _query_one(conn: sqlite3.Connection, sql: str, params: SqlParams = ()) -> sqlite3.Row | None:
+    return cast(sqlite3.Row | None, conn.execute(sql, params).fetchone())
+
+
+def _query_all(conn: sqlite3.Connection, sql: str, params: SqlParams = ()) -> list[sqlite3.Row]:
+    rows = cast(list[sqlite3.Row], conn.execute(sql, params).fetchall())
+    return rows
+
+
+def _row_value(row: sqlite3.Row, key: str | int) -> object:
+    value: object = row[key]
+    return value
+
+
+def _row_int(row: sqlite3.Row, key: str | int, default: int = 0) -> int:
+    return _as_int(_row_value(row, key), default)
+
+
+def _row_str(row: sqlite3.Row, key: str | int, default: str = "") -> str:
+    value = _row_value(row, key)
+    return str(value if value is not None else default)
 
 
 def load_web_jobs_db_config(repo_root: Path, patches_root: Path) -> WebJobsDbConfig:
     cfg_path = repo_root / "scripts" / "patchhub" / "patchhub.toml"
-    raw: dict[str, Any] = {}
+    raw: dict[str, object] = {}
     if cfg_path.is_file():
-        raw = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-    db_raw = raw.get("web_jobs_db", {})
-    migration_raw = raw.get("web_jobs_migration", {})
-    backup_raw = raw.get("web_jobs_backup", {})
-    recovery_raw = raw.get("web_jobs_recovery", {})
-    fallback_raw = raw.get("web_jobs_fallback", {})
-    retention_raw = raw.get("web_jobs_retention", {})
-    derived_raw = raw.get("web_jobs_derived", {})
+        parsed: object = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+        raw = _obj_dict(parsed)
+    db_raw = _obj_dict(raw.get("web_jobs_db"))
+    migration_raw = _obj_dict(raw.get("web_jobs_migration"))
+    backup_raw = _obj_dict(raw.get("web_jobs_backup"))
+    recovery_raw = _obj_dict(raw.get("web_jobs_recovery"))
+    fallback_raw = _obj_dict(raw.get("web_jobs_fallback"))
+    retention_raw = _obj_dict(raw.get("web_jobs_retention"))
+    derived_raw = _obj_dict(raw.get("web_jobs_derived"))
     fallback_virtual_enabled = bool(
         fallback_raw.get(
             "virtual_artifacts_web_jobs_enabled",
@@ -79,8 +138,8 @@ def load_web_jobs_db_config(repo_root: Path, patches_root: Path) -> WebJobsDbCon
             patches_root,
             str(db_raw.get("path", "artifacts/web_jobs.sqlite3")),
         ),
-        busy_timeout_ms=max(1, int(db_raw.get("busy_timeout_ms", 5000))),
-        connect_timeout_s=max(0.1, float(db_raw.get("connect_timeout_s", 5.0))),
+        busy_timeout_ms=max(1, _as_int(db_raw.get("busy_timeout_ms", 5000), 5000)),
+        connect_timeout_s=max(0.1, _as_float(db_raw.get("connect_timeout_s", 5.0), 5.0)),
         startup_migration_enabled=bool(migration_raw.get("startup_migration_enabled", False)),
         startup_verify_enabled=bool(migration_raw.get("startup_verify_enabled", False)),
         cleanup_enabled=bool(migration_raw.get("cleanup_enabled", False)),
@@ -90,7 +149,7 @@ def load_web_jobs_db_config(repo_root: Path, patches_root: Path) -> WebJobsDbCon
                 "artifacts/web_jobs_backup_{timestamp}.sqlite3",
             )
         ),
-        backup_retain_count=max(0, int(backup_raw.get("retain_count", 5))),
+        backup_retain_count=max(0, _as_int(backup_raw.get("retain_count", 5), 5)),
         backup_verify_after_write=bool(backup_raw.get("verify_after_write", True)),
         backup_restore_source_preference=_tuple_of_strings(
             backup_raw.get("restore_source_preference"),
@@ -104,15 +163,19 @@ def load_web_jobs_db_config(repo_root: Path, patches_root: Path) -> WebJobsDbCon
         derived_virtual_artifacts_web_jobs_enabled=derived_virtual_enabled,
         compatibility_enabled=fallback_virtual_enabled,
         retention_defaults={
-            "jobs_keep_days": int(retention_raw.get("jobs_keep_days", 30)),
-            "logs_keep_days": int(retention_raw.get("logs_keep_days", 30)),
-            "events_keep_days": int(retention_raw.get("events_keep_days", 30)),
+            "jobs_keep_days": _as_int(retention_raw.get("jobs_keep_days", 30), 30),
+            "logs_keep_days": _as_int(retention_raw.get("logs_keep_days", 30), 30),
+            "events_keep_days": _as_int(retention_raw.get("events_keep_days", 30), 30),
         },
         retention_thresholds={
-            "compact_after_jobs": int(retention_raw.get("compact_after_jobs", 10000)),
-            "compact_after_log_lines": int(retention_raw.get("compact_after_log_lines", 100000)),
-            "compact_after_event_lines": int(
-                retention_raw.get("compact_after_event_lines", 100000)
+            "compact_after_jobs": _as_int(retention_raw.get("compact_after_jobs", 10000), 10000),
+            "compact_after_log_lines": _as_int(
+                retention_raw.get("compact_after_log_lines", 100000),
+                100000,
+            ),
+            "compact_after_event_lines": _as_int(
+                retention_raw.get("compact_after_event_lines", 100000),
+                100000,
             ),
         },
     )
@@ -125,6 +188,9 @@ class WebJobsDatabase:
 
     def _patches_root(self) -> Path:
         return self.cfg.db_path.parent.parent
+
+    def connect(self) -> sqlite3.Connection:
+        return self._store.connect()
 
     def _materialize_applied_files(
         self,
@@ -145,27 +211,29 @@ class WebJobsDatabase:
         job.applied_files_source = source
         return job
 
-    def load_job_json(self, job_id: str) -> dict[str, Any] | None:
-        with self._store._connect() as conn:
-            row = conn.execute(
+    def load_job_json(self, job_id: str) -> dict[str, object] | None:
+        with self._store.connect() as conn:
+            row = _query_one(
+                conn,
                 "SELECT * FROM web_jobs WHERE job_id = ?",
                 (str(job_id),),
-            ).fetchone()
-        return None if row is None else self._store._row_to_job_json(row)
+            )
+        return None if row is None else self._store.row_to_job_json(row)
 
     def load_job_record(self, job_id: str) -> JobRecord | None:
         payload = self.load_job_json(job_id)
         return None if payload is None else JobRecord.from_json(payload)
 
-    def list_job_jsons(self, *, limit: int = 200) -> list[dict[str, Any]]:
-        with self._store._connect() as conn:
-            rows = conn.execute(
+    def list_job_jsons(self, *, limit: int = 200) -> list[dict[str, object]]:
+        with self._store.connect() as conn:
+            rows = _query_all(
+                conn,
                 "SELECT * FROM web_jobs ORDER BY created_unix_ms DESC, job_id DESC LIMIT ?",
                 (max(1, int(limit)),),
-            ).fetchall()
-        return [self._store._row_to_job_json(row) for row in rows]
+            )
+        return [self._store.row_to_job_json(row) for row in rows]
 
-    def list_live_job_jsons(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+    def list_live_job_jsons(self, *, limit: int | None = None) -> list[dict[str, object]]:
         sql = (
             "SELECT * FROM web_jobs WHERE status IN ('queued', 'running') "
             "ORDER BY created_unix_ms DESC, job_id DESC"
@@ -174,17 +242,18 @@ class WebJobsDatabase:
         if limit is not None:
             sql += " LIMIT ?"
             params = (max(1, int(limit)),)
-        with self._store._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [self._store._row_to_job_json(row) for row in rows]
+        with self._store.connect() as conn:
+            rows = _query_all(conn, sql, params)
+        return [self._store.row_to_job_json(row) for row in rows]
 
     def load_rollback_authority(self, job_id: str) -> RollbackAuthorityRecord | None:
-        with self._store._connect() as conn:
-            row = conn.execute(
+        with self._store.connect() as conn:
+            row = _query_one(
+                conn,
                 "SELECT * FROM web_job_rollback_authority WHERE job_id = ?",
                 (str(job_id),),
-            ).fetchone()
-        return None if row is None else self._store._row_to_rollback_authority_record(row)
+            )
+        return None if row is None else self._store.row_to_rollback_authority_record(row)
 
     def job_has_manifest_authority(self, job_id: str) -> bool:
         authority = self.load_rollback_authority(job_id)
@@ -196,16 +265,16 @@ class WebJobsDatabase:
         *,
         count_as_job_change: bool = True,
     ) -> None:
-        with self._store._connect() as conn:
+        with self._store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            self._store._upsert_rollback_authority_row(conn, authority)
-            self._store._touch_meta(conn, jobs_delta=1 if count_as_job_change else 0)
+            self._store.upsert_rollback_authority_row(conn, authority)
+            self._store.touch_meta(conn, jobs_delta=1 if count_as_job_change else 0)
             conn.commit()
 
     def upsert_manifest_authority(
         self,
         job: JobRecord,
-        manifest: dict[str, Any],
+        manifest: dict[str, object],
         *,
         count_as_job_change: bool = True,
     ) -> RollbackAuthorityRecord:
@@ -227,7 +296,7 @@ class WebJobsDatabase:
             request_preflight_token=(
                 existing.request_preflight_token if existing and existing.has_request() else None
             ),
-            updated_unix_ms=_utc_now_ms(),
+            updated_unix_ms=utc_now_ms(),
         )
         self.upsert_rollback_authority(authority, count_as_job_change=count_as_job_change)
         return authority
@@ -250,16 +319,16 @@ class WebJobsDatabase:
             selected_repo_paths=selected_repo_paths,
             rollback_preflight_token=rollback_preflight_token,
             manifest_record=existing,
-            updated_unix_ms=_utc_now_ms(),
+            updated_unix_ms=utc_now_ms(),
         )
         self.upsert_rollback_authority(authority, count_as_job_change=count_as_job_change)
         return authority
 
-    def load_rollback_manifest(self, job_id: str) -> dict[str, Any] | None:
+    def load_rollback_manifest(self, job_id: str) -> dict[str, object] | None:
         authority = self.load_rollback_authority(job_id)
         return None if authority is None else authority.manifest_payload()
 
-    def load_rollback_request(self, job_id: str) -> dict[str, Any] | None:
+    def load_rollback_request(self, job_id: str) -> dict[str, object] | None:
         authority = self.load_rollback_authority(job_id)
         return None if authority is None else authority.request_payload()
 
@@ -269,9 +338,10 @@ class WebJobsDatabase:
         target_repo: str,
         created_after_unix_ms: int,
         limit: int = 200,
-    ) -> list[dict[str, Any]]:
-        with self._store._connect() as conn:
-            rows = conn.execute(
+    ) -> list[dict[str, object]]:
+        with self._store.connect() as conn:
+            rows = _query_all(
+                conn,
                 """
                 SELECT wj.*
                   FROM web_jobs AS wj
@@ -290,42 +360,43 @@ class WebJobsDatabase:
                     int(created_after_unix_ms),
                     max(1, int(limit)),
                 ),
-            ).fetchall()
-        return [self._store._row_to_job_json(row) for row in rows]
+            )
+        return [self._store.row_to_job_json(row) for row in rows]
 
     def jobs_signature(self) -> tuple[int, int]:
-        with self._store._connect() as conn:
-            meta = conn.execute("SELECT jobs_rev FROM web_jobs_meta WHERE singleton = 1").fetchone()
-            count_row = conn.execute("SELECT COUNT(*) FROM web_jobs").fetchone()
-        rev = int(meta["jobs_rev"]) if meta is not None else 0
-        count = int(count_row[0]) if count_row is not None else 0
+        with self._store.connect() as conn:
+            meta = _query_one(conn, "SELECT jobs_rev FROM web_jobs_meta WHERE singleton = 1")
+            count_row = _query_one(conn, "SELECT COUNT(*) FROM web_jobs")
+        rev = _row_int(meta, "jobs_rev") if meta is not None else 0
+        count = _row_int(count_row, 0) if count_row is not None else 0
         return count, rev
 
     def upsert_job(self, job: JobRecord, *, count_as_job_change: bool = True) -> None:
         job = self._materialize_applied_files(job)
-        with self._store._connect() as conn:
+        with self._store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
+            row = _query_one(
+                conn,
                 "SELECT row_rev, last_log_seq, last_event_seq FROM web_jobs WHERE job_id = ?",
                 (str(job.job_id),),
-            ).fetchone()
-            row_rev = (int(row["row_rev"]) if row is not None else 0) + 1
+            )
+            row_rev = (_row_int(row, "row_rev") if row is not None else 0) + 1
             log_count = max(
-                int(getattr(job, "last_log_seq", 0) or 0),
-                int(row["last_log_seq"]) if row is not None else 0,
+                int(job.last_log_seq or 0),
+                _row_int(row, "last_log_seq") if row is not None else 0,
             )
             event_count = max(
-                int(getattr(job, "last_event_seq", 0) or 0),
-                int(row["last_event_seq"]) if row is not None else 0,
+                int(job.last_event_seq or 0),
+                _row_int(row, "last_event_seq") if row is not None else 0,
             )
-            self._store._upsert_job_row(
+            self._store.upsert_job_row(
                 conn,
                 job,
                 log_count=log_count,
                 event_count=event_count,
                 row_rev=row_rev,
             )
-            self._store._touch_meta(conn, jobs_delta=1 if count_as_job_change else 0)
+            self._store.touch_meta(conn, jobs_delta=1 if count_as_job_change else 0)
             conn.commit()
 
     def replace_job_history(
@@ -336,10 +407,10 @@ class WebJobsDatabase:
         event_lines: list[str],
     ) -> None:
         job = self._materialize_applied_files(job, log_text="\n".join(log_lines))
-        with self._store._connect() as conn:
+        with self._store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row_rev = self._store._current_row_rev(conn, job.job_id) + 1
-            self._store._upsert_job_row(
+            row_rev = self._store.current_row_rev(conn, job.job_id) + 1
+            self._store.upsert_job_row(
                 conn,
                 job,
                 log_count=len(log_lines),
@@ -354,18 +425,18 @@ class WebJobsDatabase:
                     [(str(job.job_id), idx + 1, str(line)) for idx, line in enumerate(log_lines)],
                 )
             if event_lines:
-                items = []
+                items: list[EventLineInsertTuple] = []
                 for idx, raw_line in enumerate(event_lines, start=1):
                     text = str(raw_line).rstrip("\n")
-                    parsed = _read_event_frame(text)
+                    parsed = read_event_frame(text)
                     items.append(
                         (
                             str(job.job_id),
                             idx,
                             text,
-                            _int_or_none(parsed.get("seq")) if parsed is not None else None,
-                            _none_if_blank(parsed.get("type")) if parsed is not None else None,
-                            _none_if_blank(parsed.get("event")) if parsed is not None else None,
+                            int_or_none(parsed.get("seq")) if parsed is not None else None,
+                            none_if_blank(parsed.get("type")) if parsed is not None else None,
+                            none_if_blank(parsed.get("event")) if parsed is not None else None,
                         )
                     )
                 conn.executemany(
@@ -376,7 +447,7 @@ class WebJobsDatabase:
                     """,
                     items,
                 )
-            self._store._touch_meta(
+            self._store.touch_meta(
                 conn,
                 jobs_delta=1,
                 logs_delta=len(log_lines),
@@ -385,9 +456,9 @@ class WebJobsDatabase:
             conn.commit()
 
     def update_applied_files(self, job_id: str, files: list[str], source: str) -> None:
-        with self._store._connect() as conn:
+        with self._store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row_rev = self._store._current_row_rev(conn, str(job_id)) + 1
+            row_rev = self._store.current_row_rev(conn, str(job_id)) + 1
             conn.execute(
                 """
                 UPDATE web_jobs
@@ -396,9 +467,9 @@ class WebJobsDatabase:
                        row_rev = ?
                  WHERE job_id = ?
                 """,
-                (_json_dumps(list(files)), str(source), row_rev, str(job_id)),
+                (json_dumps(list(files)), str(source), row_rev, str(job_id)),
             )
-            self._store._touch_meta(conn, jobs_delta=1)
+            self._store.touch_meta(conn, jobs_delta=1)
             conn.commit()
 
     def mark_orphaned(self, job_id: str) -> JobRecord | None:
@@ -416,17 +487,18 @@ class WebJobsDatabase:
 
     def append_log_line(self, job_id: str, line: str) -> int:
         text = str(line or "")
-        with self._store._connect() as conn:
+        with self._store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
+            row = _query_one(
+                conn,
                 "SELECT last_log_seq, row_rev FROM web_jobs WHERE job_id = ?",
                 (str(job_id),),
-            ).fetchone()
+            )
             if row is None:
                 conn.rollback()
                 return 0
-            seq = int(row["last_log_seq"]) + 1
-            row_rev = int(row["row_rev"]) + 1
+            seq = _row_int(row, "last_log_seq") + 1
+            row_rev = _row_int(row, "row_rev") + 1
             conn.execute(
                 "INSERT INTO web_job_log_lines(job_id, seq, line) VALUES (?, ?, ?)",
                 (str(job_id), seq, text),
@@ -435,27 +507,28 @@ class WebJobsDatabase:
                 "UPDATE web_jobs SET last_log_seq = ?, row_rev = ? WHERE job_id = ?",
                 (seq, row_rev, str(job_id)),
             )
-            self._store._touch_meta(conn, logs_delta=1)
+            self._store.touch_meta(conn, logs_delta=1)
             conn.commit()
         return seq
 
     def append_event_line(self, job_id: str, raw_line: str) -> int:
         text = str(raw_line or "").rstrip("\n")
-        parsed = _read_event_frame(text)
-        ipc_seq = _int_or_none(parsed.get("seq")) if parsed is not None else None
-        frame_type = _none_if_blank(parsed.get("type")) if parsed is not None else None
-        frame_event = _none_if_blank(parsed.get("event")) if parsed is not None else None
-        with self._store._connect() as conn:
+        parsed = read_event_frame(text)
+        ipc_seq = int_or_none(parsed.get("seq")) if parsed is not None else None
+        frame_type = none_if_blank(parsed.get("type")) if parsed is not None else None
+        frame_event = none_if_blank(parsed.get("event")) if parsed is not None else None
+        with self._store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
+            row = _query_one(
+                conn,
                 "SELECT last_event_seq, row_rev FROM web_jobs WHERE job_id = ?",
                 (str(job_id),),
-            ).fetchone()
+            )
             if row is None:
                 conn.rollback()
                 return 0
-            seq = int(row["last_event_seq"]) + 1
-            row_rev = int(row["row_rev"]) + 1
+            seq = _row_int(row, "last_event_seq") + 1
+            row_rev = _row_int(row, "row_rev") + 1
             conn.execute(
                 """
                 INSERT INTO web_job_event_lines(
@@ -468,37 +541,38 @@ class WebJobsDatabase:
                 "UPDATE web_jobs SET last_event_seq = ?, row_rev = ? WHERE job_id = ?",
                 (seq, row_rev, str(job_id)),
             )
-            self._store._touch_meta(conn, events_delta=1)
+            self._store.touch_meta(conn, events_delta=1)
             conn.commit()
         return seq
 
     def append_event_lines(self, job_id: str, raw_lines: list[str]) -> int:
-        items = []
+        items: list[EventFrameTuple] = []
         for raw_line in raw_lines:
             text = str(raw_line or "").rstrip("\n")
-            parsed = _read_event_frame(text)
+            parsed = read_event_frame(text)
             items.append(
                 (
                     text,
-                    _int_or_none(parsed.get("seq")) if parsed is not None else None,
-                    _none_if_blank(parsed.get("type")) if parsed is not None else None,
-                    _none_if_blank(parsed.get("event")) if parsed is not None else None,
+                    int_or_none(parsed.get("seq")) if parsed is not None else None,
+                    none_if_blank(parsed.get("type")) if parsed is not None else None,
+                    none_if_blank(parsed.get("event")) if parsed is not None else None,
                 )
             )
         if not items:
             return 0
-        with self._store._connect() as conn:
+        with self._store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
+            row = _query_one(
+                conn,
                 "SELECT last_event_seq, row_rev FROM web_jobs WHERE job_id = ?",
                 (str(job_id),),
-            ).fetchone()
+            )
             if row is None:
                 conn.rollback()
                 return 0
-            base_seq = int(row["last_event_seq"])
-            row_rev = int(row["row_rev"]) + len(items)
-            seq_items = [
+            base_seq = _row_int(row, "last_event_seq")
+            row_rev = _row_int(row, "row_rev") + len(items)
+            seq_items: list[EventLineInsertTuple] = [
                 (str(job_id), base_seq + idx, text, ipc_seq, frame_type, frame_event)
                 for idx, (text, ipc_seq, frame_type, frame_event) in enumerate(items, start=1)
             ]
@@ -515,14 +589,15 @@ class WebJobsDatabase:
                 "UPDATE web_jobs SET last_event_seq = ?, row_rev = ? WHERE job_id = ?",
                 (final_seq, row_rev, str(job_id)),
             )
-            self._store._touch_meta(conn, events_delta=len(seq_items))
+            self._store.touch_meta(conn, events_delta=len(seq_items))
             conn.commit()
         return final_seq
 
     def _read_raw_log_tail(self, job_id: str, *, lines: int = 200) -> str:
         limit = max(1, min(int(lines), 5000))
-        with self._store._connect() as conn:
-            rows = conn.execute(
+        with self._store.connect() as conn:
+            rows = _query_all(
+                conn,
                 """
                 SELECT line FROM web_job_log_lines
                  WHERE job_id = ?
@@ -530,8 +605,11 @@ class WebJobsDatabase:
                  LIMIT ?
                 """,
                 (str(job_id), limit),
-            ).fetchall()
-        return "\n".join(str(row["line"]) for row in reversed(rows))
+            )
+        return "\n".join(_row_str(row, "line") for row in reversed(rows))
+
+    def read_raw_log_tail(self, job_id: str, *, lines: int = 200) -> str:
+        return self._read_raw_log_tail(job_id, lines=lines)
 
     def read_log_tail(self, job_id: str, *, lines: int = 200) -> str:
         from .web_jobs_derived import read_effective_log_tail
@@ -539,12 +617,16 @@ class WebJobsDatabase:
         return read_effective_log_tail(self, job_id, lines=lines)
 
     def _read_raw_full_log(self, job_id: str) -> str:
-        with self._store._connect() as conn:
-            rows = conn.execute(
+        with self._store.connect() as conn:
+            rows = _query_all(
+                conn,
                 "SELECT line FROM web_job_log_lines WHERE job_id = ? ORDER BY seq ASC",
                 (str(job_id),),
-            ).fetchall()
-        return "\n".join(str(row["line"]) for row in rows)
+            )
+        return "\n".join(_row_str(row, "line") for row in rows)
+
+    def read_raw_full_log(self, job_id: str) -> str:
+        return self._read_raw_full_log(job_id)
 
     def read_full_log(self, job_id: str) -> str:
         from .web_jobs_derived import read_effective_full_log
@@ -558,8 +640,9 @@ class WebJobsDatabase:
         after_seq: int = 0,
         limit: int = 2000,
     ) -> list[EventRow]:
-        with self._store._connect() as conn:
-            rows = conn.execute(
+        with self._store.connect() as conn:
+            rows = _query_all(
+                conn,
                 """
                 SELECT seq, raw_line, ipc_seq, frame_type, frame_event
                   FROM web_job_event_lines
@@ -568,13 +651,14 @@ class WebJobsDatabase:
                  LIMIT ?
                 """,
                 (str(job_id), int(after_seq), max(1, int(limit))),
-            ).fetchall()
-        return [_event_row_from_sql(row) for row in rows]
+            )
+        return [event_row_from_sql(row) for row in rows]
 
     def read_event_tail(self, job_id: str, *, lines: int = 500) -> tuple[list[EventRow], int]:
         limit = clamp_live_event_retention(lines)
-        with self._store._connect() as conn:
-            rows = conn.execute(
+        with self._store.connect() as conn:
+            rows = _query_all(
+                conn,
                 """
                 SELECT seq, raw_line, ipc_seq, frame_type, frame_event
                   FROM web_job_event_lines
@@ -583,17 +667,18 @@ class WebJobsDatabase:
                  LIMIT ?
                 """,
                 (str(job_id), limit),
-            ).fetchall()
-        items = [_event_row_from_sql(row) for row in reversed(rows)]
+            )
+        items = [event_row_from_sql(row) for row in reversed(rows)]
         return items, (items[-1].seq if items else 0)
 
     def last_event_seq(self, job_id: str) -> int:
-        with self._store._connect() as conn:
-            row = conn.execute(
+        with self._store.connect() as conn:
+            row = _query_one(
+                conn,
                 "SELECT last_event_seq FROM web_jobs WHERE job_id = ?",
                 (str(job_id),),
-            ).fetchone()
-        return int(row["last_event_seq"]) if row is not None else 0
+            )
+        return _row_int(row, "last_event_seq") if row is not None else 0
 
     def legacy_job_json_text(self, job_id: str) -> str | None:
         payload = self.load_job_json(job_id)
@@ -625,12 +710,13 @@ class WebJobsDatabase:
         return self.read_effective_event_text(job_id)
 
     def list_job_ids(self, *, limit: int = 2000) -> list[str]:
-        with self._store._connect() as conn:
-            rows = conn.execute(
+        with self._store.connect() as conn:
+            rows = _query_all(
+                conn,
                 "SELECT job_id FROM web_jobs ORDER BY created_unix_ms DESC, job_id DESC LIMIT ?",
                 (max(1, int(limit)),),
-            ).fetchall()
-        return [str(row["job_id"]) for row in rows]
+            )
+        return [_row_str(row, "job_id") for row in rows]
 
     def export_legacy_tree(self, dest_root: Path) -> None:
         for job_id in self.list_job_ids(limit=1_000_000):
@@ -651,7 +737,7 @@ class WebJobsDatabase:
         backup_root = self.cfg.db_path.parent.parent
         dst = (backup_root / template.format(timestamp=timestamp)).resolve()
         dst.parent.mkdir(parents=True, exist_ok=True)
-        with self._store._connect() as src_conn:
+        with self._store.connect() as src_conn:
             src_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             with sqlite3.connect(str(dst)) as dst_conn:
                 src_conn.backup(dst_conn)
@@ -666,8 +752,14 @@ class WebJobsDatabase:
         if keep <= 0:
             return
         stem = Path(template).name.split("{timestamp}")[0]
-        candidates = [p for p in backup_dir.iterdir() if p.is_file() and p.name.startswith(stem)]
-        candidates.sort(key=lambda p: p.stat().st_mtime_ns, reverse=True)
+        candidates: list[Path] = [
+            path for path in backup_dir.iterdir() if path.is_file() and path.name.startswith(stem)
+        ]
+
+        def _mtime_key(path: Path) -> int:
+            return int(path.stat().st_mtime_ns)
+
+        candidates.sort(key=_mtime_key, reverse=True)
         for path in candidates[keep:]:
             path.unlink(missing_ok=True)
 
@@ -687,4 +779,4 @@ class WebJobsDatabase:
             Path(tmp_name).unlink(missing_ok=True)
         for suffix in ("-wal", "-shm"):
             Path(str(self.cfg.db_path) + suffix).unlink(missing_ok=True)
-        self._store._init_db()
+        self._store.init_db()

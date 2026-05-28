@@ -6,7 +6,7 @@ import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from .models import WebJobsDbConfig
 
@@ -57,26 +57,48 @@ def _resolve_under_patches(patches_root: Path, rel_or_abs: str) -> Path:
     return (patches_root / path).resolve()
 
 
-def _tuple_of_strings(raw: Any, default: tuple[str, ...]) -> tuple[str, ...]:
-    if not isinstance(raw, list | tuple):
+def _tuple_of_strings(raw: object, default: tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(raw, list):
+        values = cast(list[object], raw)
+    elif isinstance(raw, tuple):
+        values = list(cast(tuple[object, ...], raw))
+    else:
         return default
-    items = tuple(str(item).strip() for item in raw if str(item).strip())
+    items = tuple(str(item).strip() for item in values if str(item).strip())
     return items or default
 
 
-def _normalize_trigger_policy(raw: Any) -> str:
+def _obj_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _as_int(value: object, default: int) -> int:
+    try:
+        return int(str(value))
+    except Exception:
+        return default
+
+
+def _normalize_trigger_policy(raw: object) -> str:
     policy = str(raw or "manual").strip() or "manual"
     if policy not in _VALID_TRIGGER_POLICIES:
         raise ValueError(f"invalid_web_jobs_backup_trigger_policy:{policy}")
     return policy
 
 
-def _normalize_positive_int(raw: Any, *, name: str, default: int) -> int:
+def _normalize_positive_int(raw: object, *, name: str, default: int) -> int:
     if raw is None:
         value = default
     else:
         try:
-            value = int(raw)
+            value = int(str(raw))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"invalid_{name}:{raw}") from exc
     if value < 1:
@@ -86,7 +108,7 @@ def _normalize_positive_int(raw: Any, *, name: str, default: int) -> int:
 
 def startup_backup_required(
     settings: WebJobsBackupSettings,
-    recovery: dict[str, Any],
+    recovery: dict[str, object],
 ) -> bool:
     policy = _normalize_trigger_policy(settings.trigger_policy)
     if policy in {"manual", "interval_hours"}:
@@ -108,16 +130,23 @@ def load_web_jobs_backup_settings(
     db_cfg: WebJobsDbConfig,
 ) -> WebJobsBackupSettings:
     cfg_path = repo_root / "scripts" / "patchhub" / "patchhub.toml"
-    raw: dict[str, Any] = {}
+    raw: dict[str, object] = {}
     if cfg_path.is_file():
-        raw = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-    backup_raw = raw.get("web_jobs_backup", {})
+        parsed: object = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+        raw = _obj_dict(parsed)
+    backup_raw = _obj_dict(raw.get("web_jobs_backup"))
     return WebJobsBackupSettings(
         enabled=bool(backup_raw.get("enabled", True)),
         destination_template=str(
             backup_raw.get("destination_template", db_cfg.backup_destination_template)
         ),
-        retain_count=max(0, int(backup_raw.get("retain_count", db_cfg.backup_retain_count))),
+        retain_count=max(
+            0,
+            _as_int(
+                backup_raw.get("retain_count", db_cfg.backup_retain_count),
+                db_cfg.backup_retain_count,
+            ),
+        ),
         verify_after_backup=bool(
             backup_raw.get("verify_after_write", db_cfg.backup_verify_after_write)
         ),
@@ -220,15 +249,20 @@ def verify_sqlite_backup(path: Path) -> None:
     if not path.is_file():
         raise FileNotFoundError(path)
     with sqlite3.connect(str(path)) as conn:
-        rows = conn.execute("PRAGMA quick_check").fetchall()
+        rows_obj = cast(object, conn.execute("PRAGMA quick_check").fetchall())
+        rows = cast(list[tuple[object, ...]], rows_obj) if isinstance(rows_obj, list) else []
         if not rows or any(str(row[0]) != "ok" for row in rows):
             raise RuntimeError("quick_check_failed")
-        tables = {
-            str(row[0])
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
-        }
+        tables_rows_obj = cast(
+            object,
+            conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall(),
+        )
+        table_rows = (
+            cast(list[tuple[object, ...]], tables_rows_obj)
+            if isinstance(tables_rows_obj, list)
+            else []
+        )
+        tables = {str(row[0]) for row in table_rows if row}
     missing = [name for name in _REQUIRED_TABLES if name not in tables]
     if missing:
         raise RuntimeError("missing_required_tables:" + ",".join(missing))
@@ -246,7 +280,11 @@ def list_verified_backups(
     items = [
         path for path in template_path.parent.iterdir() if path.is_file() and regex.match(path.name)
     ]
-    items.sort(key=lambda path: (path.stat().st_mtime_ns, path.name), reverse=True)
+
+    def _sort_key(path: Path) -> tuple[int, str]:
+        return int(path.stat().st_mtime_ns), path.name
+
+    items.sort(key=_sort_key, reverse=True)
     return items
 
 

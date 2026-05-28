@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import subprocess
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
 
 from patchhub.models import JobRecord
 from patchhub.rollback_preflight import (
@@ -31,6 +30,34 @@ class RollbackRuntimeError(RuntimeError):
     pass
 
 
+class ExecutionStep(TypedDict):
+    run_start_sha: str
+    restore_paths: list[str]
+    commit_message: str
+    message: str
+
+
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
+
+
+def _str_list(value: object) -> list[str]:
+    return [str(item) for item in _obj_list(value) if str(item)]
+
+
 class RollbackJobHandler:
     def __init__(
         self,
@@ -38,8 +65,8 @@ class RollbackJobHandler:
         jobs_root: Path,
         load_job_record_any: Callable[[str], Awaitable[JobRecord | None]],
         load_all_jobs: Callable[[], Awaitable[list[JobRecord]]],
-        load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None],
-        load_request_for_job: Callable[[JobRecord], dict[str, Any] | None],
+        load_manifest_for_job: Callable[[JobRecord], dict[str, object] | None],
+        load_request_for_job: Callable[[JobRecord], dict[str, object] | None],
         allow_filesystem_request_fallback: bool,
         target_repo_roots: Mapping[str, Path],
         capture_head_sha_for_job: Callable[[JobRecord], Awaitable[str]],
@@ -100,8 +127,7 @@ class RollbackJobHandler:
         for step in steps:
             message = step["message"]
             await self._emit_log(job, broker, message, kind="INFO")
-            rc, error = await asyncio.to_thread(
-                self._apply_step,
+            rc, error = self._apply_step(
                 target_root,
                 step["run_start_sha"],
                 list(step["restore_paths"]),
@@ -124,19 +150,22 @@ class RollbackJobHandler:
     async def _build_execution_steps(
         self,
         source_job: JobRecord,
-        preflight: dict[str, Any],
-    ) -> list[dict[str, Any]]:
+        preflight: dict[str, object],
+    ) -> list[ExecutionStep]:
         all_jobs = await self._load_all_jobs()
         by_id = {str(item.job_id): item for item in all_jobs}
-        steps: list[dict[str, Any]] = []
-        for chain in list(preflight.get("chain_steps") or []):
+        steps: list[ExecutionStep] = []
+        for raw_chain in _obj_list(preflight.get("chain_steps")):
+            chain = _obj_dict(raw_chain)
+            if chain is None:
+                continue
             chain_job = by_id.get(str(chain.get("job_id") or ""))
             if chain_job is None:
                 continue
             steps.append(
                 {
                     "run_start_sha": str(chain_job.run_start_sha or ""),
-                    "restore_paths": list(chain.get("selected_repo_paths") or []),
+                    "restore_paths": _str_list(chain.get("selected_repo_paths")),
                     "commit_message": f"PatchHub roll-back overlap {chain_job.job_id}",
                     "message": f"rolling back newer overlap {chain_job.job_id}",
                 }
@@ -144,7 +173,7 @@ class RollbackJobHandler:
         steps.append(
             {
                 "run_start_sha": str(source_job.run_start_sha or ""),
-                "restore_paths": list(preflight.get("restore_paths") or []),
+                "restore_paths": _str_list(preflight.get("restore_paths")),
                 "commit_message": f"PatchHub roll-back {source_job.job_id}",
                 "message": f"rolling back source job {source_job.job_id}",
             }
@@ -152,23 +181,22 @@ class RollbackJobHandler:
         return steps
 
     def _load_request(self, job: JobRecord) -> RollbackRequest:
-        parsed = self._load_request_for_job(job)
-        if parsed is None:
+        parsed_payload: object | None = self._load_request_for_job(job)
+        if parsed_payload is None:
             if not self._allow_filesystem_request_fallback:
                 raise RollbackRuntimeError("missing rollback request payload")
             path = self._jobs_root / str(job.job_id or "") / "rollback_request.json"
             if not path.is_file():
                 raise RollbackRuntimeError("missing rollback request payload")
-            parsed = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(parsed, dict):
+            parsed_payload = cast(object, json.loads(path.read_text(encoding="utf-8")))
+        parsed_obj = _obj_dict(parsed_payload)
+        if parsed_obj is None:
             raise RollbackRuntimeError("invalid rollback request payload")
         return RollbackRequest(
-            source_job_id=str(parsed.get("source_job_id") or ""),
-            scope_kind=str(parsed.get("scope_kind") or ""),
-            selected_repo_paths=[
-                str(item) for item in list(parsed.get("selected_repo_paths") or [])
-            ],
-            rollback_preflight_token=str(parsed.get("rollback_preflight_token") or ""),
+            source_job_id=str(parsed_obj.get("source_job_id") or ""),
+            scope_kind=str(parsed_obj.get("scope_kind") or ""),
+            selected_repo_paths=_str_list(parsed_obj.get("selected_repo_paths")),
+            rollback_preflight_token=str(parsed_obj.get("rollback_preflight_token") or ""),
         )
 
     def _resolve_target_root(self, token: str) -> Path:
@@ -247,8 +275,8 @@ def build_rollback_job_handler(
     jobs_root: Path,
     load_job_record_any: Callable[[str], Awaitable[JobRecord | None]],
     load_all_jobs: Callable[[], Awaitable[list[JobRecord]]],
-    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None],
-    load_request_for_job: Callable[[JobRecord], dict[str, Any] | None],
+    load_manifest_for_job: Callable[[JobRecord], dict[str, object] | None],
+    load_request_for_job: Callable[[JobRecord], dict[str, object] | None],
     allow_filesystem_request_fallback: bool,
     target_repo_roots: Mapping[str, Path],
     capture_head_sha_for_job: Callable[[JobRecord], Awaitable[str]],

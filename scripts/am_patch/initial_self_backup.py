@@ -300,9 +300,7 @@ def maybe_create_initial_self_backup(
         )
 
     include_relpaths = [
-        str(item).strip()
-        for item in list(policy.self_backup_include_relpaths)
-        if str(item).strip()
+        str(item).strip() for item in list(policy.self_backup_include_relpaths) if str(item).strip()
     ]
     logger.line(f"self_backup_include_relpaths={include_relpaths!r}")
     archived_files = _resolve_archived_files(

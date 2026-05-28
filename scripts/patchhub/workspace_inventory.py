@@ -6,11 +6,13 @@ import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 from patchhub.app_api_amp import _runner_config_path
-from patchhub.app_support import _iter_canceled_runs, active_canceled_runs_source
-from patchhub.models import compute_commit_summary
+from patchhub.app_support import _iter_canceled_runs
+from patchhub.config import AppConfig
+from patchhub.models import JobRecord, compute_commit_summary
+from patchhub.web_jobs_db import WebJobsDatabase
 
 
 @dataclass(frozen=True)
@@ -30,7 +32,15 @@ def _utc_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _runner_workspace_config(repo_root: Path, cfg: Any) -> WorkspaceRuntimeConfig:
+class WorkspaceCore(Protocol):
+    repo_root: Path
+    cfg: AppConfig
+    patches_root: Path
+    jobs_root: Path
+    web_jobs_db: WebJobsDatabase | None
+
+
+def _runner_workspace_config(repo_root: Path, cfg: AppConfig) -> WorkspaceRuntimeConfig:
     from am_patch.config import Policy, build_policy, load_config
 
     cfg_path = _runner_config_path(repo_root, cfg)
@@ -39,7 +49,7 @@ def _runner_workspace_config(repo_root: Path, cfg: Any) -> WorkspaceRuntimeConfi
         flat = {}
     policy = build_policy(Policy(), flat)
     return WorkspaceRuntimeConfig(
-        patches_root_rel=str(getattr(cfg.paths, "patches_root", "patches")),
+        patches_root_rel=str(cfg.paths.patches_root),
         workspaces_dir_name=str(policy.patch_layout_workspaces_dir),
         issue_dir_template=str(policy.workspace_issue_dir_template),
         repo_dir_name=str(policy.workspace_repo_dir_name),
@@ -47,14 +57,15 @@ def _runner_workspace_config(repo_root: Path, cfg: Any) -> WorkspaceRuntimeConfi
     )
 
 
-def _read_json_dict(path: Path) -> dict[str, Any]:
+def _read_json_dict(path: Path) -> dict[str, object]:
+    raw: object
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
     if not isinstance(raw, dict):
         return {}
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
     for key, val in raw.items():
         out[str(key)] = val
     return out
@@ -104,33 +115,63 @@ def _git_dirty(repo_dir: Path) -> bool:
     return bool((proc.stdout or "").strip())
 
 
-def _latest_known_run_result_by_issue(core: Any) -> dict[int, str]:
+def _latest_known_run_result_by_issue(core: WorkspaceCore) -> dict[int, str]:
     from patchhub.indexing import iter_runs
 
     runs = list(iter_runs(core.patches_root, core.cfg.indexing.log_filename_regex))
-    runs.extend(_iter_canceled_runs(active_canceled_runs_source(core)))
+    try:
+        web_jobs_db = core.web_jobs_db
+    except AttributeError:
+        web_jobs_db = None
+    if web_jobs_db is not None:
+        canceled_source: WebJobsDatabase | Path = web_jobs_db
+    else:
+        try:
+            canceled_source = core.jobs_root
+        except AttributeError:
+            canceled_source = core.patches_root
+    runs.extend(_iter_canceled_runs(canceled_source))
     out: dict[int, tuple[str, str, str]] = {}
     for run in runs:
         issue_id = int(run.issue_id)
         cand = (str(run.mtime_utc), str(run.log_rel_path), str(run.result))
         prev = out.get(issue_id)
-        if prev is None or cand[:2] > prev[:2]:
+        if prev is None or cand[0] > prev[0] or (cand[0] == prev[0] and cand[1] > prev[1]):
             out[issue_id] = cand
     return {issue_id: result for issue_id, (_mtime, _path, result) in out.items()}
 
 
-def _busy_issue_ids(mem_jobs: list[Any]) -> set[int]:
+def _dirent_name(entry: os.DirEntry[str]) -> str:
+    return str(entry.name)
+
+
+def _busy_issue_ids(mem_jobs: list[JobRecord]) -> set[int]:
     out: set[int] = set()
     for job in mem_jobs:
-        status = str(getattr(job, "status", ""))
+        status = str(job.status)
         if status not in ("queued", "running"):
             continue
-        issue_s = str(getattr(job, "issue_id", ""))
+        issue_s = str(job.issue_id)
         try:
             out.add(int(issue_s))
         except Exception:
             continue
     return out
+
+
+def _workspace_sort_key(item: dict[str, object]) -> tuple[str, int]:
+    mtime_utc = str(item.get("mtime_utc", ""))
+    issue_raw = item.get("issue_id", 0)
+    if isinstance(issue_raw, bool):
+        issue_id = int(issue_raw)
+    elif isinstance(issue_raw, int):
+        issue_id = issue_raw
+    else:
+        try:
+            issue_id = int(str(issue_raw).strip() or "0")
+        except Exception:
+            issue_id = 0
+    return mtime_utc, issue_id
 
 
 def _workspace_mtime_utc(ws_root: Path, repo_dir: Path, meta_path: Path) -> str:
@@ -144,9 +185,9 @@ def _workspace_mtime_utc(ws_root: Path, repo_dir: Path, meta_path: Path) -> str:
 
 
 def list_workspaces(
-    core: Any,
-    mem_jobs: list[Any] | None = None,
-) -> tuple[str, list[dict[str, Any]]]:
+    core: WorkspaceCore,
+    mem_jobs: list[JobRecord] | None = None,
+) -> tuple[str, list[dict[str, object]]]:
     if mem_jobs is None:
         mem_jobs = []
     runtime_cfg = _runner_workspace_config(core.repo_root, core.cfg)
@@ -154,13 +195,13 @@ def list_workspaces(
     latest_results = _latest_known_run_result_by_issue(core)
     busy_issue_ids = _busy_issue_ids(mem_jobs)
 
-    items: list[dict[str, Any]] = []
+    items: list[dict[str, object]] = []
     sig_parts: list[str] = []
 
     try:
         entries = sorted(
             [ent for ent in os.scandir(workspaces_root) if ent.is_dir()],
-            key=lambda ent: ent.name,
+            key=_dirent_name,
         )
     except (FileNotFoundError, NotADirectoryError, PermissionError):
         entries = []
@@ -201,7 +242,7 @@ def list_workspaces(
         busy = issue_id in busy_issue_ids
         workspace_rel_path = str(Path(runtime_cfg.workspaces_root_rel) / ent.name)
         mtime_utc = _workspace_mtime_utc(ws_root, repo_dir, meta_path)
-        item = {
+        item: dict[str, object] = {
             "issue_id": issue_id,
             "workspace_rel_path": workspace_rel_path,
             "state": state,
@@ -227,7 +268,7 @@ def list_workspaces(
             )
         )
 
-    items.sort(key=lambda item: (str(item["mtime_utc"]), int(item["issue_id"])), reverse=True)
+    items.sort(key=_workspace_sort_key, reverse=True)
 
     from hashlib import sha1
 

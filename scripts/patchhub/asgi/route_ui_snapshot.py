@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from hashlib import sha1
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from fastapi import Request
 from fastapi.responses import Response
 
 from patchhub.app_support import canceled_runs_signature
 from patchhub.indexing import iter_runs, runs_signature
-from patchhub.models import job_to_list_item_json, workspace_to_list_item_json
+from patchhub.models import JobRecord, job_to_list_item_json, workspace_to_list_item_json
 from patchhub.patch_inventory import build_patch_inventory
 from patchhub.web_jobs_db import WebJobsDatabase
 from patchhub.web_jobs_legacy_fs import (
@@ -46,7 +47,7 @@ def _legacy_jobs_root(core: AsyncAppCore) -> Path | None:
     return None
 
 
-def _jobs_sig(*, disk_sig: tuple[int, int], mem: list[Any]) -> str:
+def _jobs_sig(*, disk_sig: tuple[int, int], mem: Sequence[JobRecord]) -> str:
     parts: list[str] = []
     for item in sorted(mem, key=lambda x: str(getattr(x, "job_id", ""))):
         parts.append(
@@ -64,7 +65,7 @@ def _jobs_sig(*, disk_sig: tuple[int, int], mem: list[Any]) -> str:
     return f"jobs:d={disk_sig[0]}:{disk_sig[1]}:m={mem_sig}"
 
 
-async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
+async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, object]:
     qstate = None
     try:
         qstate = await core.queue.state()
@@ -85,19 +86,20 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
     mem_by_id = {str(j.job_id): j for j in mem}
     jobs_sig = _jobs_sig(disk_sig=disk_sig, mem=mem)
 
-    def _load_disk_jobs_sync() -> list[Any]:
+    def _load_disk_jobs_sync() -> list[JobRecord]:
         if isinstance(job_source, WebJobsDatabase):
             disk_raw = job_source.list_job_jsons(limit=200)
         else:
             jobs_root = _legacy_jobs_root(core)
             disk_raw = [] if jobs_root is None else list_legacy_job_jsons(jobs_root, limit=200)
-        disk_jobs: list[Any] = []
+        disk_jobs: list[JobRecord] = []
         for item in disk_raw:
             jid = str(item.get("job_id", ""))
             if not jid or jid in mem_by_id:
                 continue
-            job = core._load_job_from_disk(jid)
-            if job is None:
+            try:
+                job = JobRecord.from_json(item)
+            except Exception:
                 continue
             disk_jobs.append(job)
         return disk_jobs
@@ -112,14 +114,16 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, Any]:
         core.patches_root,
         core.cfg.indexing.log_filename_regex,
     )
-    canceled_source = getattr(core, "web_jobs_db", getattr(core, "jobs_root", None))
+    canceled_source: WebJobsDatabase | Path = (
+        job_source if isinstance(job_source, WebJobsDatabase) else core.jobs_root
+    )
     canceled_sig = await to_thread(canceled_runs_signature, canceled_source)
     runs_sig = (
         f"runs:r={base_sig[0]}:{base_sig[1]}:{base_sig[2]}:c={canceled_sig[0]}:{canceled_sig[1]}"
     )
 
     runs_status, runs_bytes = await to_thread(core.api_runs, {"limit": "80"})
-    runs_items: list[Any] = []
+    runs_items: list[object] = []
     if runs_status == 200:
         try:
             runs_payload = json.loads(runs_bytes.decode("utf-8"))
@@ -223,7 +227,7 @@ async def handle_api_ui_snapshot(
                 )
             if head_only:
                 return json_head_response(200, headers={"ETag": etag})
-            payload: dict[str, Any] = {
+            payload: dict[str, object] = {
                 "ok": True,
                 "seq": int(getattr(snap, "seq", 0) or 0),
                 "snapshot": {
@@ -251,7 +255,11 @@ async def handle_api_ui_snapshot(
             )
 
     payload = await _legacy_snapshot_payload(core)
-    snapshot_sig = str(payload["sigs"]["snapshot"])
+    sigs_raw = payload.get("sigs")
+    snapshot_sig = ""
+    if isinstance(sigs_raw, dict):
+        sigs_dict = cast(dict[object, object], sigs_raw)
+        snapshot_sig = str(sigs_dict.get("snapshot", ""))
     etag = _etag_quote(snapshot_sig)
     inm = request.headers.get("if-none-match")
     if etag and _etag_matches(inm, etag):
@@ -271,3 +279,7 @@ async def handle_api_ui_snapshot(
         status=200,
         headers={"ETag": etag},
     )
+
+
+async def legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, object]:
+    return await _legacy_snapshot_payload(core)

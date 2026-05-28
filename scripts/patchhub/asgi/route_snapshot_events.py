@@ -3,18 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from fastapi.responses import StreamingResponse
 
-from .route_ui_snapshot import _legacy_snapshot_payload
+from .route_ui_snapshot import legacy_snapshot_payload
 
 if TYPE_CHECKING:
     from .async_app_core import AsyncAppCore
     from .snapshot_change_broker import SnapshotChangeBroker
 
 
-def _snapshot_state_from_indexer(core: AsyncAppCore) -> dict[str, Any] | None:
+def _snapshot_state_from_indexer(core: AsyncAppCore) -> dict[str, object] | None:
     snap = core.indexer.get_ui_snapshot()
     if snap is None:
         return None
@@ -32,12 +32,17 @@ def _snapshot_state_from_indexer(core: AsyncAppCore) -> dict[str, Any] | None:
     }
 
 
-async def _snapshot_state(core: AsyncAppCore) -> dict[str, Any]:
+async def _snapshot_state(core: AsyncAppCore) -> dict[str, object]:
     got = _snapshot_state_from_indexer(core)
     if got is not None:
         return got
-    payload = await _legacy_snapshot_payload(core)
-    return {"seq": 0, "sigs": dict(payload["sigs"])}
+    payload = await legacy_snapshot_payload(core)
+    sigs_raw = payload.get("sigs")
+    if not isinstance(sigs_raw, dict):
+        return {"seq": 0, "sigs": {}}
+    sigs_dict = cast(dict[object, object], sigs_raw)
+    sigs = {str(key): str(value) for key, value in sigs_dict.items()}
+    return {"seq": 0, "sigs": sigs}
 
 
 async def build_snapshot_event_stream(

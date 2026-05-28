@@ -4,7 +4,7 @@ import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast
 
 from .models import JobRecord
 from .rollback_preflight import run_rollback_preflight, validate_source_job_authority
@@ -14,21 +14,42 @@ class RollbackHelperActionError(RuntimeError):
     pass
 
 
+class RollbackRequestWriter(Protocol):
+    def upsert_request_authority(
+        self,
+        *,
+        job_id: str,
+        source_job_id: str,
+        scope_kind: str,
+        selected_repo_paths: list[str],
+        rollback_preflight_token: str,
+        count_as_job_change: bool = True,
+    ) -> object: ...
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
+
+
+def _str_list(value: object) -> list[str]:
+    return [str(item) for item in _obj_list(value) if str(item)]
+
+
 def persist_rollback_request_payload(
     *,
-    job_db: Any,
+    job_db: RollbackRequestWriter | None,
     jobs_root: Path,
     job_id: str,
-    payload: dict[str, Any],
+    payload: dict[str, object],
 ) -> None:
     if job_db is not None:
         job_db.upsert_request_authority(
             job_id=str(job_id or ""),
             source_job_id=str(payload.get("source_job_id") or ""),
             scope_kind=str(payload.get("scope_kind") or ""),
-            selected_repo_paths=[
-                str(item) for item in list(payload.get("selected_repo_paths") or [])
-            ],
+            selected_repo_paths=_str_list(payload.get("selected_repo_paths")),
             rollback_preflight_token=str(payload.get("rollback_preflight_token") or ""),
             count_as_job_change=False,
         )
@@ -50,8 +71,8 @@ def run_helper_action(
     scope_kind: str,
     selected_repo_paths: list[str],
     all_jobs: list[JobRecord],
-    load_manifest_for_job: Callable[[JobRecord], dict[str, Any] | None] | None = None,
-) -> dict[str, Any]:
+    load_manifest_for_job: Callable[[JobRecord], dict[str, object] | None] | None = None,
+) -> dict[str, object]:
     rel_path, manifest_hash, _kind, _source_ref = validate_source_job_authority(source_job)
     preflight = run_rollback_preflight(
         jobs_root=jobs_root,
@@ -73,12 +94,12 @@ def run_helper_action(
         str(source_job.effective_runner_target_repo or ""),
     )
     if action_name == "discard_dirty":
-        paths = list(preflight.get("dirty_overlap_paths") or [])
+        paths = _str_list(preflight.get("dirty_overlap_paths"))
         if not paths:
             raise RollbackHelperActionError("no overlapping dirty paths to discard")
         _git(repo_root, ["git", "restore", "--staged", "--worktree", "--", *paths])
     elif action_name == "preserve_dirty":
-        paths = list(preflight.get("dirty_overlap_paths") or [])
+        paths = _str_list(preflight.get("dirty_overlap_paths"))
         if not paths:
             raise RollbackHelperActionError("no overlapping dirty paths to preserve")
         _git(
@@ -95,7 +116,7 @@ def run_helper_action(
             ],
         )
     elif action_name == "sync_to_authority":
-        paths = list(preflight.get("sync_paths") or [])
+        paths = _str_list(preflight.get("sync_paths"))
         head = str(preflight.get("latest_authority_head") or "").strip()
         if not paths or not head:
             raise RollbackHelperActionError("no authority sync work is required")

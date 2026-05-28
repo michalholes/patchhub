@@ -33,10 +33,7 @@ class PreparedCommandPlan:
 def _to_json_map(value: object) -> JsonMap | None:
     if not isinstance(value, dict):
         return None
-    return {
-        str(key): item
-        for key, item in cast(dict[object, object], value).items()
-    }
+    return {str(key): item for key, item in cast(dict[object, object], value).items()}
 
 
 def _wait_socket_readable(sock: socket.socket, timeout_s: float | None) -> bool:

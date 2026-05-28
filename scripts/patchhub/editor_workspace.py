@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+
+from .editor_codec import FailurePayload, ObjectRecord
 
 _KIND_LABELS = {
     "meta": "Document metadata",
@@ -75,11 +76,11 @@ _SUMMARIES = {
 }
 
 
-def _sid(obj: dict[str, Any]) -> str:
+def _sid(obj: ObjectRecord) -> str:
     return str(obj.get("id", "")).strip()
 
 
-def _kind(obj: dict[str, Any]) -> str:
+def _kind(obj: ObjectRecord) -> str:
     return str(obj.get("type", "")).strip()
 
 
@@ -87,7 +88,7 @@ def _label(kind: str) -> str:
     return _KIND_LABELS.get(kind, kind.replace("_", " ").title())
 
 
-def _stringify(value: Any) -> str:
+def _stringify(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
@@ -99,7 +100,7 @@ def _stringify(value: Any) -> str:
     return str(value)
 
 
-def _title(obj: dict[str, Any]) -> str:
+def _title(obj: ObjectRecord) -> str:
     for key in ("display_name", "name", "title"):
         value = str(obj.get(key, "")).strip()
         if value:
@@ -111,7 +112,7 @@ def _title(obj: dict[str, Any]) -> str:
     return _sid(obj) or _label(_kind(obj))
 
 
-def _subtitle(obj: dict[str, Any]) -> str:
+def _subtitle(obj: ObjectRecord) -> str:
     kind = _kind(obj)
     if kind == "surface":
         route_ref = str(obj.get("route_ref", "")).strip()
@@ -127,7 +128,7 @@ def _subtitle(obj: dict[str, Any]) -> str:
     return _label(kind)
 
 
-def _local_fields(obj: dict[str, Any]) -> list[dict[str, str]]:
+def _local_fields(obj: ObjectRecord) -> list[dict[str, str]]:
     out = []
     for key, value in obj.items():
         if key in {"type", "id"}:
@@ -136,16 +137,16 @@ def _local_fields(obj: dict[str, Any]) -> list[dict[str, str]]:
     return out[:10]
 
 
-def _index(objects: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _index(objects: list[ObjectRecord]) -> dict[str, ObjectRecord]:
     return {_sid(obj): obj for obj in objects if _sid(obj)}
 
 
-def _expand(raw: Any) -> list[str]:
+def _expand(raw: object) -> list[str]:
     values = raw if isinstance(raw, list) else ([raw] if raw not in (None, "") else [])
     return [str(value).strip() for value in values if str(value).strip()]
 
 
-def _outbound(selected: dict[str, Any], objects: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _outbound(selected: ObjectRecord, objects: list[ObjectRecord]) -> list[dict[str, str]]:
     target_map = _index(objects)
     out: list[dict[str, str]] = []
     for field, relation_kind in _REFERENCE_FIELDS.get(_kind(selected), []):
@@ -162,7 +163,7 @@ def _outbound(selected: dict[str, Any], objects: list[dict[str, Any]]) -> list[d
     return out
 
 
-def _inbound(selected_id: str, objects: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _inbound(selected_id: str, objects: list[ObjectRecord]) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for obj in objects:
         for field, _relation_kind in _REFERENCE_FIELDS.get(_kind(obj), []):
@@ -181,9 +182,9 @@ def _inbound(selected_id: str, objects: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _relation_sections(
-    selected: dict[str, Any],
-    objects: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    selected: ObjectRecord,
+    objects: list[ObjectRecord],
+) -> list[dict[str, object]]:
     outbound = _outbound(selected, objects)
     inbound = _inbound(_sid(selected), objects)
     groups = {
@@ -227,7 +228,7 @@ def _relation_sections(
     return [{"title": title, "items": items[:8]} for title, items in groups.items() if items]
 
 
-def _manual_actions(selected: dict[str, Any]) -> list[dict[str, str]]:
+def _manual_actions(selected: ObjectRecord) -> list[dict[str, str]]:
     kind = _kind(selected)
     actions = [
         {"action_id": "rename_current_id", "label": "Rename selected id"},
@@ -258,8 +259,8 @@ def _manual_actions(selected: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _preferred_selected_id(
-    objects: list[dict[str, Any]],
-    failure: dict[str, Any] | None,
+    objects: list[ObjectRecord],
+    failure: FailurePayload | None,
     selected_id: str | None,
 ) -> str:
     wanted = str(selected_id or "").strip()
@@ -279,9 +280,9 @@ def _preferred_selected_id(
 
 
 def _navigation_items(
-    objects: list[dict[str, Any]],
-    failure: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
+    objects: list[ObjectRecord],
+    failure: FailurePayload | None,
+) -> list[dict[str, object]]:
     flagged = {
         str((failure or {}).get("primary_id", "")).strip(),
         str((failure or {}).get("secondary_id", "")).strip(),
@@ -304,7 +305,7 @@ def _navigation_items(
             }
         )
 
-    def sort_key(item: dict[str, Any]) -> tuple[int, str, str]:
+    def sort_key(item: dict[str, object]) -> tuple[int, str, str]:
         kind = str(item.get("kind", ""))
         title = str(item.get("title", "")).lower()
         obj_id = str(item.get("id", ""))
@@ -314,7 +315,11 @@ def _navigation_items(
     return items
 
 
-def _health(validated: bool, failure: dict[str, Any] | None, object_count: int) -> dict[str, Any]:
+def _health(
+    validated: bool,
+    failure: FailurePayload | None,
+    object_count: int,
+) -> dict[str, object]:
     if failure:
         return {
             "status": "problem",
@@ -347,13 +352,13 @@ def _health(validated: bool, failure: dict[str, Any] | None, object_count: int) 
 
 def build_workspace(
     *,
-    objects: list[dict[str, Any]],
+    objects: list[ObjectRecord],
     target_repo: str,
     document: str,
     validated: bool,
-    failure: dict[str, Any] | None = None,
+    failure: FailurePayload | None = None,
     selected_id: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     chosen_id = _preferred_selected_id(objects, failure, selected_id)
     chosen = next((obj for obj in objects if _sid(obj) == chosen_id), objects[0] if objects else {})
     problem = None

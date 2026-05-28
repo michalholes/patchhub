@@ -217,10 +217,7 @@ def send_ipc_command(
                 continue
             if not isinstance(parsed, dict):
                 continue
-            obj = {
-                str(key): value
-                for key, value in cast(dict[object, object], parsed).items()
-            }
+            obj = {str(key): value for key, value in cast(dict[object, object], parsed).items()}
             if obj.get("type") != "reply":
                 continue
             if str(obj.get("cmd_id", "")) != cmd_id:

@@ -451,20 +451,30 @@ def _exec_one(
             },
             label=f"recipes.tests.{test_id}.steps.{step_index}",
         )
-        cli_runner_verbosity = recipe.get("runner_verbosity")
-        cli_console_verbosity = recipe.get("console_verbosity")
-        cli_log_verbosity = recipe.get("log_verbosity")
+        cli_runner_verbosity_raw = recipe.get("runner_verbosity")
+        cli_console_verbosity_raw = recipe.get("console_verbosity")
+        cli_log_verbosity_raw = recipe.get("log_verbosity")
         cli_commit_limit = recipe.get("commit_limit")
 
         for key, val in [
-            ("runner_verbosity", cli_runner_verbosity),
-            ("console_verbosity", cli_console_verbosity),
-            ("log_verbosity", cli_log_verbosity),
+            ("runner_verbosity", cli_runner_verbosity_raw),
+            ("console_verbosity", cli_console_verbosity_raw),
+            ("log_verbosity", cli_log_verbosity_raw),
         ]:
             if val is not None and not isinstance(val, str):
                 raise SystemExit(f"FAIL: bdg recipe: {key} must be string or omitted")
         if cli_commit_limit is not None and not isinstance(cli_commit_limit, int):
             raise SystemExit("FAIL: bdg recipe: commit_limit must be int or omitted")
+
+        cli_runner_verbosity = (
+            str(cli_runner_verbosity_raw) if cli_runner_verbosity_raw is not None else None
+        )
+        cli_console_verbosity = (
+            str(cli_console_verbosity_raw) if cli_console_verbosity_raw is not None else None
+        )
+        cli_log_verbosity = (
+            str(cli_log_verbosity_raw) if cli_log_verbosity_raw is not None else None
+        )
 
         from badguys.run_suite import _make_cfg
 

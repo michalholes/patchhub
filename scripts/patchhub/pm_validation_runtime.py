@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import ast
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Protocol, runtime_checkable
 
+from .config import AppConfig
+from .fs_jail import FsJail
 from .governance_toolkit_runtime import (
     GovernanceToolkitRuntimeError,
     resolve_governance_toolkit,
@@ -24,8 +25,7 @@ from .zip_patch_subset import resolve_patch_zip_path
 
 _STATUS_PASS = "pass"
 _STATUS_FAIL = "fail"
-_INSTRUCTIONS_BASENAME_RE = re.compile(r"^instructions_(?P<issue>\d+)_v(?P<version>[1-9]\d*)\.zip$")
-_RULE_RESULT_RE = re.compile(
+_RULE_RESULT_RE: re.Pattern[str] = re.compile(
     (
         r"^RULE (?P<rule>[A-Z0-9_.:-]+): "
         r"(?P<status>FAIL|MANUAL_REVIEW_REQUIRED)(?: - (?P<detail>.*))?$"
@@ -125,6 +125,32 @@ _VALIDATOR_RULE_TAGS: tuple[tuple[str, str], ...] = (
 )
 
 
+class ValidationContext(Protocol):
+    cfg: AppConfig
+    jail: FsJail
+    repo_root: Path
+    patches_root: Path
+
+
+@runtime_checkable
+class FilenameDeriver(Protocol):
+    def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]: ...
+
+
+def _parse_instructions_basename(name: str) -> tuple[str, int] | None:
+    if not name.startswith("instructions_") or not name.endswith(".zip"):
+        return None
+    body = name[len("instructions_") : -len(".zip")]
+    issue_text, marker, version_text = body.partition("_v")
+    if marker != "_v":
+        return None
+    if not issue_text.isdigit() or not version_text.isdigit():
+        return None
+    if version_text.startswith("0"):
+        return None
+    return issue_text, int(version_text)
+
+
 def _instructions_paths(patches_root: Path, issue_id: str) -> tuple[Path | None, Path | None]:
     clean_issue = str(issue_id or "").strip()
     if not clean_issue.isdigit():
@@ -139,10 +165,12 @@ def _instructions_paths(patches_root: Path, issue_id: str) -> tuple[Path | None,
     for candidate in candidates:
         if not candidate.is_file():
             continue
-        match = _INSTRUCTIONS_BASENAME_RE.fullmatch(candidate.name)
-        if match is None or match.group("issue") != clean_issue:
+        parsed = _parse_instructions_basename(candidate.name)
+        if parsed is None:
             continue
-        version = int(match.group("version"))
+        issue_text, version = parsed
+        if issue_text != clean_issue:
+            continue
         resolved = candidate.resolve()
         if resolved.parent != root:
             continue
@@ -162,23 +190,23 @@ def _append_authority_source(authority_sources: list[str], path: Path) -> list[s
     return [*authority_sources, path_text]
 
 
-def _zip_commit_cfg(cfg: Any) -> ZipCommitConfig:
-    autofill = getattr(cfg, "autofill", object())
+def _zip_commit_cfg(cfg: AppConfig) -> ZipCommitConfig:
+    autofill = cfg.autofill
     return ZipCommitConfig(
-        enabled=bool(getattr(autofill, "zip_commit_enabled", True)),
-        filename=str(getattr(autofill, "zip_commit_filename", "COMMIT_MESSAGE.txt")),
-        max_bytes=int(getattr(autofill, "zip_commit_max_bytes", 4096)),
-        max_ratio=int(getattr(autofill, "zip_commit_max_ratio", 200)),
+        enabled=bool(autofill.zip_commit_enabled),
+        filename=str(autofill.zip_commit_filename),
+        max_bytes=int(autofill.zip_commit_max_bytes),
+        max_ratio=int(autofill.zip_commit_max_ratio),
     )
 
 
-def _zip_issue_cfg(cfg: Any) -> ZipIssueConfig:
-    autofill = getattr(cfg, "autofill", object())
+def _zip_issue_cfg(cfg: AppConfig) -> ZipIssueConfig:
+    autofill = cfg.autofill
     return ZipIssueConfig(
-        enabled=bool(getattr(autofill, "zip_issue_enabled", True)),
-        filename=str(getattr(autofill, "zip_issue_filename", "ISSUE_NUMBER.txt")),
-        max_bytes=int(getattr(autofill, "zip_issue_max_bytes", 128)),
-        max_ratio=int(getattr(autofill, "zip_issue_max_ratio", 200)),
+        enabled=bool(autofill.zip_issue_enabled),
+        filename=str(autofill.zip_issue_filename),
+        max_bytes=int(autofill.zip_issue_max_bytes),
+        max_ratio=int(autofill.zip_issue_max_ratio),
     )
 
 
@@ -191,16 +219,16 @@ def _zip_target_cfg() -> ZipTargetConfig:
     )
 
 
-def _derive_validation_inputs(self: Any, zpath: Path) -> tuple[str, str]:
+def _derive_validation_inputs(self: ValidationContext, zpath: Path) -> tuple[str, str]:
     issue_id, _issue_err = read_issue_number_from_zip_path(zpath, _zip_issue_cfg(self.cfg))
     commit_message, _commit_err = read_commit_message_from_zip_path(
         zpath,
         _zip_commit_cfg(self.cfg),
     )
-    if hasattr(self, "_derive_from_filename"):
+    derived_issue: str | None = None
+    derived_commit: str | None = None
+    if isinstance(self, FilenameDeriver):
         derived_issue, derived_commit = self._derive_from_filename(zpath.name)
-    else:
-        derived_issue, derived_commit = None, None
     return str(issue_id or derived_issue or ""), str(commit_message or derived_commit or "")
 
 
@@ -214,7 +242,7 @@ def _latest_file_by_pattern(root: Path, pattern: str) -> Path | None:
             stat = candidate.stat()
         except OSError:
             continue
-        key = (int(getattr(stat, "st_mtime_ns", 0)), candidate.name)
+        key = (int(stat.st_mtime_ns), candidate.name)
         if key > best_key:
             best = candidate
             best_key = key
@@ -242,7 +270,7 @@ def _latest_local_baseline_snapshot(patches_root: Path, target: str) -> Path | N
         except OSError:
             continue
         rel = candidate.relative_to(patches_root).as_posix()
-        key = (int(getattr(stat, "st_mtime_ns", 0)), rel)
+        key = (int(stat.st_mtime_ns), rel)
         if key > best_key:
             best = candidate
             best_key = key
@@ -338,7 +366,7 @@ def _format_failure_summary(tags: list[str]) -> str:
     return " | ".join(parts)
 
 
-def _failure_summary(raw_output: str, toolkit_resolution: dict[str, Any] | None) -> str:
+def _failure_summary(raw_output: str, toolkit_resolution: dict[str, object] | None) -> str:
     resolution = dict(toolkit_resolution or {})
     resolution_mode = str(resolution.get("resolution_mode") or "").strip().lower()
     resolution_error = str(resolution.get("error") or "").strip()
@@ -403,15 +431,23 @@ def _parse_repair_requires_supplemental(raw_output: str) -> list[str]:
         if marker not in line:
             continue
         payload = line.split(marker, 1)[1].strip()
-        try:
-            parsed = ast.literal_eval(payload)
-        except Exception:
+        if not (payload.startswith("[") and payload.endswith("]")):
             return []
-        if not isinstance(parsed, list):
+        inner = payload[1:-1].strip()
+        if not inner:
             return []
         out: list[str] = []
-        for item in parsed:
-            text = str(item or "").strip()
+        for raw_item in inner.split(","):
+            item = raw_item.strip()
+            if len(item) < 2:
+                return []
+            quote = item[0]
+            if quote not in {"'", '"'} or item[-1] != quote:
+                return []
+            text = item[1:-1]
+            text = text.replace("\\\\", "\\")
+            text = text.replace("\\'", "'") if quote == "'" else text.replace('\\"', '"')
+            text = text.strip()
             if text:
                 out.append(text)
         return out
@@ -427,8 +463,8 @@ def _missing_context_payload(
     authority_sources: list[str],
     supplemental_files: list[str],
     raw_output: str,
-    toolkit_resolution: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    toolkit_resolution: dict[str, object] | None = None,
+) -> dict[str, object]:
     failure_summary = _failure_summary(raw_output, toolkit_resolution)
     return {
         "status": _STATUS_FAIL,
@@ -444,14 +480,14 @@ def _missing_context_payload(
     }
 
 
-def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
+def build_patch_zip_pm_validation(self: ValidationContext, patch_path: str) -> dict[str, object]:
     patch_rel, patch_zip = resolve_patch_zip_path(
         jail=self.jail,
         patches_root_rel=self.cfg.paths.patches_root,
         patch_path=str(patch_path or ""),
     )
     issue_id, commit_message = _derive_validation_inputs(self, patch_zip)
-    toolkit_resolution: dict[str, Any] = {}
+    toolkit_resolution: dict[str, object] = {}
     try:
         toolkit = resolve_governance_toolkit(self.cfg)
         toolkit_resolution = dict(toolkit.resolution)
@@ -617,5 +653,5 @@ def build_patch_zip_pm_validation(self: Any, patch_path: str) -> dict[str, Any]:
     }
 
 
-def pm_validation_json(payload: dict[str, Any]) -> str:
+def pm_validation_json(payload: dict[str, object]) -> str:
     return json.dumps(payload, ensure_ascii=True, indent=2)

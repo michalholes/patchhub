@@ -42,9 +42,7 @@ def _mapping_dict_list(mapping: Mapping[str, object], key: str) -> dict[str, lis
         skey = str(item_key).strip()
         if not skey or not isinstance(item_value, list):
             continue
-        values = [
-            str(item).strip() for item in cast(list[object], item_value) if str(item).strip()
-        ]
+        values = [str(item).strip() for item in cast(list[object], item_value) if str(item).strip()]
         out[skey] = values
     return out
 

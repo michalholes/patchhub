@@ -6,7 +6,6 @@ import json
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from patchhub.web_jobs_db import WebJobsDatabase
 
@@ -50,7 +49,7 @@ class EventPumpCommandChannel:
             if not waiter.done():
                 waiter.set_result(False)
 
-    def deliver_reply(self, obj: dict[str, Any] | None) -> bool:
+    def deliver_reply(self, obj: dict[str, object] | None) -> bool:
         if obj is None:
             return False
         if str(obj.get("type", "")) != "reply":
@@ -67,7 +66,7 @@ class EventPumpCommandChannel:
         self,
         *,
         cmd: str,
-        args: dict[str, Any],
+        args: dict[str, object],
         cmd_id: str | None = None,
         cmd_id_prefix: str = "patchhub_cmd",
         timeout_s: float = CANCEL_REPLY_TIMEOUT_S,
@@ -121,7 +120,7 @@ def _write_line(
     return seq
 
 
-def _parse_line_obj(line: str) -> dict[str, Any] | None:
+def _parse_line_obj(line: str) -> dict[str, object] | None:
     try:
         obj = json.loads(line)
     except Exception:
@@ -142,8 +141,8 @@ def _event_seq(value: object) -> int | None:
     return None
 
 
-def _command_payload(*, cmd_id: str, cmd: str, args: dict[str, Any]) -> bytes:
-    req: dict[str, Any] = {
+def _command_payload(*, cmd_id: str, cmd: str, args: dict[str, object]) -> bytes:
+    req: dict[str, object] = {
         "protocol": _PROTOCOL,
         "type": "cmd",
         "cmd_id": cmd_id,

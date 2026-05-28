@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 
-def snapshot() -> dict[str, Any]:
+def snapshot() -> dict[str, object]:
     process = _process_snapshot()
     host = _host_snapshot()
     return {"process": process, "host": host}
 
 
-def _process_snapshot() -> dict[str, Any]:
+def _process_snapshot() -> dict[str, object]:
     rss_bytes = _rss_bytes()
     cpu_user_seconds, cpu_system_seconds = _cpu_times_seconds()
     return {
@@ -20,7 +19,7 @@ def _process_snapshot() -> dict[str, Any]:
     }
 
 
-def _host_snapshot() -> dict[str, Any]:
+def _host_snapshot() -> dict[str, object]:
     loadavg_1, loadavg_5, loadavg_15 = _loadavg()
     mem_total_bytes, mem_available_bytes = _mem_bytes()
     net_rx_bytes_total, net_tx_bytes_total = _net_bytes_total()

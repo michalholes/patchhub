@@ -14,6 +14,7 @@ class _FcntlLike(Protocol):
 
     def flock(self, fd: int, operation: int) -> None: ...
 
+
 try:
     import fcntl as _fcntl
 except ImportError:  # pragma: no cover

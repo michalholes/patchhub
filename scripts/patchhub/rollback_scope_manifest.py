@@ -4,9 +4,17 @@ import hashlib
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
 
 _MANIFEST_BASENAME = "rollback_scope_manifest.json"
+
+
+class NormalizedSelection(TypedDict):
+    scope_kind: str
+    entries: list[dict[str, object]]
+    selected_entry_ids: list[str]
+    selected_repo_paths: list[str]
+    restore_paths: list[str]
 
 
 class RollbackManifestError(RuntimeError):
@@ -15,6 +23,27 @@ class RollbackManifestError(RuntimeError):
 
 class RollbackSelectionError(RuntimeError):
     pass
+
+
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
+
+
+def _str_list(value: object) -> list[str]:
+    return [str(item) for item in _obj_list(value) if str(item)]
 
 
 def manifest_rel_path_for_job(job_id: str) -> str:
@@ -35,7 +64,7 @@ def build_manifest_for_job(
     run_end_sha: str,
     authority_kind: str,
     authority_source_ref: str,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     entries = _diff_entries(
         repo_root=repo_root,
         run_start_sha=run_start_sha,
@@ -53,7 +82,7 @@ def build_manifest_for_job(
     }
 
 
-def write_manifest(job_dir: Path, manifest: dict[str, Any]) -> tuple[str, str]:
+def write_manifest(job_dir: Path, manifest: dict[str, object]) -> tuple[str, str]:
     job_dir.mkdir(parents=True, exist_ok=True)
     path = job_dir / _MANIFEST_BASENAME
     data = json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
@@ -62,7 +91,7 @@ def write_manifest(job_dir: Path, manifest: dict[str, Any]) -> tuple[str, str]:
     return manifest_rel_path_for_job(job_dir.name), digest
 
 
-def load_manifest(jobs_root: Path, rel_path: str, expected_hash: str | None) -> dict[str, Any]:
+def load_manifest(jobs_root: Path, rel_path: str, expected_hash: str | None) -> dict[str, object]:
     rel = str(rel_path or "").strip()
     if not rel:
         raise RollbackManifestError("missing rollback manifest path")
@@ -78,34 +107,35 @@ def load_manifest(jobs_root: Path, rel_path: str, expected_hash: str | None) -> 
     wanted = str(expected_hash or "").strip()
     if wanted and digest != wanted:
         raise RollbackManifestError("rollback manifest hash mismatch")
-    parsed = json.loads(data)
-    if not isinstance(parsed, dict):
+    parsed: object = json.loads(data)
+    obj = _obj_dict(parsed)
+    if obj is None:
         raise RollbackManifestError("rollback manifest must be a JSON object")
-    return parsed
+    return obj
 
 
 def normalize_selected_entries(
-    manifest: dict[str, Any],
+    manifest: dict[str, object],
     *,
     scope_kind: str,
     selected_repo_paths: list[str] | None,
-) -> dict[str, Any]:
+) -> NormalizedSelection:
     entries = _manifest_entries(manifest)
     kind = str(scope_kind or "").strip()
     if kind not in {"full", "subset"}:
         raise RollbackSelectionError("rollback_scope_kind must be full or subset")
     if kind == "full":
-        selected = entries
+        selected: list[dict[str, object]] = entries
     else:
         raw_selected = _normalize_path_list(selected_repo_paths or [])
         if not raw_selected:
             raise RollbackSelectionError(
                 "rollback_selected_repo_paths is required for subset rollback"
             )
-        by_path: dict[str, dict[str, Any]] = {}
+        by_path: dict[str, dict[str, object]] = {}
         for entry_item in entries:
-            for path in list(entry_item.get("selection_paths") or []):
-                by_path[str(path)] = entry_item
+            for path in _str_list(entry_item.get("selection_paths")):
+                by_path[path] = entry_item
         seen_ids: set[str] = set()
         selected = []
         for path in raw_selected:
@@ -121,20 +151,10 @@ def normalize_selected_entries(
             selected.append(matched_entry)
     selected_ids = [str(item.get("entry_id") or "") for item in selected]
     selected_paths = sorted(
-        {
-            str(path)
-            for item in selected
-            for path in list(item.get("selection_paths") or [])
-            if str(path)
-        }
+        {path for item in selected for path in _str_list(item.get("selection_paths"))}
     )
     restore_paths = sorted(
-        {
-            str(path)
-            for item in selected
-            for path in list(item.get("restore_paths") or [])
-            if str(path)
-        }
+        {path for item in selected for path in _str_list(item.get("restore_paths"))}
     )
     return {
         "scope_kind": kind,
@@ -145,7 +165,7 @@ def normalize_selected_entries(
     }
 
 
-def entry_display_label(entry: dict[str, Any]) -> str:
+def entry_display_label(entry: dict[str, object]) -> str:
     lifecycle = str(entry.get("lifecycle_kind") or "")
     old_path = str(entry.get("old_path") or "")
     new_path = str(entry.get("new_path") or "")
@@ -172,15 +192,19 @@ def _normalize_path_list(values: list[str]) -> list[str]:
     return out
 
 
-def _manifest_entries(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+def _manifest_entries(manifest: dict[str, object]) -> list[dict[str, object]]:
     raw_entries = manifest.get("entries")
-    if not isinstance(raw_entries, list):
+    entries_list = _obj_list(raw_entries)
+    if not entries_list:
+        if raw_entries is None:
+            return []
         raise RollbackManifestError("rollback manifest entries must be a JSON array")
-    out: list[dict[str, Any]] = []
-    for raw in raw_entries:
-        if not isinstance(raw, dict):
+    out: list[dict[str, object]] = []
+    for raw in entries_list:
+        entry = _obj_dict(raw)
+        if entry is None:
             raise RollbackManifestError("rollback manifest entry must be an object")
-        out.append(raw)
+        out.append(entry)
     return out
 
 
@@ -189,7 +213,7 @@ def _diff_entries(
     repo_root: Path,
     run_start_sha: str,
     run_end_sha: str,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, object]]:
     result = subprocess.run(
         [
             "git",
@@ -206,7 +230,7 @@ def _diff_entries(
     )
     if result.returncode != 0:
         raise RollbackManifestError(_git_error("cannot build rollback manifest", result))
-    entries: list[dict[str, Any]] = []
+    entries: list[dict[str, object]] = []
     for idx, raw in enumerate(str(result.stdout or "").splitlines(), start=1):
         line = str(raw or "").strip()
         if not line:

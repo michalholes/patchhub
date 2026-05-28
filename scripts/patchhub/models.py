@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Literal, Protocol, cast, runtime_checkable
 
 JobMode = Literal[
     "patch",
@@ -31,22 +31,93 @@ _VALID_JOB_MODES = {
 _VALID_JOB_STATUSES = {"queued", "running", "success", "fail", "canceled", "unknown"}
 
 
-def _coerce_int(value: Any, default: int = 0) -> int:
+def _coerce_int(value: object, default: int = 0) -> int:
     if value is None:
         return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return default
+        try:
+            return int(text)
+        except ValueError:
+            return default
     try:
-        return int(cast(Any, value))
+        return int(str(value))
     except (TypeError, ValueError):
         return default
 
 
-def _coerce_optional_int(value: Any) -> int | None:
+def _coerce_optional_int(value: object) -> int | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            return None
     try:
-        return int(cast(Any, value))
+        return int(str(value))
     except (TypeError, ValueError):
         return None
+
+
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    out: dict[str, object] = {}
+    for key, item in value.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(value)
+    return []
+
+
+def _str_list(value: object) -> list[str]:
+    return [str(item) for item in _obj_list(value)]
+
+
+def _dict_list(value: object) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for item in _obj_list(value):
+        obj = _obj_dict(item)
+        if obj is not None:
+            out.append(obj)
+    return out
+
+
+@runtime_checkable
+class BackendModeStateLike(Protocol):
+    mode: object
+    authoritative_backend: object
+    last_recovery: object
+
+
+@runtime_checkable
+class RuntimeOriginSourceLike(Protocol):
+    backend_mode_state: object
+    _backend_session_id: object
+    web_jobs_db: object
 
 
 @dataclass(frozen=True)
@@ -98,7 +169,7 @@ class RollbackAuthorityRecord:
     manifest_effective_runner_target_repo: str | None = None
     manifest_authority_kind: str | None = None
     manifest_authority_source_ref: str | None = None
-    manifest_entries: list[dict[str, Any]] = field(default_factory=list)
+    manifest_entries: list[dict[str, object]] = field(default_factory=list)
     request_source_job_id: str | None = None
     request_scope_kind: str | None = None
     request_selected_repo_paths: list[str] = field(default_factory=list)
@@ -116,7 +187,7 @@ class RollbackAuthorityRecord:
         cls,
         *,
         job_id: str,
-        manifest: dict[str, Any],
+        manifest: dict[str, object],
         request_source_job_id: str | None = None,
         request_scope_kind: str | None = None,
         request_selected_repo_paths: list[str] | None = None,
@@ -163,14 +234,10 @@ class RollbackAuthorityRecord:
                 if manifest.get("rollback_authority_source_ref") is not None
                 else None
             ),
-            manifest_entries=[
-                item for item in list(manifest.get("entries") or []) if isinstance(item, dict)
-            ],
+            manifest_entries=_dict_list(manifest.get("entries")),
             request_source_job_id=request_source_job_id,
             request_scope_kind=request_scope_kind,
-            request_selected_repo_paths=[
-                str(item) for item in list(request_selected_repo_paths or [])
-            ],
+            request_selected_repo_paths=_str_list(request_selected_repo_paths),
             request_preflight_token=request_preflight_token,
             updated_unix_ms=int(updated_unix_ms or 0),
         )
@@ -205,7 +272,7 @@ class RollbackAuthorityRecord:
                 manifest_entries=list(manifest_record.manifest_entries),
                 request_source_job_id=str(source_job_id or "") or None,
                 request_scope_kind=str(scope_kind or "") or None,
-                request_selected_repo_paths=[str(item) for item in list(selected_repo_paths or [])],
+                request_selected_repo_paths=_str_list(selected_repo_paths),
                 request_preflight_token=str(rollback_preflight_token or "") or None,
                 updated_unix_ms=int(updated_unix_ms or 0),
             )
@@ -222,12 +289,12 @@ class RollbackAuthorityRecord:
             manifest_entries=[],
             request_source_job_id=str(source_job_id or "") or None,
             request_scope_kind=str(scope_kind or "") or None,
-            request_selected_repo_paths=[str(item) for item in list(selected_repo_paths or [])],
+            request_selected_repo_paths=_str_list(selected_repo_paths),
             request_preflight_token=str(rollback_preflight_token or "") or None,
             updated_unix_ms=int(updated_unix_ms or 0),
         )
 
-    def manifest_payload(self) -> dict[str, Any] | None:
+    def manifest_payload(self) -> dict[str, object] | None:
         if not self.has_manifest():
             return None
         return {
@@ -241,7 +308,7 @@ class RollbackAuthorityRecord:
             "entries": list(self.manifest_entries),
         }
 
-    def request_payload(self) -> dict[str, Any] | None:
+    def request_payload(self) -> dict[str, object] | None:
         if not self.has_request():
             return None
         return {
@@ -255,19 +322,19 @@ class RollbackAuthorityRecord:
 @dataclass(frozen=True)
 class LegacyJobSnapshot:
     job_id: str
-    job_json: dict[str, Any] | None
+    job_json: dict[str, object] | None
     log_lines: list[str]
     event_lines: list[str]
 
 
-def coerce_job_mode(value: Any) -> JobMode:
+def coerce_job_mode(value: object) -> JobMode:
     raw = str(value or "patch")
     if raw not in _VALID_JOB_MODES:
         return "patch"
     return cast(JobMode, raw)
 
 
-def coerce_job_status(value: Any) -> JobStatus:
+def coerce_job_status(value: object) -> JobStatus:
     raw = str(value or "unknown")
     if raw not in _VALID_JOB_STATUSES:
         return "unknown"
@@ -334,7 +401,7 @@ class JobRecord:
             self.revert_source_job_id = self.rollback_source_job_id
 
     @classmethod
-    def from_json(cls, payload: dict[str, Any]) -> JobRecord:
+    def from_json(cls, payload: dict[str, object]) -> JobRecord:
         return cls(
             job_id=str(payload.get("job_id", "")),
             created_utc=str(payload.get("created_utc", "")),
@@ -353,7 +420,7 @@ class JobRecord:
                 else None
             ),
             raw_command=str(payload.get("raw_command", "")),
-            canonical_command=[str(item) for item in list(payload.get("canonical_command") or [])],
+            canonical_command=_str_list(payload.get("canonical_command")),
             status=coerce_job_status(payload.get("status", "unknown")),
             started_utc=(
                 str(payload.get("started_utc")) if payload.get("started_utc") is not None else None
@@ -393,12 +460,8 @@ class JobRecord:
                 if payload.get("effective_patch_kind") is not None
                 else None
             ),
-            selected_patch_entries=[
-                str(item) for item in list(payload.get("selected_patch_entries") or [])
-            ],
-            selected_repo_paths=[
-                str(item) for item in list(payload.get("selected_repo_paths") or [])
-            ],
+            selected_patch_entries=_str_list(payload.get("selected_patch_entries")),
+            selected_repo_paths=_str_list(payload.get("selected_repo_paths")),
             zip_target_repo=(
                 str(payload.get("zip_target_repo"))
                 if payload.get("zip_target_repo") is not None
@@ -481,15 +544,60 @@ class JobRecord:
                 if payload.get("origin_recovery_json") is not None
                 else None
             ),
-            applied_files=[str(item) for item in list(payload.get("applied_files") or [])],
+            applied_files=_str_list(payload.get("applied_files")),
             applied_files_source=str(payload.get("applied_files_source", "unavailable")),
             last_log_seq=_coerce_int(payload.get("last_log_seq", 0), 0),
             last_event_seq=_coerce_int(payload.get("last_event_seq", 0), 0),
             row_rev=_coerce_int(payload.get("row_rev", 0), 0),
         )
 
-    def to_json(self) -> dict[str, Any]:
-        payload = asdict(self)
+    def to_json(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "job_id": self.job_id,
+            "created_utc": self.created_utc,
+            "created_unix_ms": int(self.created_unix_ms),
+            "mode": self.mode,
+            "issue_id": self.issue_id,
+            "commit_summary": self.commit_summary,
+            "patch_basename": self.patch_basename,
+            "raw_command": self.raw_command,
+            "canonical_command": list(self.canonical_command),
+            "commit_message": self.commit_message,
+            "status": self.status,
+            "started_utc": self.started_utc,
+            "ended_utc": self.ended_utc,
+            "return_code": self.return_code,
+            "error": self.error,
+            "cancel_requested_utc": self.cancel_requested_utc,
+            "cancel_ack_utc": self.cancel_ack_utc,
+            "cancel_source": self.cancel_source,
+            "original_patch_path": self.original_patch_path,
+            "effective_patch_path": self.effective_patch_path,
+            "effective_patch_kind": self.effective_patch_kind,
+            "selected_patch_entries": list(self.selected_patch_entries),
+            "selected_repo_paths": list(self.selected_repo_paths),
+            "zip_target_repo": self.zip_target_repo,
+            "selected_target_repo": self.selected_target_repo,
+            "effective_runner_target_repo": self.effective_runner_target_repo,
+            "target_mismatch": bool(self.target_mismatch),
+            "run_start_sha": self.run_start_sha,
+            "run_end_sha": self.run_end_sha,
+            "rollback_source_job_id": self.rollback_source_job_id,
+            "revert_source_job_id": self.revert_source_job_id,
+            "rollback_scope_manifest_rel_path": self.rollback_scope_manifest_rel_path,
+            "rollback_scope_manifest_hash": self.rollback_scope_manifest_hash,
+            "rollback_authority_kind": self.rollback_authority_kind,
+            "rollback_authority_source_ref": self.rollback_authority_source_ref,
+            "origin_backend_mode": self.origin_backend_mode,
+            "origin_authoritative_backend": self.origin_authoritative_backend,
+            "origin_backend_session_id": self.origin_backend_session_id,
+            "origin_recovery_json": self.origin_recovery_json,
+            "applied_files": list(self.applied_files),
+            "applied_files_source": self.applied_files_source,
+            "last_log_seq": int(self.last_log_seq),
+            "last_event_seq": int(self.last_event_seq),
+            "row_rev": int(self.row_rev),
+        }
         if self.commit_message is None:
             payload.pop("commit_message", None)
         if self.zip_target_repo is None:
@@ -531,21 +639,23 @@ class JobRecord:
 
 def build_job_origin_fields(
     *,
-    backend_mode_state: Any,
+    backend_mode_state: object,
     backend_session_id: str,
     web_jobs_db_present: bool,
 ) -> dict[str, str | None]:
-    mode = str(getattr(backend_mode_state, "mode", "") or "").strip()
+    mode = ""
+    authoritative_backend = ""
+    recovery: dict[str, object] = {}
+    if isinstance(backend_mode_state, BackendModeStateLike):
+        mode = str(backend_mode_state.mode or "").strip()
+        authoritative_backend = str(backend_mode_state.authoritative_backend or "").strip()
+        recovery_obj = _obj_dict(backend_mode_state.last_recovery)
+        if recovery_obj is not None:
+            recovery = recovery_obj
     if mode not in {"db_primary", "file_emergency"}:
         mode = "db_primary" if web_jobs_db_present else "file_emergency"
-    authoritative_backend = str(
-        getattr(backend_mode_state, "authoritative_backend", "") or ""
-    ).strip()
     if authoritative_backend not in {"db", "files"}:
         authoritative_backend = "db" if mode == "db_primary" else "files"
-    recovery = getattr(backend_mode_state, "last_recovery", None)
-    if not isinstance(recovery, dict):
-        recovery = {}
     return {
         "origin_backend_mode": mode,
         "origin_authoritative_backend": authoritative_backend,
@@ -559,22 +669,29 @@ def build_job_origin_fields(
     }
 
 
-def parse_origin_recovery_json(value: Any) -> dict[str, Any] | None:
+def parse_origin_recovery_json(value: object) -> dict[str, object] | None:
     text = str(value or "").strip()
     if not text:
         return None
     try:
-        parsed = json.loads(text)
+        parsed: object = json.loads(text)
     except Exception:
         return None
-    return parsed if isinstance(parsed, dict) else None
+    return _obj_dict(parsed)
 
 
-def build_job_origin_fields_from_runtime(source: Any) -> dict[str, str | None]:
+def build_job_origin_fields_from_runtime(source: object) -> dict[str, str | None]:
+    backend_mode_state: object = None
+    backend_session_id = ""
+    web_jobs_db_present = False
+    if isinstance(source, RuntimeOriginSourceLike):
+        backend_mode_state = source.backend_mode_state
+        backend_session_id = str(source._backend_session_id or "")
+        web_jobs_db_present = source.web_jobs_db is not None
     return build_job_origin_fields(
-        backend_mode_state=getattr(source, "backend_mode_state", None),
-        backend_session_id=str(getattr(source, "_backend_session_id", "") or ""),
-        web_jobs_db_present=getattr(source, "web_jobs_db", None) is not None,
+        backend_mode_state=backend_mode_state,
+        backend_session_id=backend_session_id,
+        web_jobs_db_present=web_jobs_db_present,
     )
 
 
@@ -600,7 +717,7 @@ def compute_patch_basename(patch_path: str) -> str | None:
     return p
 
 
-def job_to_list_item_json(j: JobRecord) -> dict[str, Any]:
+def job_to_list_item_json(j: JobRecord) -> dict[str, object]:
     return {
         "job_id": j.job_id,
         "status": j.status,
@@ -626,7 +743,7 @@ class RunEntry:
     success_zip_rel_path: str | None = None
 
 
-def run_to_list_item_json(r: RunEntry) -> dict[str, Any]:
+def run_to_list_item_json(r: RunEntry) -> dict[str, object]:
     refs: list[str] = []
     if r.archived_patch_rel_path:
         refs.append(str(r.archived_patch_rel_path))
@@ -643,9 +760,9 @@ def run_to_list_item_json(r: RunEntry) -> dict[str, Any]:
     }
 
 
-def workspace_to_list_item_json(item: dict[str, Any]) -> dict[str, Any]:
+def workspace_to_list_item_json(item: dict[str, object]) -> dict[str, object]:
     return {
-        "issue_id": int(item.get("issue_id", 0) or 0),
+        "issue_id": _coerce_int(item.get("issue_id", 0), 0),
         "workspace_rel_path": str(item.get("workspace_rel_path", "")),
         "state": str(item.get("state", "CLEAN")),
         "busy": bool(item.get("busy", False)),

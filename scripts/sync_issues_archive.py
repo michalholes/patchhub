@@ -25,7 +25,6 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_OPEN = ROOT / "docs/issues/open_issues.md"
@@ -54,7 +53,7 @@ def autodetect_repo(_run: Callable[[list[str]], str]) -> str:
     return repo_any
 
 
-def load_issues(repo: str, _run: Callable[[list[str]], str]) -> list[dict[str, Any]]:
+def load_issues(repo: str, _run: Callable[[list[str]], str]) -> list[dict[str, object]]:
     raw = _run(
         [
             "gh",
@@ -73,7 +72,7 @@ def load_issues(repo: str, _run: Callable[[list[str]], str]) -> list[dict[str, A
     data = json.loads(raw)
     if not isinstance(data, list):
         raise SystemExit("ERROR: gh issue list returned invalid JSON (expected list)")
-    out_issues: list[dict[str, Any]] = []
+    out_issues: list[dict[str, object]] = []
     for item in data:
         if not isinstance(item, dict):
             raise SystemExit(
@@ -83,15 +82,15 @@ def load_issues(repo: str, _run: Callable[[list[str]], str]) -> list[dict[str, A
     return out_issues
 
 
-def _names(items: list[dict[str, Any]] | None) -> str:
+def _names(items: list[dict[str, object]] | None) -> str:
     if not items:
         return "--"
     return ", ".join(i.get("name", "") for i in items if i.get("name")) or "--"
 
 
 def split_and_sort(
-    issues: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    issues: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     open_issues = [i for i in issues if i.get("state") == "OPEN"]
     closed_issues = [i for i in issues if i.get("state") == "CLOSED"]
     open_issues.sort(key=lambda x: int(x["number"]))
@@ -99,7 +98,7 @@ def split_and_sort(
     return open_issues, closed_issues
 
 
-def render_issue(i: dict[str, Any]) -> str:
+def render_issue(i: dict[str, object]) -> str:
     num = i["number"]
     title = i.get("title") or ""
     state = i.get("state") or ""
@@ -127,7 +126,7 @@ def render_issue(i: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def render_archive(title: str, issues: list[dict[str, Any]]) -> str:
+def render_archive(title: str, issues: list[dict[str, object]]) -> str:
     parts: list[str] = [f"# {title}", ""]
     for i in issues:
         parts.append(render_issue(i))
@@ -156,7 +155,7 @@ def write_text(p: Path, s: str) -> None:
 
 def _gh_api_json(
     _run: Callable[[list[str]], str], path: str, *, headers: list[str] | None = None
-) -> Any:
+) -> object:
     cmd = ["gh", "api"]
     if headers:
         for h in headers:
@@ -175,8 +174,8 @@ def _gh_api_paginated_list(
     *,
     headers: list[str] | None = None,
     per_page: int = 100,
-) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
     page = 1
     while True:
         sep = "&" if "?" in path else "?"
@@ -191,14 +190,14 @@ def _gh_api_paginated_list(
     return out
 
 
-def _user_stub(u: Any) -> dict[str, Any] | None:
+def _user_stub(u: object) -> dict[str, object] | None:
     if not isinstance(u, dict):
         return None
     login = u.get("login")
     uid = u.get("id")
     if login is None and uid is None:
         return None
-    d: dict[str, Any] = {}
+    d: dict[str, object] = {}
     if login is not None:
         d["login"] = login
     if uid is not None:
@@ -206,8 +205,8 @@ def _user_stub(u: Any) -> dict[str, Any] | None:
     return d
 
 
-def _sort_by_created_at(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    def key(x: dict[str, Any]) -> tuple[str, str, int]:
+def _sort_by_created_at(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    def key(x: dict[str, object]) -> tuple[str, str, int]:
         created = str(x.get("created_at") or x.get("createdAt") or "")
         event = str(x.get("event") or "")
         ident = x.get("id")
@@ -220,9 +219,9 @@ def _sort_by_created_at(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(items, key=key)
 
 
-def _issue_core_export(issue: dict[str, Any]) -> dict[str, Any]:
+def _issue_core_export(issue: dict[str, object]) -> dict[str, object]:
     ms = issue.get("milestone")
-    out: dict[str, Any] = {
+    out: dict[str, object] = {
         "number": issue.get("number"),
         "title": issue.get("title"),
         "state": issue.get("state"),
@@ -250,7 +249,7 @@ def _issue_core_export(issue: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _comment_export(c: dict[str, Any]) -> dict[str, Any]:
+def _comment_export(c: dict[str, object]) -> dict[str, object]:
     return {
         "id": c.get("id"),
         "html_url": c.get("html_url"),
@@ -261,8 +260,8 @@ def _comment_export(c: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _timeline_event_export(e: dict[str, Any]) -> dict[str, Any]:
-    out: dict[str, Any] = {
+def _timeline_event_export(e: dict[str, object]) -> dict[str, object]:
+    out: dict[str, object] = {
         "id": e.get("id"),
         "event": e.get("event"),
         "created_at": e.get("created_at"),
@@ -285,12 +284,12 @@ def _timeline_event_export(e: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _yaml_scalar(v: Any) -> str:
+def _yaml_scalar(v: object) -> str:
     # YAML 1.2 JSON-subset (safe + deterministic)
     return json.dumps(v, ensure_ascii=False, sort_keys=True)
 
 
-def _yaml_dump(obj: Any, indent: int = 0) -> str:
+def _yaml_dump(obj: object, indent: int = 0) -> str:
     sp = "  " * indent
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return sp + _yaml_scalar(obj)
@@ -321,7 +320,7 @@ def _yaml_dump(obj: Any, indent: int = 0) -> str:
 
 
 def build_all_issues_yaml(
-    repo: str, issues: list[dict[str, Any]], _run: Callable[[list[str]], str]
+    repo: str, issues: list[dict[str, object]], _run: Callable[[list[str]], str]
 ) -> str:
     nums: list[int] = []
     seen: set[int] = set()
@@ -349,7 +348,7 @@ def build_all_issues_yaml(
         "X-GitHub-Api-Version: 2022-11-28",
     ]
 
-    issues_out: list[dict[str, Any]] = []
+    issues_out: list[dict[str, object]] = []
     for n in nums:
         core = _gh_api_json(_run, f"repos/{repo}/issues/{n}", headers=headers_core)
         if not isinstance(core, dict):
@@ -373,7 +372,7 @@ def build_all_issues_yaml(
             }
         )
 
-    payload: dict[str, Any] = {"repo": repo, "issues": issues_out}
+    payload: dict[str, object] = {"repo": repo, "issues": issues_out}
     return _yaml_dump(payload) + "\n"
 
 
@@ -381,7 +380,10 @@ def main(
     argv: list[str] | None = None,
     *,
     _run: Callable[[list[str]], str] = run,
-    _load_issues: Callable[[str, Callable[[list[str]], str]], list[dict[str, Any]]] = load_issues,
+    _load_issues: Callable[
+        [str, Callable[[list[str]], str]],
+        list[dict[str, object]],
+    ] = load_issues,
     _autodetect_repo: Callable[[Callable[[list[str]], str]], str] = autodetect_repo,
 ) -> int:
     ap = argparse.ArgumentParser()
