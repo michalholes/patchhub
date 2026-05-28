@@ -17,6 +17,16 @@ from .web_jobs_db import WebJobsDatabase, load_web_jobs_db_config
 from .web_jobs_legacy_fs import iter_legacy_job_dirs, read_legacy_job_snapshot
 from .web_jobs_recovery import record_verified_backup
 
+MIGRATION_COMMAND_CHOICES = (
+    "scan",
+    "migrate",
+    "verify",
+    "cleanup",
+    "backup",
+    "restore",
+    "export_legacy",
+)
+
 
 class MigrationCliArgs(Protocol):
     command: str
@@ -282,15 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=[
-            "scan",
-            "migrate",
-            "verify",
-            "cleanup",
-            "backup",
-            "restore",
-            "export_legacy",
-        ],
+        choices=MIGRATION_COMMAND_CHOICES,
     )
     parser.add_argument("--source", default="")
     parser.add_argument("--dest", default="")

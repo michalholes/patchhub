@@ -285,7 +285,7 @@ def _normalize_value(value: object) -> JsonValue:
         return out
     if isinstance(value, list | tuple):
         return [_normalize_value(item) for item in cast(list[object] | tuple[object, ...], value)]
-    if value is None or isinstance(value, str | int | float | bool):
+    if value is None or isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
 

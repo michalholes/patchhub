@@ -23,6 +23,9 @@ from badguys.bdg_suite_jail import (
     teardown_suite_jail,
 )
 
+VERBOSITY_CHOICES = ("debug", "verbose", "normal", "quiet")
+PER_RUN_LOGS_CHOICES = ("delete_all", "keep_all", "delete_successful")
+
 
 @dataclass(frozen=True)
 class SuiteCfg:
@@ -986,7 +989,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument(
         "--runner-verbosity",
         default=None,
-        choices=["debug", "verbose", "normal", "quiet"],
+        choices=VERBOSITY_CHOICES,
         help="Override runner verbosity (passed as --verbosity=<mode>)",
     )
     vg = ap.add_mutually_exclusive_group()
@@ -997,13 +1000,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument(
         "--log-verbosity",
         default=None,
-        choices=["debug", "verbose", "normal", "quiet"],
+        choices=VERBOSITY_CHOICES,
         help="BadGuys log verbosity (central + per-test logs)",
     )
     ap.add_argument(
         "--per-run-logs-post-run",
         default=None,
-        choices=["delete_all", "keep_all", "delete_successful"],
+        choices=PER_RUN_LOGS_CHOICES,
         help="Post-run per-test artifact cleanup policy",
     )
     sg = ap.add_mutually_exclusive_group()
