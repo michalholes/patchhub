@@ -16,6 +16,18 @@ _ANSI_RX = re.compile(r"\x1b\[[0-9;]*m")
 _RUNS_CACHE: dict[tuple[str, str], tuple[tuple[int, int, int], list[RunEntry]]] = {}
 
 
+def _log_info_name_sort_key(item: tuple[Path, int, float, int, int]) -> str:
+    return item[0].name
+
+
+def _run_sort_key(run: RunEntry) -> tuple[str, int]:
+    return run.mtime_utc, run.issue_id
+
+
+def _log_info_mtime_name_key(item: tuple[Path, int, float, int, int]) -> tuple[int, str]:
+    return item[3], item[0].name
+
+
 def _utc_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -46,13 +58,6 @@ def _tail_path(log_path: Path, *, tail_suffix: str = ".tail.txt") -> Path:
     if name.endswith(tail_suffix):
         return log_path
     return log_path.with_name(name + tail_suffix)
-
-
-def _read_sanitized_tail_text(log_path: Path) -> str | None:
-    tail_path = _tail_path(log_path)
-    if not tail_path.exists() or not tail_path.is_file():
-        return None
-    return tail_path.read_text(encoding="utf-8", errors="replace")
 
 
 def _write_sanitized_tail_text(log_path: Path, text: str) -> None:
@@ -201,7 +206,10 @@ def _iter_runs_and_sig(
             return sig, list(cached_runs)
 
     runs: list[RunEntry] = []
-    for log_path, issue_id, mtime_s, mtime_ns, _size in sorted(infos, key=lambda x: x[0].name):
+    for log_path, issue_id, mtime_s, mtime_ns, _size in sorted(
+        infos,
+        key=_log_info_name_sort_key,
+    ):
         tail = _ensure_sanitized_tail_text(log_path, log_mtime_ns=mtime_ns)
         result, result_line = parse_run_result_from_sanitized_text(tail)
         runs.append(
@@ -214,7 +222,7 @@ def _iter_runs_and_sig(
             )
         )
 
-    runs.sort(key=lambda r: (r.mtime_utc, r.issue_id), reverse=True)
+    runs.sort(key=_run_sort_key, reverse=True)
     _RUNS_CACHE[key] = (sig, runs)
     return sig, runs
 
@@ -230,7 +238,7 @@ def iter_run_log_infos(
 ) -> list[tuple[Path, int, float, int, int]]:
     rx = re.compile(log_filename_regex)
     _sig, infos = _scan_matching_logs(patches_root, rx, collect=True)
-    infos.sort(key=lambda item: (item[3], item[0].name))
+    infos.sort(key=_log_info_mtime_name_key)
     return infos
 
 

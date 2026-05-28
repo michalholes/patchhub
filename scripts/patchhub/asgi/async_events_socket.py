@@ -6,6 +6,7 @@ import json
 import socket
 import uuid
 from pathlib import Path
+from typing import cast
 
 _PROTOCOL = "am_patch_ipc/1"
 CANCEL_REPLY_TIMEOUT_S = 3.0
@@ -26,6 +27,20 @@ def _cancel_payload(cmd_id: str) -> bytes:
     return (json.dumps(req, ensure_ascii=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return cast(dict[str, object], value)
+
+
+def _parse_json_object(raw: str) -> dict[str, object] | None:
+    try:
+        parsed = cast(object, json.loads(raw))
+    except Exception:
+        return None
+    return _obj_dict(parsed)
+
+
 async def send_cancel_async(socket_path: str) -> bool:
     """Send cancel to runner IPC socket (async).
 
@@ -37,10 +52,8 @@ async def send_cancel_async(socket_path: str) -> bool:
     payload = _cancel_payload(cmd_id)
 
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_unix_connection(socket_path),
-            timeout=CANCEL_REPLY_TIMEOUT_S,
-        )
+        async with asyncio.timeout(CANCEL_REPLY_TIMEOUT_S):
+            reader, writer = await asyncio.open_unix_connection(socket_path)
     except Exception:
         return False
 
@@ -62,11 +75,8 @@ async def send_cancel_async(socket_path: str) -> bool:
             line = line.strip()
             if not line:
                 continue
-            try:
-                obj = json.loads(line)
-            except Exception:
-                continue
-            if not isinstance(obj, dict):
+            obj = _parse_json_object(line)
+            if obj is None:
                 continue
             if str(obj.get("type", "")) != "reply":
                 continue
@@ -107,11 +117,8 @@ def send_cancel_sync(socket_path: str) -> bool:
                 line = line.strip()
                 if not line:
                     continue
-                try:
-                    obj = json.loads(line)
-                except Exception:
-                    continue
-                if not isinstance(obj, dict):
+                obj = _parse_json_object(line)
+                if obj is None:
                     continue
                 if str(obj.get("type", "")) != "reply":
                     continue

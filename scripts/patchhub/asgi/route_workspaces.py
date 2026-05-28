@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import Request
 from fastapi.responses import Response
+
+from patchhub import app_api_workspaces as _workspaces_api
 
 from .async_offload import to_thread
 from .json_contract import json_bytes_response, json_headers, json_response
@@ -23,6 +25,16 @@ def _etag_matches(if_none_match: str | None, etag_value: str) -> bool:
         return False
     inm = str(if_none_match).strip()
     return inm == etag_value
+
+
+def _load_json_obj(raw: bytes) -> dict[str, object] | None:
+    try:
+        loaded = cast(object, json.loads(raw.decode("utf-8")))
+    except Exception:
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    return cast(dict[str, object], loaded)
 
 
 async def handle_api_workspaces(core: AsyncAppCore, request: Request) -> Response:
@@ -53,24 +65,21 @@ async def handle_api_workspaces(core: AsyncAppCore, request: Request) -> Respons
             )
 
     mem = await core.queue.list_jobs()
-    status, data = await to_thread(core.api_workspaces, mem)
+    if TYPE_CHECKING:
+        status, data = _workspaces_api.api_workspaces(core, mem)
+    else:
+        status, data = await to_thread(core.api_workspaces, mem)
     etag = ""
-    try:
-        obj = json.loads(data.decode("utf-8"))
-        token = str(obj.get("sig", ""))
+    parsed = _load_json_obj(data)
+    if parsed is not None:
+        token = str(parsed.get("sig", ""))
         if token:
             etag = _etag_quote(token)
-    except Exception:
-        etag = ""
     inm = request.headers.get("if-none-match")
     if status == 200 and etag and _etag_matches(inm, etag):
         return Response(status_code=304, headers=json_headers({"ETag": etag}))
     if status == 200 and since_sig:
-        try:
-            obj = json.loads(data.decode("utf-8"))
-            token = str(obj.get("sig", ""))
-        except Exception:
-            token = ""
+        token = str(parsed.get("sig", "")) if parsed is not None else ""
         if token and token == since_sig:
             return json_response(
                 {"ok": True, "unchanged": True, "sig": token},

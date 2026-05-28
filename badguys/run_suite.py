@@ -12,6 +12,7 @@ import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, cast
 
 from badguys import suite_jail_runtime
 from badguys.bdg_ops_ipc import runner_socket_name
@@ -64,14 +65,123 @@ class Ctx:
         return self.test_dir(test_id) / "badguys.test.jsonl"
 
 
-def _load_config(repo_root: Path, config_path: Path) -> dict:
+@dataclass(frozen=True)
+class CliArgs:
+    config: str
+    commit_limit: int | None
+    runner_verbosity: str | None
+    console_verbosity: str | None
+    log_verbosity: str | None
+    per_run_logs_post_run: str | None
+    suite_jail: bool | None
+    include: list[str]
+    exclude: list[str]
+    list_tests: bool
+
+
+class _CliNamespace(argparse.Namespace):
+    config: str
+    commit_limit: int | None
+    runner_verbosity: str | None
+    console_verbosity: str | None
+    log_verbosity: str | None
+    per_run_logs_post_run: str | None
+    suite_jail: bool | None
+    include: list[str] | None
+    exclude: list[str] | None
+    list_tests: bool
+
+
+def _obj_attr(value: object, name: str) -> object | None:
+    try:
+        return cast(object, object.__getattribute__(value, name))
+    except AttributeError:
+        return None
+
+
+def _coerce_opt_int(value: object | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        return int(text)
+    raise SystemExit("FAIL: invalid commit_limit")
+
+
+def _coerce_opt_str(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _coerce_opt_bool(value: object | None) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    raise SystemExit("FAIL: invalid suite_jail override")
+
+
+def _coerce_str_list(value: object | None) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise SystemExit("FAIL: include/exclude must be list")
+    out: list[str] = []
+    for item in cast(list[object], value):
+        out.append(str(item))
+    return out
+
+
+def _coerce_bool(value: object | None) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    return bool(value)
+
+
+def _coerce_cli_args(args: CliArgs | object) -> CliArgs:
+    if isinstance(args, CliArgs):
+        return args
+    config_obj = _obj_attr(args, "config")
+    config = "badguys/config.toml" if config_obj is None else str(config_obj)
+    return CliArgs(
+        config=config,
+        commit_limit=_coerce_opt_int(_obj_attr(args, "commit_limit")),
+        runner_verbosity=_coerce_opt_str(_obj_attr(args, "runner_verbosity")),
+        console_verbosity=_coerce_opt_str(_obj_attr(args, "console_verbosity")),
+        log_verbosity=_coerce_opt_str(_obj_attr(args, "log_verbosity")),
+        per_run_logs_post_run=_coerce_opt_str(_obj_attr(args, "per_run_logs_post_run")),
+        suite_jail=_coerce_opt_bool(_obj_attr(args, "suite_jail")),
+        include=_coerce_str_list(_obj_attr(args, "include")),
+        exclude=_coerce_str_list(_obj_attr(args, "exclude")),
+        list_tests=_coerce_bool(_obj_attr(args, "list_tests")),
+    )
+
+
+def _obj_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in cast(dict[object, object], value).items()}
+
+
+def _load_config(repo_root: Path, config_path: Path) -> dict[str, object]:
     p = repo_root / config_path
     if not p.exists():
         return {}
-    return tomllib.loads(p.read_text(encoding="utf-8"))
+    raw = cast(object, tomllib.loads(p.read_text(encoding="utf-8")))
+    return _obj_dict(raw)
 
 
-def _resolve_value(cli: str | None, cfg_val: str | None, default: str) -> str:
+def _resolve_value(cli: str | None, cfg_val: object, default: str) -> str:
     if cli is not None:
         return str(cli)
     if cfg_val is not None:
@@ -99,22 +209,23 @@ def _make_cfg(
     cli_suite_jail: bool | None,
 ) -> SuiteCfg:
     raw = _load_config(repo_root, config_path)
-    suite = raw.get("suite", {})
-    lock = raw.get("lock", {})
-    runner = raw.get("runner", {})
+    suite = _obj_dict(raw.get("suite", {}))
+    lock = _obj_dict(raw.get("lock", {}))
+    runner = _obj_dict(raw.get("runner", {}))
 
     issue_id = str(suite.get("issue_id", "666"))
-    runner_cmd = [str(x) for x in suite.get("runner_cmd", ["python3", "scripts/am_patch.py"])]
+    runner_cmd_raw = suite.get("runner_cmd", ["python3", "scripts/am_patch.py"])
+    runner_cmd = [str(x) for x in list(cast(list[object], runner_cmd_raw))]
 
     full_runner_tests_raw = runner.get("full_runner_tests", [])
     if full_runner_tests_raw is None:
         full_runner_tests_raw = []
-    if not (
-        isinstance(full_runner_tests_raw, list)
-        and all(isinstance(x, str) for x in full_runner_tests_raw)
-    ):
+    if not isinstance(full_runner_tests_raw, list):
         raise SystemExit("FAIL: runner.full_runner_tests must be list[str]")
-    full_runner_tests = [str(x) for x in full_runner_tests_raw]
+    full_runner_tests_items = cast(list[object], full_runner_tests_raw)
+    if not all(isinstance(x, str) for x in full_runner_tests_items):
+        raise SystemExit("FAIL: runner.full_runner_tests must be list[str]")
+    full_runner_tests = [x for x in full_runner_tests_items if isinstance(x, str)]
 
     env_py = os.environ.get("AM_PATCH_BADGUYS_RUNNER_PYTHON")
     if env_py and runner_cmd:
@@ -177,7 +288,7 @@ def _make_cfg(
         raise SystemExit("FAIL: suite.write_subprocess_stdio must be bool")
 
     lock_path = repo_root / str(lock.get("path", "patches/badguys.lock"))
-    lock_ttl_seconds = int(lock.get("ttl_seconds", 3600))
+    lock_ttl_seconds = int(cast(int | str, lock.get("ttl_seconds", 3600)))
     lock_on_conflict = str(lock.get("on_conflict", "fail"))
 
     return SuiteCfg(
@@ -198,6 +309,26 @@ def _make_cfg(
         copy_runner_log=bool(copy_runner_log),
         write_subprocess_stdio=bool(write_subprocess_stdio),
         suite_jail=bool(suite_jail),
+    )
+
+
+def make_cfg(
+    repo_root: Path,
+    config_path: Path,
+    cli_runner_verbosity: str | None,
+    cli_console_verbosity: str | None,
+    cli_log_verbosity: str | None,
+    cli_per_run_logs_post_run: str | None,
+    cli_suite_jail: bool | None,
+) -> SuiteCfg:
+    return _make_cfg(
+        repo_root,
+        config_path,
+        cli_runner_verbosity,
+        cli_console_verbosity,
+        cli_log_verbosity,
+        cli_per_run_logs_post_run,
+        cli_suite_jail,
     )
 
 
@@ -378,28 +509,36 @@ def _cleanup_issue_artifacts(ctx: Ctx, *, issue_id: str, test_id: str | None) ->
         socket_path.unlink()
 
 
-def _load_eval_rules(repo_root: Path, config_path: Path) -> dict:
-    raw = tomllib.loads((repo_root / config_path).read_text(encoding="utf-8"))
-    return raw.get("evaluation", {})
+def _load_eval_rules(repo_root: Path, config_path: Path) -> dict[str, object]:
+    raw = cast(object, tomllib.loads((repo_root / config_path).read_text(encoding="utf-8")))
+    return _obj_dict(_obj_dict(raw).get("evaluation", {}))
 
 
-def _rules_for_step(evaluation: dict, *, test_id: str, step_index: int) -> dict:
-    tests = evaluation.get("tests", {})
-    if not isinstance(tests, dict):
+def _rules_for_step(
+    evaluation: dict[str, object],
+    *,
+    test_id: str,
+    step_index: int,
+) -> dict[str, object]:
+    tests = _obj_dict(evaluation.get("tests", {}))
+    t = _obj_dict(tests.get(test_id, {}))
+    steps_raw = t.get("steps", {})
+    if not isinstance(steps_raw, dict):
         return {}
-    t = tests.get(test_id, {})
-    if not isinstance(t, dict):
-        return {}
-    steps = t.get("steps", {})
-    if not isinstance(steps, dict):
-        return {}
+    steps = cast(dict[object, object], steps_raw)
     s = steps.get(str(step_index)) if str(step_index) in steps else steps.get(step_index)
     if not isinstance(s, dict):
         return {}
-    return s
+    return _obj_dict(cast(object, s))
 
 
-def _run_test_plan(test, ctx: Ctx) -> bool:
+class _SuiteTest(Protocol):
+    @property
+    def name(self) -> str: ...
+    def run(self, ctx: object, /) -> object: ...
+
+
+def _run_test_plan(test: _SuiteTest, ctx: Ctx) -> bool:
     from badguys.bdg_evaluator import StepResult, evaluate_step
     from badguys.bdg_executor import execute_bdg_step
     from badguys.bdg_loader import BdgTest
@@ -407,7 +546,7 @@ def _run_test_plan(test, ctx: Ctx) -> bool:
     from badguys.bdg_ops_ipc import has_pending_ipc_plans
     from badguys.bdg_subst import make_subst_ctx
 
-    name = getattr(test, "name", "(unknown)")
+    name = test.name
     evaluation = _load_eval_rules(ctx.repo_root, Path(ctx.cfg.config_path))
     strict = bool(evaluation.get("strict_coverage", True))
 
@@ -579,7 +718,7 @@ def _run_test_plan(test, ctx: Ctx) -> bool:
 
 def _run_suite_body(
     *,
-    args: argparse.Namespace,
+    args: CliArgs | object,
     repo_root: Path,
     cfg: SuiteCfg,
     run_id: str,
@@ -588,20 +727,22 @@ def _run_suite_body(
     from badguys._util import fail_commit_limit, format_result_line
     from badguys.discovery import discover_tests
 
+    parsed_args = _coerce_cli_args(args)
+
     tests = discover_tests(
         repo_root=repo_root,
-        config_path=Path(args.config),
-        cli_commit_limit=args.commit_limit,
-        cli_include=list(args.include),
-        cli_exclude=list(args.exclude),
+        config_path=Path(parsed_args.config),
+        cli_commit_limit=parsed_args.commit_limit,
+        cli_include=list(parsed_args.include),
+        cli_exclude=list(parsed_args.exclude),
     )
 
     all_test_ids = {
         t.name
         for t in discover_tests(
             repo_root=repo_root,
-            config_path=Path(args.config),
-            cli_commit_limit=args.commit_limit,
+            config_path=Path(parsed_args.config),
+            cli_commit_limit=parsed_args.commit_limit,
             cli_include=[],
             cli_exclude=[],
         )
@@ -611,7 +752,7 @@ def _run_suite_body(
         joined = ", ".join(unknown)
         raise SystemExit(f"FAIL: runner.full_runner_tests references unknown test_id(s): {joined}")
 
-    if args.list_tests:
+    if parsed_args.list_tests:
         for t in tests:
             print(t.name)
         return 0
@@ -629,7 +770,7 @@ def _run_suite_body(
         ctx,
         level="debug",
         text=_format_console_debug_config_line(
-            config_path=str(args.config),
+            config_path=str(parsed_args.config),
             cfg=cfg,
         ),
     )
@@ -641,7 +782,7 @@ def _run_suite_body(
             test_id=None,
             obj={
                 "type": "debug_config",
-                "config_path": args.config,
+                "config_path": parsed_args.config,
                 "console_verbosity": cfg.console_verbosity,
                 "log_verbosity": cfg.log_verbosity,
                 "runner_cmd": " ".join(cfg.runner_cmd),
@@ -651,8 +792,8 @@ def _run_suite_body(
             },
         )
 
-    commit_limit = int(getattr(tests, "commit_limit", 1))
-    commit_tests = [t for t in tests if bool(getattr(t, "makes_commit", False))]
+    commit_limit = int(tests.commit_limit)
+    commit_tests = [t for t in tests if t.makes_commit]
     if len(commit_tests) > commit_limit:
         fail_commit_limit(central_log, commit_limit, commit_tests)
 
@@ -665,7 +806,7 @@ def _run_suite_body(
             _cleanup_issue_artifacts(
                 ctx,
                 issue_id=cfg.issue_id,
-                test_id=getattr(t, "name", None),
+                test_id=t.name,
             )
 
             ok = False
@@ -675,7 +816,7 @@ def _run_suite_body(
                 _cleanup_issue_artifacts(
                     ctx,
                     issue_id=cfg.issue_id,
-                    test_id=getattr(t, "name", None),
+                    test_id=t.name,
                 )
 
             per_test_ok[t.name] = bool(ok)
@@ -685,7 +826,7 @@ def _run_suite_body(
 
             if not ok:
                 ok_all = False
-                if idx == 0 and bool(getattr(tests, "abort_on_guard_fail", False)):
+                if idx == 0 and tests.abort_on_guard_fail:
                     break
 
         except KeyboardInterrupt:
@@ -722,7 +863,7 @@ def _run_suite_body(
     return 0 if ok_all else 1
 
 
-def _inner_suite_run(args: argparse.Namespace, cfg: SuiteCfg, *, run_id: str) -> int:
+def _inner_suite_run(args: CliArgs | object, cfg: SuiteCfg, *, run_id: str) -> int:
     repo_root = Path(__file__).resolve().parents[1]
     central_log = cfg.central_log_path(run_id)
     return _run_suite_body(
@@ -749,16 +890,17 @@ def _suite_jail_visible_path(*, repo_root: Path, value: str) -> str:
     return str(Path("/repo") / relative)
 
 
-def _suite_inner_argv(args: argparse.Namespace, *, repo_root: Path) -> list[str]:
+def _suite_inner_argv(args: CliArgs | object, *, repo_root: Path) -> list[str]:
+    parsed_args = _coerce_cli_args(args)
     argv = [_suite_jail_python(repo_root), "badguys/badguys.py"]
-    argv += ["--config", str(getattr(args, "config", "badguys/config.toml"))]
-    commit_limit = getattr(args, "commit_limit", None)
+    argv += ["--config", str(parsed_args.config)]
+    commit_limit = parsed_args.commit_limit
     if commit_limit is not None:
         argv += ["--commit-limit", str(commit_limit)]
-    runner_verbosity = getattr(args, "runner_verbosity", None)
+    runner_verbosity = parsed_args.runner_verbosity
     if runner_verbosity is not None:
         argv += ["--runner-verbosity", str(runner_verbosity)]
-    console_verbosity = getattr(args, "console_verbosity", None)
+    console_verbosity = parsed_args.console_verbosity
     if console_verbosity == "quiet":
         argv.append("-q")
     elif console_verbosity == "normal":
@@ -767,28 +909,28 @@ def _suite_inner_argv(args: argparse.Namespace, *, repo_root: Path) -> list[str]
         argv.append("-v")
     elif console_verbosity == "debug":
         argv.append("-d")
-    log_verbosity = getattr(args, "log_verbosity", None)
+    log_verbosity = parsed_args.log_verbosity
     if log_verbosity is not None:
         argv += ["--log-verbosity", str(log_verbosity)]
-    per_run_logs_post_run = getattr(args, "per_run_logs_post_run", None)
+    per_run_logs_post_run = parsed_args.per_run_logs_post_run
     if per_run_logs_post_run is not None:
         argv += ["--per-run-logs-post-run", str(per_run_logs_post_run)]
-    suite_jail = getattr(args, "suite_jail", None)
+    suite_jail = parsed_args.suite_jail
     if suite_jail is True:
         argv.append("--suite-jail")
     elif suite_jail is False:
         argv.append("--no-suite-jail")
-    for test_id in getattr(args, "include", []):
+    for test_id in parsed_args.include:
         argv += ["--include", str(test_id)]
-    for test_id in getattr(args, "exclude", []):
+    for test_id in parsed_args.exclude:
         argv += ["--exclude", str(test_id)]
-    if bool(getattr(args, "list_tests", False)):
+    if parsed_args.list_tests:
         argv.append("--list-tests")
     return argv
 
 
 def _outer_suite_run(
-    args: argparse.Namespace,
+    args: CliArgs | object,
     cfg: SuiteCfg,
     *,
     repo_root: Path,
@@ -881,12 +1023,29 @@ def main(argv: list[str]) -> int:
     ap.add_argument(
         "--include",
         action="append",
-        default=[],
+        default=None,
         help="Run only named tests (repeatable)",
     )
-    ap.add_argument("--exclude", action="append", default=[], help="Skip named tests (repeatable)")
+    ap.add_argument(
+        "--exclude",
+        action="append",
+        default=None,
+        help="Skip named tests (repeatable)",
+    )
     ap.add_argument("--list-tests", action="store_true", help="List discovered tests and exit")
-    args = ap.parse_args(argv)
+    parsed = cast(_CliNamespace, ap.parse_args(argv))
+    args = CliArgs(
+        config=str(parsed.config),
+        commit_limit=parsed.commit_limit,
+        runner_verbosity=parsed.runner_verbosity,
+        console_verbosity=parsed.console_verbosity,
+        log_verbosity=parsed.log_verbosity,
+        per_run_logs_post_run=parsed.per_run_logs_post_run,
+        suite_jail=parsed.suite_jail,
+        include=list(parsed.include or []),
+        exclude=list(parsed.exclude or []),
+        list_tests=bool(parsed.list_tests),
+    )
 
     repo_root = Path(__file__).resolve().parents[1]
     _ensure_repo_root_in_syspath(repo_root)

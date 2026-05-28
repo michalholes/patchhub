@@ -4,6 +4,7 @@ import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import SupportsInt, cast
 
 from badguys.bdg_loader import BdgTest, load_bdg_test
 
@@ -21,7 +22,7 @@ class TestDef:
     name: str
     makes_commit: bool
     is_guard: bool
-    run: Callable[..., object]
+    run: Callable[[object], object]
 
 
 class TestList(list[TestDef]):
@@ -29,10 +30,41 @@ class TestList(list[TestDef]):
     abort_on_guard_fail: bool
 
 
-def _load_toml(path: Path) -> dict:
+def _obj_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, object] = {}
+    for key, item in cast(dict[object, object], value).items():
+        out[str(key)] = item
+    return out
+
+
+def _obj_list(value: object) -> list[object]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return list(cast(list[object], value))
+
+
+def _str_list(value: object) -> list[str]:
+    return [str(item) for item in _obj_list(value)]
+
+
+def _as_int(value: object, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    return int(cast(SupportsInt, value))
+
+
+def _load_toml(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+    return _obj_dict(cast(object, tomllib.loads(path.read_text(encoding="utf-8"))))
 
 
 def _policy_from_config(
@@ -43,19 +75,24 @@ def _policy_from_config(
     cli_exclude: list[str],
 ) -> tuple[SuitePolicy, list[str], list[str]]:
     raw = _load_toml(repo_root / config_path)
-    suite = raw.get("suite", {})
-    guard = raw.get("guard", {})
-    filters = raw.get("filters", {})
+    suite = _obj_dict(raw.get("suite", {}))
+    guard = _obj_dict(raw.get("guard", {}))
+    filters = _obj_dict(raw.get("filters", {}))
 
-    commit_limit = int(
-        cli_commit_limit if cli_commit_limit is not None else suite.get("commit_limit", 1)
+    commit_limit = (
+        cli_commit_limit
+        if cli_commit_limit is not None
+        else _as_int(
+            suite.get("commit_limit"),
+            1,
+        )
     )
     require_guard_test = bool(guard.get("require_guard_test", True))
     guard_test_name = str(guard.get("guard_test_name", "test_000_test_mode_smoke"))
     abort_on_guard_fail = bool(guard.get("abort_on_guard_fail", True))
 
-    include = list(filters.get("include", [])) + list(cli_include)
-    exclude = list(filters.get("exclude", [])) + list(cli_exclude)
+    include = _str_list(filters.get("include", [])) + list(cli_include)
+    exclude = _str_list(filters.get("exclude", [])) + list(cli_exclude)
 
     return (
         SuitePolicy(
@@ -72,7 +109,7 @@ def _policy_from_config(
 def _load_test_from_bdg_file(path: Path) -> TestDef | None:
     bdg = load_bdg_test(path)
 
-    def _run(_ctx) -> BdgTest:
+    def _run(_ctx: object) -> BdgTest:
         return bdg
 
     return TestDef(

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from .app_support import _err, _ok, read_tail
+from .app_support import err, ok, read_tail
 from .config import AppConfig
 from .fs_jail import FsJail, FsJailError, list_dir, safe_rename
 from .web_jobs_virtual_fs import WebJobsVirtualFs
@@ -42,34 +42,34 @@ def _virtual_jobs_fs(self: FsApiContext) -> WebJobsVirtualFs | None:
 def _virtual_denied(self: FsApiContext, rel: str) -> tuple[int, bytes] | None:
     vfs = _virtual_jobs_fs(self)
     if vfs is not None and vfs.is_mutable_path(rel):
-        return _err("Virtual DB-backed path is read-only", status=409)
+        return err("Virtual DB-backed path is read-only", status=409)
     return None
 
 
 def api_fs_list(self: FsApiContext, rel_path: str) -> tuple[int, bytes]:
     vfs = _virtual_jobs_fs(self)
     if vfs is not None and vfs.handles(rel_path):
-        return _ok({"path": rel_path, "items": vfs.list_dir(rel_path), "virtual": True})
+        return ok({"path": rel_path, "items": vfs.list_dir(rel_path), "virtual": True})
     try:
         path = self.jail.resolve_rel(rel_path)
     except FsJailError as exc:
-        return _err(str(exc), status=400)
+        return err(str(exc), status=400)
     if not path.exists() or not path.is_dir():
-        return _err("Not a directory", status=404)
-    return _ok({"path": rel_path, "items": list_dir(path)})
+        return err("Not a directory", status=404)
+    return ok({"path": rel_path, "items": list_dir(path)})
 
 
 def api_fs_stat(self: FsApiContext, rel_path: str) -> tuple[int, bytes]:
     vfs = _virtual_jobs_fs(self)
     if vfs is not None and vfs.handles(rel_path):
-        return _ok(vfs.json_stat_payload(rel_path))
+        return ok(vfs.json_stat_payload(rel_path))
     if rel_path == "":
-        return _ok({"path": rel_path, "exists": True})
+        return ok({"path": rel_path, "exists": True})
     try:
         path = self.jail.resolve_rel(rel_path)
     except FsJailError as exc:
-        return _err(str(exc), status=400)
-    return _ok({"path": rel_path, "exists": path.exists()})
+        return err(str(exc), status=400)
+    return ok({"path": rel_path, "exists": path.exists()})
 
 
 def api_fs_read_text(self: FsApiContext, qs: dict[str, str]) -> tuple[int, bytes]:
@@ -81,14 +81,14 @@ def api_fs_read_text(self: FsApiContext, qs: dict[str, str]) -> tuple[int, bytes
         tail_lines = int(tail_lines_s) if tail_lines_s else None
         text = vfs.read_text(rel, tail_lines=tail_lines, max_bytes=max_bytes)
         if text is None:
-            return _err("Not a file", status=404)
-        return _ok({"path": rel, "text": text, "truncated": False, "virtual": True})
+            return err("Not a file", status=404)
+        return ok({"path": rel, "text": text, "truncated": False, "virtual": True})
     try:
         path = self.jail.resolve_rel(rel)
     except FsJailError as exc:
-        return _err(str(exc), status=400)
+        return err(str(exc), status=400)
     if not path.exists() or not path.is_file():
-        return _err("Not a file", status=404)
+        return err("Not a file", status=404)
 
     if tail_lines_s:
         text = read_tail(
@@ -97,15 +97,15 @@ def api_fs_read_text(self: FsApiContext, qs: dict[str, str]) -> tuple[int, bytes
             max_bytes=self.cfg.server.tail_max_bytes,
             cache_max_entries=self.cfg.server.tail_cache_max_entries,
         )
-        return _ok({"path": rel, "text": text, "truncated": False})
+        return ok({"path": rel, "text": text, "truncated": False})
 
     try:
         data = path.read_bytes()
     except Exception:
-        return _err("Read failed", status=500)
+        return err("Read failed", status=500)
     truncated = len(data) > max_bytes
     text = data[:max_bytes].decode("utf-8", errors="replace")
-    return _ok({"path": rel, "text": text, "truncated": truncated})
+    return ok({"path": rel, "text": text, "truncated": truncated})
 
 
 def api_fs_download(
@@ -116,7 +116,7 @@ def api_fs_download(
     if vfs is not None and vfs.handles(rel_path):
         download = vfs.download(rel_path)
         if download is None:
-            return _err("Not found", status=404)
+            return err("Not found", status=404)
         return FsDownloadPayload(
             filename=download.filename,
             media_type=download.media_type,
@@ -125,9 +125,9 @@ def api_fs_download(
     try:
         path = self.jail.resolve_rel(rel_path)
     except FsJailError as exc:
-        return _err(str(exc), status=400)
+        return err(str(exc), status=400)
     if not path.exists() or not path.is_file():
-        return _err("Not found", status=404)
+        return err("Not found", status=404)
     return FsDownloadPayload(
         filename=path.name,
         media_type=_guess_content_type(path),
@@ -144,9 +144,9 @@ def api_fs_mkdir(self: FsApiContext, body: dict[str, object]) -> tuple[int, byte
         self.jail.assert_crud_allowed(rel)
         path = self.jail.resolve_rel(rel)
     except FsJailError as exc:
-        return _err(str(exc), status=400)
+        return err(str(exc), status=400)
     path.mkdir(parents=True, exist_ok=True)
-    return _ok({"path": rel})
+    return ok({"path": rel})
 
 
 def api_fs_rename(self: FsApiContext, body: dict[str, object]) -> tuple[int, bytes]:
@@ -161,11 +161,11 @@ def api_fs_rename(self: FsApiContext, body: dict[str, object]) -> tuple[int, byt
         src = self.jail.resolve_rel(src_rel)
         dst = self.jail.resolve_rel(dst_rel)
     except FsJailError as exc:
-        return _err(str(exc), status=400)
+        return err(str(exc), status=400)
     if not src.exists():
-        return _err("Source not found", status=404)
+        return err("Source not found", status=404)
     safe_rename(src, dst)
-    return _ok({"src": src_rel, "dst": dst_rel})
+    return ok({"src": src_rel, "dst": dst_rel})
 
 
 def api_fs_delete(self: FsApiContext, body: dict[str, object]) -> tuple[int, bytes]:
@@ -177,14 +177,14 @@ def api_fs_delete(self: FsApiContext, body: dict[str, object]) -> tuple[int, byt
         self.jail.assert_crud_allowed(rel)
         path = self.jail.resolve_rel(rel)
     except FsJailError as exc:
-        return _err(str(exc), status=400)
+        return err(str(exc), status=400)
     if not path.exists():
-        return _ok({"path": rel, "deleted": False})
+        return ok({"path": rel, "deleted": False})
     if path.is_dir():
         shutil.rmtree(path)
     else:
         path.unlink()
-    return _ok({"path": rel, "deleted": True})
+    return ok({"path": rel, "deleted": True})
 
 
 def api_fs_unzip(self: FsApiContext, body: dict[str, object]) -> tuple[int, bytes]:
@@ -199,10 +199,10 @@ def api_fs_unzip(self: FsApiContext, body: dict[str, object]) -> tuple[int, byte
         zip_path = self.jail.resolve_rel(zip_rel)
         dest_path = self.jail.resolve_rel(dest_rel)
     except FsJailError as exc:
-        return _err(str(exc), status=400)
+        return err(str(exc), status=400)
     if not zip_path.exists():
-        return _err("Zip not found", status=404)
+        return err("Zip not found", status=404)
     dest_path.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(dest_path)
-    return _ok({"zip_path": zip_rel, "dest_dir": dest_rel})
+    return ok({"zip_path": zip_rel, "dest_dir": dest_rel})

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from pathlib import Path
@@ -16,10 +15,10 @@ from patchhub import app_api_upload as _upload
 from patchhub import app_api_workspaces as _workspaces
 from patchhub import app_ui as _ui
 from patchhub import proc_resources
-from patchhub.app_support import read_tail
+from patchhub.app_support import read_tail, utc_now
 from patchhub.config import AppConfig
 from patchhub.fs_jail import FsJail
-from patchhub.models import JobRecord
+from patchhub.models import JobRecord, StatsWindow
 from patchhub.run_stats_store import RunStatsStore
 from patchhub.targeting import TargetCfgLike, resolve_targeting_runtime
 from patchhub.web_jobs_backend_mode import WebJobsBackendModeState
@@ -32,10 +31,8 @@ from patchhub.web_jobs_backup_scheduler import WebJobsBackupScheduler
 from patchhub.web_jobs_db import WebJobsDatabase, load_web_jobs_db_config
 from patchhub.web_jobs_legacy_fs import legacy_jobs_signature, list_legacy_job_jsons
 from patchhub.web_jobs_migration import (
-    _migrate as migrate_legacy_jobs,
-)
-from patchhub.web_jobs_migration import (
-    _verify as verify_legacy_jobs,
+    migrate_legacy_jobs,
+    verify_legacy_jobs,
 )
 from patchhub.web_jobs_recovery import (
     mark_shutdown_clean,
@@ -46,12 +43,22 @@ from patchhub.web_jobs_virtual_fs import WebJobsVirtualFs
 
 from .async_jobs_runs_indexer import AsyncJobsRunsIndexer
 from .async_offload import to_thread
-from .async_queue import AsyncJobQueue
+from .async_queue import AsyncJobQueue, QueueState
 from .async_runner_exec import AsyncRunnerExecutor
 from .operator_info_runtime import (
     build_backend_mode_status_payload,
     store_runtime_operator_info,
 )
+
+
+def _stats_window_json(window: StatsWindow) -> dict[str, object]:
+    return {
+        "days": int(window.days),
+        "total": int(window.total),
+        "success": int(window.success),
+        "fail": int(window.fail),
+        "unknown": int(window.unknown),
+    }
 
 
 class AsyncAppCore:
@@ -270,14 +277,14 @@ class AsyncAppCore:
     def mark_orphaned_sync(self, job_id: str) -> JobRecord | None:
         if self.web_jobs_db is not None:
             return self.web_jobs_db.mark_orphaned(job_id)
-        job = self._load_job_from_disk(job_id)
+        job = self.load_job_from_disk(job_id)
         if job is None:
             return None
         if job.status not in {"queued", "running"}:
             return job
         job.status = "fail"
         if not job.ended_utc:
-            job.ended_utc = _jobs._utc_now()
+            job.ended_utc = utc_now()
         job.error = "orphaned: not in memory queue"
         job_dir = self.jobs_root / str(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -287,8 +294,10 @@ class AsyncAppCore:
         )
         return job
 
-    _autofill_scan_dir_rel = _core._autofill_scan_dir_rel
-    _derive_from_filename = _core._derive_from_filename
+    autofill_scan_dir_rel = _core.autofill_scan_dir_rel
+    derive_from_filename = _core.derive_from_filename
+    _autofill_scan_dir_rel = autofill_scan_dir_rel
+    _derive_from_filename = derive_from_filename
 
     api_config = _core.api_config
     api_patches_latest = _core.api_patches_latest
@@ -333,43 +342,16 @@ class AsyncAppCore:
                 "live_summary": empty_summary,
             }
         try:
-            with self.web_jobs_db._store._connect() as conn:
-                latest_rows = cast(
-                    list[sqlite3.Row],
-                    conn.execute(
-                        """
-                    SELECT job_id, status, issue_id_raw AS issue_id,
-                           issue_id_int, mode, created_utc, started_utc,
-                           ended_utc, row_rev, last_log_seq, last_event_seq,
-                           error, effective_runner_target_repo
-                      FROM web_jobs
-                     ORDER BY created_unix_ms DESC, job_id DESC
-                     LIMIT 20
-                    """
-                    ).fetchall(),
-                )
-                running_rows = cast(
-                    list[sqlite3.Row],
-                    conn.execute(
-                        """
-                    SELECT job_id, status, issue_id_raw AS issue_id,
-                           issue_id_int, mode, created_utc, started_utc,
-                           ended_utc, row_rev, last_log_seq, last_event_seq,
-                           error, effective_runner_target_repo
-                      FROM web_jobs
-                     WHERE status IN ('running', 'queued')
-                     ORDER BY created_unix_ms DESC, job_id DESC
-                    """
-                    ).fetchall(),
-                )
-        except sqlite3.Error as exc:
+            latest_rows = self.web_jobs_db.list_job_jsons(limit=20)
+            running_rows = self.web_jobs_db.list_live_job_jsons()
+        except Exception as exc:
             return {
                 "status": "error",
                 "db_path": db_path,
                 "error": f"{type(exc).__name__}:{exc}",
                 "live_summary": empty_summary,
             }
-        running_jobs = [cast(dict[str, object], dict(row)) for row in running_rows]
+        running_jobs = [dict(row) for row in running_rows]
         persisted_live_job_ids = [str(row.get("job_id", "")) for row in running_jobs]
         stale_live_job_ids = [
             job_id for job_id in persisted_live_job_ids if job_id and job_id not in memory_job_ids
@@ -377,7 +359,7 @@ class AsyncAppCore:
         return {
             "status": "ok",
             "db_path": db_path,
-            "latest_jobs": [cast(dict[str, object], dict(row)) for row in latest_rows],
+            "latest_jobs": [dict(row) for row in latest_rows],
             "running_jobs": running_jobs,
             "live_summary": {
                 "memory_live_job_ids": sorted(str(job_id) for job_id in memory_job_ids),
@@ -389,17 +371,17 @@ class AsyncAppCore:
         }
 
     async def diagnostics(self) -> dict[str, object]:
-        qstate: object | None
+        qstate: QueueState | None
         try:
-            qstate = cast(object, await self.queue.state())
+            qstate = await self.queue.state()
         except Exception:
             qstate = None
 
-        queued = int(getattr(qstate, "queued", 0) or 0) if qstate is not None else 0
-        running = int(getattr(qstate, "running", 0) or 0) if qstate is not None else 0
+        queued = int(qstate.queued) if qstate is not None else 0
+        running = int(qstate.running) if qstate is not None else 0
 
         try:
-            mem_jobs = cast(list[JobRecord], await self.queue.list_jobs())
+            mem_jobs = await self.queue.list_jobs()
         except Exception:
             mem_jobs = []
         memory_job_ids = {str(job.job_id) for job in mem_jobs if str(job.job_id)}
@@ -435,20 +417,24 @@ class AsyncAppCore:
                 "resources": proc_resources.snapshot(),
                 "runs": {"count": runs_count},
                 "stats": {
-                    "all_time": cast(dict[str, object], dict(stats.all_time.__dict__)),
-                    "windows": [cast(dict[str, object], dict(w.__dict__)) for w in stats.windows],
+                    "all_time": _stats_window_json(stats.all_time),
+                    "windows": [_stats_window_json(window) for window in stats.windows],
                 },
             }
 
+        sync_part: dict[str, object]
         try:
             sync_part = await to_thread(_sync_part)
         except Exception:
+            empty_all_time: dict[str, object] = {}
+            empty_windows: list[dict[str, object]] = []
+            empty_resources: dict[str, object] = {}
             sync_part = {
                 "lock": {"path": "", "held": False},
                 "disk": {"total": 0, "used": 0, "free": 0},
                 "runs": {"count": 0},
-                "stats": {"all_time": {}, "windows": []},
-                "resources": {},
+                "stats": {"all_time": empty_all_time, "windows": empty_windows},
+                "resources": empty_resources,
             }
 
         backend = dict(self.backend_debug_state())
@@ -486,10 +472,14 @@ class AsyncAppCore:
     api_fs_delete = _fs.api_fs_delete
     api_fs_unzip = _fs.api_fs_unzip
 
-    _job_jsonl_path_from_fields = _jobs._job_jsonl_path_from_fields
-    _load_job_from_disk = _jobs._load_job_from_disk
-    _job_jsonl_path = _jobs._job_jsonl_path
-    _pick_tail_job = _jobs._pick_tail_job
+    job_jsonl_path_from_fields = _jobs.job_jsonl_path_from_fields
+    load_job_from_disk = _jobs.load_job_from_disk
+    job_jsonl_path = _jobs.job_jsonl_path
+    pick_tail_job = _jobs.pick_tail_job
+    _job_jsonl_path_from_fields = job_jsonl_path_from_fields
+    _load_job_from_disk = load_job_from_disk
+    _job_jsonl_path = job_jsonl_path
+    _pick_tail_job = pick_tail_job
     api_patch_zip_manifest = _jobs.api_patch_zip_manifest
     api_jobs_get = _jobs.api_jobs_get
     api_jobs_revert = _jobs.api_jobs_revert

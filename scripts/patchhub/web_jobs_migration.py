@@ -228,6 +228,14 @@ def _verify(repo_root: Path) -> list[dict[str, object]]:
     return out
 
 
+def migrate_legacy_jobs(repo_root: Path) -> list[str]:
+    return _migrate(repo_root)
+
+
+def verify_legacy_jobs(repo_root: Path) -> list[dict[str, object]]:
+    return _verify(repo_root)
+
+
 def _cleanup(repo_root: Path) -> list[str]:
     cfg = _build_cfg(repo_root)
     if not cfg.cleanup_enabled:

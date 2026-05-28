@@ -5,16 +5,16 @@ import json
 import os
 import re
 import stat as statlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
 from hashlib import sha1
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
 from patchhub.app_support import compute_success_archive_rel
 from patchhub.indexing import compute_stats, iter_runs_with_signature
+from patchhub.job_record_lookup import load_job_record_from_persistence
 from patchhub.models import (
     AppStats,
     RunEntry,
@@ -56,14 +56,12 @@ class CoreLike(Protocol):
 
     def list_job_jsons_sync(self, *, limit: int = 200) -> list[dict[str, object]]: ...
 
-    def _load_job_from_disk(self, job_id: str) -> JobRecord | None: ...
-
 
 def _obj_dict(value: object) -> dict[str, object] | None:
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         return None
     out: dict[str, object] = {}
-    for key, item in value.items():
+    for key, item in cast(Mapping[object, object], value).items():
         if isinstance(key, str):
             out[key] = item
     return out
@@ -71,7 +69,7 @@ def _obj_dict(value: object) -> dict[str, object] | None:
 
 def _obj_list(value: object) -> list[object]:
     if isinstance(value, list):
-        return list(value)
+        return list(cast(list[object], value))
     return []
 
 
@@ -84,6 +82,10 @@ def _as_int(value: object, default: int = 0) -> int:
 
 def _empty_operator_info() -> dict[str, object]:
     return {"cleanup_recent_status": []}
+
+
+def _empty_item_list() -> list[dict[str, object]]:
+    return []
 
 
 def _job_order_key(job: JobRecord) -> str:
@@ -126,15 +128,11 @@ class IndexerSnapshot:
     workspaces_sig: str
     header_sig: str
     snapshot_sig: str
-    patches_items: list[dict[str, object]] = field(default_factory=list)
+    patches_items: list[dict[str, object]] = field(default_factory=_empty_item_list)
     patches_sig: str = ""
     operator_info: dict[str, object] = field(default_factory=_empty_operator_info)
     operator_info_sig: str = ""
     seq: int = 0
-
-
-def _utc_iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _etag_sig_jobs(*, disk_sig: tuple[int, int], mem: list[JobRecord]) -> str:
@@ -386,6 +384,9 @@ class AsyncJobsRunsIndexer:
             self._force = True
         self._wake.set()
 
+    async def rebuild_fail_safe(self, *, reason: str) -> None:
+        await self._rebuild(reason=reason)
+
     async def _run_loop(self) -> None:
         poll = int(self._core.cfg.indexing.poll_interval_seconds or 2)
         poll = max(1, min(poll, 3600))
@@ -445,7 +446,11 @@ class AsyncJobsRunsIndexer:
                 jid = str(r.get("job_id", ""))
                 if not jid or jid in mem_by_id:
                     continue
-                j = self._core._load_job_from_disk(jid)
+                j = load_job_record_from_persistence(
+                    job_id=jid,
+                    job_db=self._core.web_jobs_db,
+                    jobs_root=self._core.jobs_root,
+                )
                 if j is None:
                     continue
 

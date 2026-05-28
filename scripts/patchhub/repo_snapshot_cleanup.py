@@ -193,12 +193,15 @@ def _run_root_cleanup(
     deleted_total: int,
     failure_text: str | None,
 ) -> tuple[list[CleanupRuleSummary], list[CleanupPhaseDetail], int, str | None]:
+    assigned: list[list[CleanupCandidate]]
     try:
         candidates = scan_repo_snapshot_cleanup_candidates(patches_root)
         assigned = _assign_candidates(candidates, config)
     except Exception as exc:
         failure_text = f"{type(exc).__name__}: {exc}"
-        assigned = [[] for _ in config.rules]
+        assigned = []
+        for _rule in config.rules:
+            assigned.append([])
 
     rule_summaries: list[CleanupRuleSummary] = []
     phase_details: list[CleanupPhaseDetail] = []

@@ -13,6 +13,14 @@ class MissingEvidence:
     missing_commands: tuple[str, ...]
 
 
+def _string_literal(node: ast.AST | None) -> str | None:
+    match node:
+        case ast.Constant(value=str() as value):
+            return value
+        case _:
+            return None
+
+
 def _parse_registry_domains(
     registry_py: Path,
 ) -> list[tuple[str, str, tuple[str, ...]]]:
@@ -46,18 +54,19 @@ def _parse_registry_domains(
                         domain_v = kw.get("domain")
                         cli_v = kw.get("cli_name")
                         cap_v = kw.get("capabilities")
-                        if not (
-                            isinstance(domain_v, ast.Constant) and isinstance(domain_v.value, str)
-                        ):
+                        domain_text = _string_literal(domain_v)
+                        if domain_text is None:
                             continue
-                        if not (isinstance(cli_v, ast.Constant) and isinstance(cli_v.value, str)):
+                        cli_text = _string_literal(cli_v)
+                        if cli_text is None:
                             continue
                         caps: list[str] = []
                         if isinstance(cap_v, (ast.Tuple, ast.List)):
                             for c in cap_v.elts:
-                                if isinstance(c, ast.Constant) and isinstance(c.value, str):
-                                    caps.append(c.value)
-                        domains.append((domain_v.value, cli_v.value, tuple(caps)))
+                                cap_text = _string_literal(c)
+                                if cap_text is not None:
+                                    caps.append(cap_text)
+                        domains.append((domain_text, cli_text, tuple(caps)))
             break
 
     return domains

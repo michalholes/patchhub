@@ -4,7 +4,7 @@ import re
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 _PATCH_ENTRY_PREFIX = "patches/per_file/"
 _PATCH_SUFFIX = ".patch"
@@ -13,7 +13,7 @@ _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 class JailLike(Protocol):
-    def resolve_rel(self, rel: str) -> Path: ...
+    def resolve_rel(self, rel: str, /) -> Path: ...
 
 
 def normalize_patch_rel_path(*, patches_root_rel: str, patch_path: str) -> str:
@@ -191,7 +191,12 @@ def _manifest_entries(manifest: Mapping[str, object]) -> list[dict[str, object]]
     if not isinstance(raw, list):
         return []
     out: list[dict[str, object]] = []
-    for item in raw:
-        if isinstance(item, dict):
-            out.append({str(k): v for k, v in item.items()})
+    for item in cast(list[object], raw):
+        if not isinstance(item, Mapping):
+            continue
+        mapping = cast(Mapping[object, object], item)
+        clean: dict[str, object] = {}
+        for key, value in mapping.items():
+            clean[str(key)] = value
+        out.append(clean)
     return out

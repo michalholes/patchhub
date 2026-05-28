@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+from typing import cast
 
 from badguys.bdg_evaluator import StepResult
 from badguys.bdg_loader import BdgStep, BdgTest
@@ -31,13 +33,28 @@ def _subst(value: str, *, subst: SubstCtx) -> str:
 
 
 def _safe_name(name: str) -> str:
-    out = []
+    out: list[str] = []
     for ch in name:
         if ch.isalnum() or ch in {"_", "-", "."}:
             out.append(ch)
         else:
             out.append("_")
     return "".join(out)
+
+
+def _require_str_list(*, value: object, fail_msg: str) -> list[str]:
+    if not isinstance(value, list):
+        raise SystemExit(fail_msg)
+    items = cast(list[object], value)
+    if not all(isinstance(item, str) for item in items):
+        raise SystemExit(fail_msg)
+    return [item for item in items if isinstance(item, str)]
+
+
+def _obj_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in cast(dict[object, object], value).items()}
 
 
 def _lock_path_for_test(repo_root: Path, *, test_id: str) -> Path:
@@ -217,12 +234,13 @@ def _exec_one(
             allowed={"args"},
             label=f"recipes.tests.{test_id}.steps.{step_index}",
         )
-        extra_args = recipe.get("args", [])
-        if not (isinstance(extra_args, list) and all(isinstance(x, str) for x in extra_args)):
-            raise SystemExit(
+        extra_args = _require_str_list(
+            value=recipe.get("args", []),
+            fail_msg=(
                 "FAIL: bdg recipe: RUN_RUNNER args for "
                 f"{test_id} step {step_index} must be list[str]"
-            )
+            ),
+        )
         if "--test-mode" in extra_args:
             raise SystemExit(
                 "FAIL: bdg recipe: --test-mode is controlled by BadGuys; remove it from args"
@@ -333,12 +351,13 @@ def _exec_one(
         ipc_thread.start()
 
         stdout = ""
-        stderr = ""
+        stderr_text = ""
+        stderr_is_tty = os.isatty(2)
 
         def _emit_hb(msg: str) -> None:
             nonlocal last_msg
             out = msg
-            if sys.stderr.isatty():
+            if stderr_is_tty:
                 pad = ""
                 if last_msg is not None and len(last_msg) > len(out):
                     pad = " " * (len(last_msg) - len(out))
@@ -350,7 +369,7 @@ def _exec_one(
             last_msg = out
 
         def _clear_hb() -> None:
-            if not sys.stderr.isatty() or last_msg is None:
+            if not stderr_is_tty or last_msg is None:
                 return
             sys.stderr.write("\r" + (" " * len(last_msg)) + "\r")
             sys.stderr.flush()
@@ -359,9 +378,9 @@ def _exec_one(
             while True:
                 try:
                     if heartbeat_enabled:
-                        stdout, stderr = proc.communicate(timeout=5.0)
+                        stdout, stderr_text = proc.communicate(timeout=5.0)
                     else:
-                        stdout, stderr = proc.communicate()
+                        stdout, stderr_text = proc.communicate()
                     break
                 except subprocess.TimeoutExpired:
                     elapsed = int(time.monotonic() - started)
@@ -386,31 +405,34 @@ def _exec_one(
         value_text = str(ipc_holder.get("value_text") or "")
 
         if isinstance(ipc_result, dict):
+            ipc_result_dict = _obj_dict(cast(object, ipc_result))
             with contextlib.suppress(Exception):
-                rc = int(ipc_result["return_code"])
+                rc = int(cast(int | str, ipc_result_dict.get("return_code", rc)))
 
-            artifact_copy = ipc_holder.get("artifact_copy")
-            if isinstance(artifact_copy, dict) and not bool(artifact_copy.get("ok", False)):
-                error = str(artifact_copy.get("error") or "runner artifact copy failed")
+            artifact_copy_dict = _obj_dict(ipc_holder.get("artifact_copy"))
+            if artifact_copy_dict and not bool(artifact_copy_dict.get("ok", False)):
+                error = str(artifact_copy_dict.get("error") or "runner artifact copy failed")
                 raise SystemExit(f"FAIL: bdg: {error}")
 
         if write_subprocess_stdio:
             if stdout:
                 (artifacts_dir / "runner.stdout.txt").write_text(stdout, encoding="utf-8")
-            if stderr:
-                (artifacts_dir / "runner.stderr.txt").write_text(stderr, encoding="utf-8")
+            if stderr_text:
+                (artifacts_dir / "runner.stderr.txt").write_text(stderr_text, encoding="utf-8")
 
         return StepResult(rc=rc, stdout=None, stderr=None, value=value_text)
 
     if op == "DISCOVER_TESTS":
         from badguys.discovery import discover_tests
 
-        include = p.get("include", [])
-        exclude = p.get("exclude", [])
-        if not (isinstance(include, list) and all(isinstance(x, str) for x in include)):
-            raise SystemExit("FAIL: bdg: include must be list[str]")
-        if not (isinstance(exclude, list) and all(isinstance(x, str) for x in exclude)):
-            raise SystemExit("FAIL: bdg: exclude must be list[str]")
+        include = _require_str_list(
+            value=p.get("include", []),
+            fail_msg="FAIL: bdg: include must be list[str]",
+        )
+        exclude = _require_str_list(
+            value=p.get("exclude", []),
+            fail_msg="FAIL: bdg: exclude must be list[str]",
+        )
         include = [_subst(x, subst=subst) for x in include]
         exclude = [_subst(x, subst=subst) for x in exclude]
         try:
@@ -476,9 +498,9 @@ def _exec_one(
             str(cli_log_verbosity_raw) if cli_log_verbosity_raw is not None else None
         )
 
-        from badguys.run_suite import _make_cfg
+        from badguys.run_suite import make_cfg
 
-        cfg = _make_cfg(
+        cfg = make_cfg(
             repo_root,
             cfg_path.relative_to(repo_root),
             cli_runner_verbosity,

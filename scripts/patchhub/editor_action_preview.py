@@ -91,7 +91,7 @@ def preview_action(
         ]
         if obj_id
     ]
-    preview = {
+    preview: dict[str, object] = {
         "action_id": action_id,
         "title": _title(action_id),
         "summary": _summary(action_id),

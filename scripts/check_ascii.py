@@ -60,6 +60,12 @@ class Finding:
         return f"U+{ord(self.ch):04X}"
 
 
+class _CliArgs(argparse.Namespace):
+    root: str
+    ext: list[str]
+    include: list[str]
+
+
 def iter_files(
     root: Path, exts: Sequence[str], skip_patches: bool, self_path: Path
 ) -> Iterator[Path]:
@@ -112,23 +118,24 @@ def main(argv: list[str]) -> int:
     ap.add_argument(
         "--ext",
         action="append",
-        default=[],
+        dest="ext",
         help="File extension to scan (repeatable). Default: .py and .md",
     )
     ap.add_argument(
         "--include",
         action="append",
-        default=[],
+        dest="include",
         help="Include normally-skipped areas. Example: --include patches",
     )
-    args = ap.parse_args(argv)
+    args = _CliArgs(root=".", ext=list[str](), include=list[str]())
+    ap.parse_args(argv, namespace=args)
 
     root = Path(args.root).resolve()
     if not root.exists() or not root.is_dir():
         print(f"ERROR: invalid root: {root}", file=sys.stderr)
         return 2
 
-    exts = args.ext if args.ext else [".py", ".md"]
+    exts = list(args.ext) if args.ext else [".py", ".md"]
     include = {x.strip().lower() for x in args.include}
     skip_patches = "patches" not in include
 

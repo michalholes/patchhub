@@ -47,6 +47,14 @@ class CollectedRefs:
     bare_refs: tuple[str, ...]
 
 
+def _string_literal(node: ast.AST) -> str | None:
+    match node:
+        case ast.Constant(value=str() as value):
+            return value
+        case _:
+            return None
+
+
 class _RepoDependencyCollector(ast.NodeVisitor):
     def __init__(self) -> None:
         self.module_refs: list[str] = []
@@ -68,10 +76,11 @@ class _RepoDependencyCollector(ast.NodeVisitor):
             self.generic_visit(node)
             return
         arg0 = node.args[0]
-        if not isinstance(arg0, ast.Constant) or not isinstance(arg0.value, str):
+        value_raw = _string_literal(arg0)
+        if value_raw is None:
             self.generic_visit(node)
             return
-        value = arg0.value.strip()
+        value = value_raw.strip()
         if not value:
             self.generic_visit(node)
             return
@@ -84,9 +93,10 @@ class _RepoDependencyCollector(ast.NodeVisitor):
             self._add_path_ref(value)
         self.generic_visit(node)
 
-    def visit_Constant(self, node: ast.Constant) -> None:
-        if isinstance(node.value, str):
-            value = node.value.strip()
+    def visit_Constant(self, node: ast.AST) -> None:
+        value_raw = _string_literal(node)
+        if value_raw is not None:
+            value = value_raw.strip()
             if "/" in value or value.endswith((".py", ".toml")):
                 self._add_path_ref(value)
         self.generic_visit(node)

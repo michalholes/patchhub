@@ -9,7 +9,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from patchhub.job_record_lookup import (
     list_job_records_any_async,
@@ -27,8 +27,8 @@ from .async_task_grace import wait_with_grace
 from .job_event_broker import JobEventBroker
 from .revert_job_runtime import (
     EventBroker,
+    RevertJobHandler,
     RevertJobRuntimeError,
-    _append_line_sync,
     abort_git_revert,
     build_revert_job_handler,
     capture_head_sha,
@@ -37,7 +37,7 @@ from .revert_job_runtime import (
     tracked_tree_is_clean,
     verify_failed_revert_postconditions,
 )
-from .rollback_runtime import build_rollback_job_handler
+from .rollback_runtime import RollbackJobHandler, build_rollback_job_handler
 
 
 def utc_now() -> str:
@@ -101,7 +101,7 @@ def _inject_web_overrides(
             break
     insert_at = script_idx + 1 if script_idx >= 0 else len(out)
 
-    existing = set()
+    existing: set[str] = set()
     idx = 0
     while idx + 1 < len(out):
         if out[idx] == "--override":
@@ -148,14 +148,44 @@ def _job_jsonl_path_from_fields(job_dir: Path, mode: str, issue_id: str) -> Path
 def _ensure_job_jsonl_exists_sync(job_dir: Path, mode: str, issue_id: str) -> None:
     job_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = _job_jsonl_path_from_fields(job_dir, mode, issue_id)
+    payload: dict[str, object] = {
+        "type": "log",
+        "ch": "CORE",
+        "sev": "INFO",
+        "msg": "queued",
+        "summary": True,
+    }
     line = json.dumps(
-        {"type": "log", "ch": "CORE", "sev": "INFO", "msg": "queued", "summary": True},
+        payload,
         ensure_ascii=True,
     )
     jsonl_path.write_text(line + "\n", encoding="utf-8")
 
 
+def _append_line_sync(path: Path, line: str) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(str(line or "") + "\n")
+        return int(f.tell())
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
+
+
+@dataclass
+class _AppliedFilesJob:
+    status: object
+    job_id: object
+
+
 _T = TypeVar("_T")
+
+
+def _job_created_utc_desc(job: JobRecord) -> str:
+    return str(job.created_utc or "")
 
 
 @dataclass
@@ -263,7 +293,7 @@ class AsyncJobQueue:
         files, source = collect_job_applied_files(
             patches_root=self._patches_root,
             jobs_root=self._jobs_root,
-            job=job,
+            job=_AppliedFilesJob(status=job.status, job_id=job.job_id),
             job_db=self._job_db,
         )
         if files or source != "unavailable":
@@ -297,7 +327,7 @@ class AsyncJobQueue:
             authority_kind="git_commit_range",
             authority_source_ref=f"{str(job.run_start_sha or '')}..{str(job.run_end_sha or '')}",
         )
-        if not list(manifest.get("entries") or []):
+        if not _obj_list(manifest.get("entries")):
             return
         if self._job_db is not None:
             await asyncio.to_thread(
@@ -311,11 +341,12 @@ class AsyncJobQueue:
         else:
             from patchhub.rollback_scope_manifest import write_manifest
 
-            rel_path, manifest_hash = await asyncio.to_thread(
+            manifest_ref = await asyncio.to_thread(
                 write_manifest,
                 self._job_dir(job.job_id),
                 manifest,
             )
+            rel_path, manifest_hash = manifest_ref
             job.rollback_scope_manifest_rel_path = rel_path
             job.rollback_scope_manifest_hash = manifest_hash
         job.rollback_authority_kind = str(
@@ -331,7 +362,7 @@ class AsyncJobQueue:
         async with self._mu:
             return self._jobs.get(job_id)
 
-    def _build_revert_job_handler(self):
+    def _build_revert_job_handler(self) -> RevertJobHandler:
         return build_revert_job_handler(
             jobs_root=self._jobs_root,
             job_db=self._job_db,
@@ -348,7 +379,7 @@ class AsyncJobQueue:
             verify_failed_revert_postconditions_fn=verify_failed_revert_postconditions,
         )
 
-    def _build_rollback_job_handler(self):
+    def _build_rollback_job_handler(self) -> RollbackJobHandler:
         async def load_job_record_any(job_id: str) -> JobRecord | None:
             return await load_job_record_any_async(
                 job_id,
@@ -367,8 +398,8 @@ class AsyncJobQueue:
         def load_manifest_for_job(job: JobRecord) -> dict[str, object] | None:
             if self._job_db is not None:
                 return self._job_db.load_rollback_manifest(job.job_id)
-            rel_path = str(getattr(job, "rollback_scope_manifest_rel_path", "") or "").strip()
-            manifest_hash = str(getattr(job, "rollback_scope_manifest_hash", "") or "").strip()
+            rel_path = str(job.rollback_scope_manifest_rel_path or "").strip()
+            manifest_hash = str(job.rollback_scope_manifest_hash or "").strip()
             if not rel_path or not manifest_hash:
                 return None
             try:
@@ -432,7 +463,7 @@ class AsyncJobQueue:
         return_code: int,
         error: str | None,
     ) -> bool:
-        finalized: JobRecord | None = None
+        finalized: JobRecord
         async with self._mu:
             job = self._jobs.get(job_id)
             if job is None or job.status != "running":
@@ -458,7 +489,7 @@ class AsyncJobQueue:
             finalized = job
             await self._persist(job)
         callback_errors: list[str] = []
-        if finalized is not None and finalized.status == "success":
+        if finalized.status == "success":
             try:
                 await self._materialize_applied_files(finalized)
             except Exception as exc:
@@ -467,10 +498,9 @@ class AsyncJobQueue:
                 await self._persist_rollback_manifest(finalized)
             except Exception as exc:
                 callback_errors.append(f"{type(exc).__name__}: {exc}")
-        if finalized is not None:
-            callback_error = await self._run_terminal_job_cleanup_callback(finalized)
-            if callback_error is not None:
-                callback_errors.append(callback_error)
+        callback_error = await self._run_terminal_job_cleanup_callback(finalized)
+        if callback_error is not None:
+            callback_errors.append(callback_error)
         if callback_errors:
             await self._append_terminal_cleanup_error(job_id, "; ".join(callback_errors))
         return True
@@ -528,7 +558,7 @@ class AsyncJobQueue:
     async def _list_jobs_local(self) -> list[JobRecord]:
         async with self._mu:
             jobs = list(self._jobs.values())
-        jobs.sort(key=lambda j: j.created_utc, reverse=True)
+        jobs.sort(key=_job_created_utc_desc, reverse=True)
         return jobs
 
     async def list_jobs(self) -> list[JobRecord]:
@@ -553,16 +583,17 @@ class AsyncJobQueue:
             self._jobs[job.job_id] = job
             await self._persist(job)
             if self._job_db is not None:
+                payload: dict[str, object] = {
+                    "type": "log",
+                    "ch": "CORE",
+                    "sev": "INFO",
+                    "msg": "queued",
+                    "summary": True,
+                }
                 self._job_db.append_event_line(
                     job.job_id,
                     json.dumps(
-                        {
-                            "type": "log",
-                            "ch": "CORE",
-                            "sev": "INFO",
-                            "msg": "queued",
-                            "summary": True,
-                        },
+                        payload,
                         ensure_ascii=True,
                     ),
                 )

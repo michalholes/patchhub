@@ -43,8 +43,9 @@ async def handle_api_debug_diagnostics(core: AsyncAppCore, request: Request) -> 
         return Response(status_code=304, headers={"ETag": etag})
 
     if since_sig and since_sig == sig:
+        payload: dict[str, object] = {"ok": True, "unchanged": True, "sig": sig}
         data = json.dumps(
-            {"ok": True, "unchanged": True, "sig": sig},
+            payload,
             ensure_ascii=True,
         ).encode("utf-8")
         return Response(

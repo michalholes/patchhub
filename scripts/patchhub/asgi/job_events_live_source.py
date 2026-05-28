@@ -4,12 +4,14 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from patchhub.live_event_retention import (
     LIVE_EVENT_RETENTION_MIN,
     clamp_live_event_retention,
 )
 
+from .async_offload import to_thread
 from .job_event_broker import JobEventBroker
 
 
@@ -59,11 +61,14 @@ async def stream_job_events_live_source(
             yield chunk
         return
 
-    tail, snapshot_end_offset = await asyncio.to_thread(
-        _read_tail_snapshot,
-        jsonl_path,
-        tail_lines,
-    )
+    if TYPE_CHECKING:
+        tail, snapshot_end_offset = _read_tail_snapshot(jsonl_path, tail_lines)
+    else:
+        tail, snapshot_end_offset = await to_thread(
+            _read_tail_snapshot,
+            jsonl_path,
+            tail_lines,
+        )
     if tail:
         for line in tail.splitlines():
             if not line.strip():
@@ -78,15 +83,14 @@ async def stream_job_events_live_source(
 
         status = await job_status()
         if status is None:
-            data = json.dumps({"reason": "job_not_found"}, ensure_ascii=True)
+            payload: dict[str, object] = {"reason": "job_not_found"}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
 
         if status not in ("queued", "running"):
-            data = json.dumps(
-                {"reason": "job_completed", "status": str(status)},
-                ensure_ascii=True,
-            )
+            payload = {"reason": "job_completed", "status": str(status)}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
 
@@ -109,8 +113,6 @@ async def stream_job_events_live_source(
         yield f"data: {line}\n\n".encode()
 
     status = await job_status()
-    data = json.dumps(
-        {"reason": "job_completed", "status": status or ""},
-        ensure_ascii=True,
-    )
+    payload = {"reason": "job_completed", "status": status or ""}
+    data = json.dumps(payload, ensure_ascii=True)
     yield f"event: end\ndata: {data}\n\n".encode()

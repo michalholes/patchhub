@@ -4,8 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import zlib
-from copy import deepcopy
-from typing import cast
+from typing import TypedDict, cast
 
 from .editor_codec import (
     FailurePayload,
@@ -13,9 +12,12 @@ from .editor_codec import (
     last_error_detail,
     parse_entry_tuple,
     parse_list_head,
-    scaffold_object,
 )
-from .editor_fixup_shared import EditorFixupError
+
+
+class _CatalogEntry(TypedDict):
+    title: str
+    actions: list[tuple[str, str]]
 
 
 def _sid(obj: ObjectRecord) -> str:
@@ -26,92 +28,31 @@ def _by_id(items: list[ObjectRecord], obj_id: str) -> ObjectRecord | None:
     return next((obj for obj in items if _sid(obj) == obj_id), None)
 
 
-def _obj(items: list[ObjectRecord], obj_id: str) -> ObjectRecord:
-    obj = _by_id(items, obj_id)
-    if obj is None:
-        raise EditorFixupError(f"Object not found: {obj_id}")
-    return obj
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
 
 
-def _items(items: list[ObjectRecord], kind: str) -> list[ObjectRecord]:
-    return [obj for obj in items if obj.get("type") == kind]
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
 
 
-def _iter_values(values: object) -> list[object]:
-    if isinstance(values, list | tuple | set):
-        return list(values)
-    if values in (None, ""):
-        return []
-    return [values]
-
-
-def _str_list(values: object) -> list[str]:
-    return [str(x) for x in _iter_values(values)]
-
-
-def _swap(values: object, old: str, new: str) -> list[str]:
-    return [new if str(x) == old else str(x) for x in _iter_values(values)]
-
-
-def _drop(values: object, old: str) -> list[str]:
-    return [str(x) for x in _iter_values(values) if str(x) != old]
-
-
-def _remove(items: list[ObjectRecord], obj_id: str) -> None:
-    items[:] = [obj for obj in items if _sid(obj) != obj_id]
-
-
-def _replace(items: list[ObjectRecord], obj_id: str, new_obj: ObjectRecord) -> None:
-    for idx, obj in enumerate(items):
-        if _sid(obj) == obj_id:
-            items[idx] = new_obj
-            return
-    raise EditorFixupError(f"Object not found: {obj_id}")
-
-
-def _unique(items: list[ObjectRecord], base: str) -> str:
-    used = {_sid(obj) for obj in items}
-    if base not in used:
-        return base
-    idx = 1
-    while f"{base}.{idx}" in used:
-        idx += 1
-    return f"{base}.{idx}"
-
-
-def _append(items: list[ObjectRecord], kind: str, preferred_id: str) -> ObjectRecord:
-    obj = deepcopy(scaffold_object(kind))
-    obj["id"] = _unique(items, preferred_id or str(obj.get("id", kind.upper() + ".NEW")))
-    items.append(obj)
-    return obj
-
-
-def _first(items: list[ObjectRecord], kind: str, *, route_ref: str = "") -> ObjectRecord:
-    matches = [obj for obj in items if obj.get("type") == kind]
-    if route_ref:
-        matches = [obj for obj in matches if str(obj.get("route_ref", "")) == route_ref]
-    if not matches:
-        raise EditorFixupError(f"No matching {kind} object found")
-    return sorted(matches, key=_sid)[0]
-
-
-def _first_id(items: list[ObjectRecord], kind: str) -> str:
-    return _sid(_first(items, kind))
-
-
-def _set_route_ref(obj: ObjectRecord, route_id: str) -> None:
-    field = {
-        "surface": "route_ref",
-        "implementation": "implements_route",
-        "workflow_step": "route_ref",
-    }.get(str(obj.get("type", "")))
-    if field is None:
-        raise EditorFixupError("Object does not carry a route reference")
-    obj[field] = route_id
-
-
-def _pairs(blob: str) -> dict[str, str]:
-    return dict(item.split("|", 1) for item in blob.replace("\n", ";").split(";") if item.strip())
+def _action_pairs(value: object) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for item in _obj_list(value):
+        pair = _obj_list(item)
+        if len(pair) < 2:
+            continue
+        out.append((str(pair[0]), str(pair[1])))
+    return out
 
 
 def _catalog_payload() -> dict[str, object]:
@@ -142,15 +83,34 @@ def _catalog_payload() -> dict[str, object]:
         )
     )
     raw = zlib.decompress(base64.b85decode(blob.encode("ascii")))
-    return json.loads(raw.decode("utf-8"))
+    parsed: object = json.loads(raw.decode("utf-8"))
+    payload = _obj_dict(parsed)
+    if payload is None:
+        raise ValueError("editor fixup catalog payload must decode to an object")
+    return payload
+
+
+def _load_catalog(payload: dict[str, object]) -> tuple[dict[str, str], dict[str, _CatalogEntry]]:
+    labels_raw = _obj_dict(payload.get("labels")) or {}
+    labels: dict[str, str] = {}
+    for key, value in labels_raw.items():
+        labels[key] = str(value)
+
+    catalog_raw = _obj_dict(payload.get("catalog")) or {}
+    catalog: dict[str, _CatalogEntry] = {}
+    for failure_class, raw_entry in catalog_raw.items():
+        entry = _obj_dict(raw_entry)
+        if entry is None:
+            continue
+        catalog[failure_class] = {
+            "title": str(entry.get("title", "")),
+            "actions": _action_pairs(entry.get("actions")),
+        }
+    return labels, catalog
 
 
 _PAYLOAD = _catalog_payload()
-ACTION_LABELS: dict[str, str] = cast(dict[str, str], _PAYLOAD["labels"])
-FAILURE_ACTION_CATALOG: dict[str, dict[str, object]] = cast(
-    dict[str, dict[str, object]],
-    _PAYLOAD["catalog"],
-)
+ACTION_LABELS, FAILURE_ACTION_CATALOG = _load_catalog(_PAYLOAD)
 ACTION_LABELS.update(
     {
         "create_entry_gate_block": "Create entry gate block",
@@ -160,14 +120,11 @@ ACTION_LABELS.update(
 FAILURE_ACTION_CATALOG["workflow_missing_entry_gate_root"] = {
     "title": "Workflow entry gate/root marker missing",
     "actions": [
-        ["create_entry_gate_block", ACTION_LABELS["create_entry_gate_block"]],
-        ["mark_workflow_step_root", ACTION_LABELS["mark_workflow_step_root"]],
-        ["delete_unsaved_block", ACTION_LABELS["delete_unsaved_block"]],
+        ("create_entry_gate_block", ACTION_LABELS["create_entry_gate_block"]),
+        ("mark_workflow_step_root", ACTION_LABELS["mark_workflow_step_root"]),
+        ("delete_unsaved_block", ACTION_LABELS["delete_unsaved_block"]),
     ],
 }
-
-
-FixContext = tuple[str, str, list[ObjectRecord]]
 
 
 def _pair(detail: str, failure_class: str, primary_idx: int = 2) -> tuple[str, str, str]:
@@ -282,7 +239,7 @@ def available_actions(
     objects: list[ObjectRecord],
     loaded_objects: list[ObjectRecord],
 ) -> list[dict[str, str]]:
-    out = []
+    out: list[dict[str, str]] = []
     for action_id, label in FAILURE_ACTION_CATALOG[failure_class]["actions"]:
         ok = action_id not in {"revert_block", "delete_unsaved_block"}
         if action_id == "revert_block":

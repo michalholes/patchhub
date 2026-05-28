@@ -13,7 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, cast
 
-from .app_support import _err, _ok
+from .app_support import err as err_response
+from .app_support import ok as ok_response
 from .config import AppConfig
 from .editor_action_preview import preview_action
 from .editor_codec import (
@@ -281,7 +282,7 @@ def _toolkit_failure_message(resolution: dict[str, object]) -> str:
 
 
 def _missing_revision_failure(kind: str, message: str) -> FailurePayload:
-    return cast(FailurePayload, empty_failure(kind, message))
+    return empty_failure(kind, message)
 
 
 def _scaffold_text_map() -> dict[str, str]:
@@ -300,8 +301,8 @@ def api_editor_bootstrap(
     try:
         runtime = _runtime(self)
     except (OSError, ValueError) as exc:
-        return _err(str(exc), status=400)
-    return _ok(
+        return err_response(str(exc), status=400)
+    return ok_response(
         {
             "target_repo": runtime.default_target_repo,
             "target_repo_options": runtime.options,
@@ -355,7 +356,7 @@ def api_editor_document(
             failure=failure,
         )
         ops.append(_op("Info", "LOAD_OK", f"Loaded {path.name}"))
-        return _ok(
+        return ok_response(
             {
                 "target_repo": target_repo,
                 "document": document,
@@ -383,7 +384,7 @@ def api_editor_document(
             "error": str(exc),
             "toolkit_resolution": toolkit_resolution,
         }
-        return _err(
+        return err_response(
             json.dumps(error_payload),
             status=400,
         )
@@ -394,7 +395,7 @@ def api_editor_document(
             "error": str(exc),
             "toolkit_resolution": toolkit_resolution,
         }
-        return _err(
+        return err_response(
             json.dumps(load_error_payload),
             status=400,
         )
@@ -415,7 +416,7 @@ def api_editor_validate(
             "Missing or stale revision_token",
         )
         ops.append(_op("Error", "VALIDATE_FAIL", str(failed.get("failure_code", ""))))
-        return _ok(
+        return ok_response(
             {
                 "validated": False,
                 "failure": failed,
@@ -442,7 +443,7 @@ def api_editor_validate(
         if not ok:
             failed = failure or empty_failure("validate_failure", "Validation failed")
             ops.append(_op("Error", "VALIDATE_FAIL", str(failed.get("failure_code", ""))))
-            return _ok(
+            return ok_response(
                 {
                     "validated": False,
                     "failure": failed,
@@ -468,7 +469,7 @@ def api_editor_validate(
             toolkit_selection=state.toolkit_selection,
         )
         ops.append(_op("Info", "VALIDATE_OK", "Validation passed"))
-        return _ok(
+        return ok_response(
             {
                 "validated": True,
                 "revision_token": token,
@@ -488,7 +489,7 @@ def api_editor_validate(
     except Exception as exc:
         ops.append(_op("Error", "VALIDATE_FAIL", str(exc)))
         failed = empty_failure("validate_exception", str(exc))
-        return _ok(
+        return ok_response(
             {
                 "validated": False,
                 "failure": failed,
@@ -522,7 +523,7 @@ def api_editor_save(
             "Missing or stale revision_token",
         )
         ops.append(_op("Error", "SAVE_FAIL", str(failed.get("failure_code", ""))))
-        return _ok(
+        return ok_response(
             {
                 "saved": False,
                 "failure": failed,
@@ -549,7 +550,7 @@ def api_editor_save(
         if not ok:
             failed = failure or empty_failure("save_failure", "Save failed")
             ops.append(_op("Error", "SAVE_FAIL", str(failed.get("failure_code", ""))))
-            return _ok(
+            return ok_response(
                 {
                     "saved": False,
                     "failure": failed,
@@ -577,7 +578,7 @@ def api_editor_save(
             toolkit_selection=state.toolkit_selection,
         )
         ops.append(_op("Info", "SAVE_OK", f"Saved {path.name}"))
-        return _ok(
+        return ok_response(
             {
                 "saved": True,
                 "revision_token": token,
@@ -598,7 +599,7 @@ def api_editor_save(
     except Exception as exc:
         ops.append(_op("Error", "SAVE_FAIL", str(exc)))
         failed = empty_failure("save_exception", str(exc))
-        return _ok(
+        return ok_response(
             {
                 "saved": False,
                 "failure": failed,
@@ -645,7 +646,7 @@ def api_editor_save_unsafe(
             toolkit_selection=(state.toolkit_selection if state else None),
         )
         ops.append(_op("Warning", "UNSAFE_SAVE_OK", f"Saved {path.name} without validation"))
-        return _ok(
+        return ok_response(
             {
                 "saved": True,
                 "revision_token": token,
@@ -670,7 +671,7 @@ def api_editor_save_unsafe(
             fallback_objects = parse_human_text(human_text).objects if human_text else []
         except Exception:
             fallback_objects = []
-        return _ok(
+        return ok_response(
             {
                 "saved": False,
                 "failure": failed,
@@ -716,17 +717,17 @@ def api_editor_preview_action(
                 "Missing or stale revision_token",
             )
             preview["post_validation"] = {"validated": False, "failure": failure}
-            return _ok({"ok": True, "preview": preview, "ops": ops})
+            return ok_response({"ok": True, "preview": preview, "ops": ops})
         ok, _objects, validation_failure = _validate_current(
             validator_path=state.toolkit_selection.validate_master_spec_v2_path,
             human_text=human_text_from_objects(fixed),
             loaded_objects=loaded_objects,
         )
         preview["post_validation"] = {"validated": ok, "failure": validation_failure}
-        return _ok({"ok": True, "preview": preview, "ops": ops})
+        return ok_response({"ok": True, "preview": preview, "ops": ops})
     except Exception as exc:
         ops.append(_op("Error", "FIX_FAIL", str(exc)))
-        return _ok({"ok": False, "error": str(exc), "ops": ops})
+        return ok_response({"ok": False, "error": str(exc), "ops": ops})
 
 
 def api_editor_apply_fix(
@@ -743,14 +744,17 @@ def api_editor_apply_fix(
         "secondary_id",
     }
     if set(body) != required:
-        return _err(f"apply_fix payload keys must be exactly {sorted(required)}", status=400)
+        return err_response(
+            f"apply_fix payload keys must be exactly {sorted(required)}",
+            status=400,
+        )
     target_repo = str(body.get("target_repo", "")).strip()
     document = str(body.get("document", "")).strip()
     action_id = str(body.get("action_id", "")).strip()
     primary_id = str(body.get("primary_id", "")).strip()
     secondary_id = str(body.get("secondary_id", "")).strip()
     if action_id in CLIENT_ONLY_ACTIONS:
-        return _err("Client-side action must not call apply_fix", status=400)
+        return err_response("Client-side action must not call apply_fix", status=400)
     state = _state(str(body.get("revision_token", "")).strip(), target_repo, document)
     ops = [_op("Info", "FIX_APPLY", action_id)]
     try:
@@ -778,7 +782,7 @@ def api_editor_apply_fix(
             current_text=human,
             toolkit_selection=state.toolkit_selection,
         )
-        return _ok(
+        return ok_response(
             {
                 "ok": True,
                 "human_text": human,
@@ -804,7 +808,7 @@ def api_editor_apply_fix(
             primary_id=primary_id,
             secondary_id=secondary_id,
         )
-        return _ok(
+        return ok_response(
             {
                 "ok": False,
                 "workspace": _workspace_payload(

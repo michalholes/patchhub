@@ -6,9 +6,11 @@ import json
 import shutil
 import tempfile
 import urllib.parse
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 from zipfile import ZipFile
 
 from .config import AppConfig
@@ -83,10 +85,11 @@ def _clean_github_url(value: str, *, field: str) -> str:
 
 
 def _obj_dict(value: object) -> dict[str, object] | None:
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         return None
+    mapping = cast(Mapping[object, object], value)
     out: dict[str, object] = {}
-    for key, item in value.items():
+    for key, item in mapping.items():
         if isinstance(key, str):
             out[key] = item
     return out

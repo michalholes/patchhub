@@ -3,21 +3,31 @@
 from __future__ import annotations
 
 import contextlib
+import importlib
 import os
 import shutil
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol, cast
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if isinstance(value, dict):
+        return cast(dict[str, object], value)
+    return None
 
 
 def _bootstrap_read_cfg(cfg_path: Path) -> dict[str, object]:
     try:
         import tomllib
 
-        data = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
+        raw_cfg = cast(object, tomllib.loads(cfg_path.read_text(encoding="utf-8")))
+        data = _obj_dict(raw_cfg)
+        if data is None:
             return {}
         return data
     except Exception:
@@ -41,21 +51,21 @@ def _bootstrap_venv_policy(argv: list[str]) -> tuple[str, str]:
 
     # CLI-only config selection for bootstrap.
     cfg_arg = _bootstrap_get_arg(argv, "--config")
-    cfg_path = Path(cfg_arg) if cfg_arg else (_REPO_ROOT / "scripts" / "am_patch" / "am_patch.toml")
+    cfg_path = Path(cfg_arg) if cfg_arg else _REPO_ROOT / "scripts" / "am_patch" / "am_patch.toml"
     if cfg_path and not cfg_path.is_absolute():
         cfg_path = _REPO_ROOT / cfg_path
 
     cfg = _bootstrap_read_cfg(cfg_path)
     flat: dict[str, object] = {}
-    if isinstance(cfg, dict):
-        # Flatten top-level sections into a single mapping (same convention as runner
-        # config loader).
-        for k, v in cfg.items():
-            if isinstance(v, dict):
-                for kk, vv in v.items():
-                    flat[str(kk)] = vv
-            else:
-                flat[str(k)] = v
+    # Flatten top-level sections into a single mapping (same convention as runner
+    # config loader).
+    for key, value in cfg.items():
+        section = _obj_dict(value)
+        if section is not None:
+            for section_key, section_value in section.items():
+                flat[section_key] = section_value
+            continue
+        flat[key] = value
 
     if isinstance(flat.get("venv_bootstrap_mode"), str):
         mode = str(flat["venv_bootstrap_mode"]).strip()
@@ -109,131 +119,42 @@ def _maybe_bootstrap_venv(argv: list[str]) -> None:
 
 
 _maybe_bootstrap_venv(sys.argv)
-_REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPTS_DIR = _REPO_ROOT / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from am_patch.config import (
-    Policy,
-)
-from am_patch.engine import (
-    build_effective_policy,
-    build_paths_and_logger,
-    finalize_and_report,
-    run_mode,
-)
+from am_patch.cli import CliArgs
+from am_patch.config import Policy
 from am_patch.errors import CANCEL_EXIT_CODE, RunnerCancelledError, RunnerError
-from am_patch.fs_junk import fs_junk_ignore_partition
-from am_patch.log import Logger
-from am_patch.patch_archive_select import select_latest_issue_patch
-from am_patch.post_success_audit import run_post_success_audit
-from am_patch.repo_root import is_under, resolve_repo_root
-from am_patch.run_result import RunResult, _normalize_failure_summary
+from am_patch.run_result import RunResult, normalize_failure_summary
 from am_patch.runner_failure_detail import (
     render_runner_error_detail,
     render_runner_error_fingerprint,
 )
-from am_patch.runtime import _parse_gate_list, _stage_rank
+from am_patch.runtime import parse_gate_list, stage_rank
+from am_patch.startup_context import RunContext
+
+BuildEffectivePolicy = Callable[[list[str]], int | tuple[CliArgs, Policy, Path, str]]
+BuildPathsAndLogger = Callable[[CliArgs, Policy, Path, str], RunContext]
+FinalizeAndReport = Callable[[RunContext, RunResult], int]
+RunMode = Callable[[RunContext], RunResult]
+
+
+class _EngineModule(Protocol):
+    build_effective_policy: BuildEffectivePolicy
+    build_paths_and_logger: BuildPathsAndLogger
+    finalize_and_report: FinalizeAndReport
+    run_mode: RunMode
+
+
+_engine = cast(_EngineModule, importlib.import_module("am_patch.engine"))
+build_effective_policy = _engine.build_effective_policy
+build_paths_and_logger = _engine.build_paths_and_logger
+finalize_and_report = _engine.finalize_and_report
+run_mode = _engine.run_mode
 
 # NOTE: Any change that alters runner behavior MUST bump RUNNER_VERSION and MUST update
 # the runner specification under scripts/ (e.g., scripts/am_patch_specification.md).
-from am_patch.workspace_history import (
-    rotate_current_dir,
-    workspace_history_dirs,
-    workspace_store_current_log,
-    workspace_store_current_patch,
-)
-
-
-def _fs_junk_ignore_partition(
-    paths: list[str],
-    *,
-    ignore_prefixes: tuple[str, ...] | list[str],
-    ignore_suffixes: tuple[str, ...] | list[str],
-    ignore_contains: tuple[str, ...] | list[str],
-) -> tuple[list[str], list[str]]:
-    return fs_junk_ignore_partition(
-        paths,
-        ignore_prefixes=ignore_prefixes,
-        ignore_suffixes=ignore_suffixes,
-        ignore_contains=ignore_contains,
-    )
-
-
-def _run_post_success_audit(logger: Logger, repo_root: Path, policy: Policy) -> None:
-    return run_post_success_audit(logger, repo_root, policy)
-
-
-def _resolve_repo_root() -> Path:
-    return resolve_repo_root()
-
-
-def _is_under(child: Path, parent: Path) -> bool:
-    return is_under(child, parent)
-
-
-def _select_latest_issue_patch(*, patch_dir: Path, issue_id: str, hint_name: str | None) -> Path:
-    return select_latest_issue_patch(patch_dir=patch_dir, issue_id=issue_id, hint_name=hint_name)
-
-
-def _workspace_history_dirs(
-    ws_root: Path,
-    *,
-    history_logs_dir: str = "logs",
-    history_oldlogs_dir: str = "oldlogs",
-    history_patches_dir: str = "patches",
-    history_oldpatches_dir: str = "oldpatches",
-) -> tuple[Path, Path, Path, Path]:
-    return workspace_history_dirs(
-        ws_root,
-        history_logs_dir=history_logs_dir,
-        history_oldlogs_dir=history_oldlogs_dir,
-        history_patches_dir=history_patches_dir,
-        history_oldpatches_dir=history_oldpatches_dir,
-    )
-
-
-def _rotate_current_dir(cur_dir: Path, old_dir: Path, prev_attempt: int) -> None:
-    return rotate_current_dir(cur_dir, old_dir, prev_attempt)
-
-
-def _workspace_store_current_patch(
-    ws,
-    patch_script: Path,
-    *,
-    history_logs_dir: str,
-    history_oldlogs_dir: str,
-    history_patches_dir: str,
-    history_oldpatches_dir: str,
-) -> None:
-    return workspace_store_current_patch(
-        ws,
-        patch_script,
-        history_logs_dir=history_logs_dir,
-        history_oldlogs_dir=history_oldlogs_dir,
-        history_patches_dir=history_patches_dir,
-        history_oldpatches_dir=history_oldpatches_dir,
-    )
-
-
-def _workspace_store_current_log(
-    ws,
-    log_path: Path,
-    *,
-    history_logs_dir: str,
-    history_oldlogs_dir: str,
-    history_patches_dir: str,
-    history_oldpatches_dir: str,
-) -> None:
-    return workspace_store_current_log(
-        ws,
-        log_path,
-        history_logs_dir=history_logs_dir,
-        history_oldlogs_dir=history_oldlogs_dir,
-        history_patches_dir=history_patches_dir,
-        history_oldpatches_dir=history_oldpatches_dir,
-    )
 
 
 def _build_internal_failure_result(exc: Exception) -> RunResult:
@@ -248,13 +169,17 @@ def _build_internal_failure_result(exc: Exception) -> RunResult:
     )
 
 
-def _attach_startup_workspace(ctx, result: RunResult) -> RunResult:
-    if getattr(ctx, "preopened_workspace", None) is not None:
-        result.ws_for_posthook = ctx.preopened_workspace
+def _attach_startup_workspace(ctx: RunContext, result: RunResult) -> RunResult:
+    try:
+        preopened_workspace = ctx.preopened_workspace
+    except AttributeError:
+        return result
+    if preopened_workspace is not None:
+        result.ws_for_posthook = preopened_workspace
     return result
 
 
-def _build_startup_failure_result(ctx, exc: Exception) -> RunResult:
+def _build_startup_failure_result(ctx: RunContext, exc: Exception) -> RunResult:
     if isinstance(exc, RunnerCancelledError):
         return _attach_startup_workspace(
             ctx,
@@ -265,12 +190,12 @@ def _build_startup_failure_result(ctx, exc: Exception) -> RunResult:
             ),
         )
     if isinstance(exc, RunnerError):
-        final_fail_stage, final_fail_reason = _normalize_failure_summary(
+        final_fail_stage, final_fail_reason = normalize_failure_summary(
             error=exc,
             primary_fail_stage=None,
             secondary_failures=[],
-            parse_gate_list=_parse_gate_list,
-            stage_rank=_stage_rank,
+            parse_gate_list=parse_gate_list,
+            stage_rank=stage_rank,
         )
         return _attach_startup_workspace(
             ctx,
@@ -285,11 +210,17 @@ def _build_startup_failure_result(ctx, exc: Exception) -> RunResult:
     return _attach_startup_workspace(ctx, _build_internal_failure_result(exc))
 
 
-def _cleanup_isolated_test_mode_patch_dir(ctx) -> None:
-    policy = getattr(ctx, "policy", None)
-    if policy is None or not bool(getattr(policy, "test_mode", False)):
+def _cleanup_isolated_test_mode_patch_dir(ctx: RunContext) -> None:
+    try:
+        policy = ctx.policy
+    except AttributeError:
         return
-    isolated_work_patch_dir = getattr(ctx, "isolated_work_patch_dir", None)
+    if not bool(policy.test_mode):
+        return
+    try:
+        isolated_work_patch_dir = ctx.isolated_work_patch_dir
+    except AttributeError:
+        return
     if isolated_work_patch_dir is None:
         return
     if "_test_mode" not in isolated_work_patch_dir.parts:
@@ -303,11 +234,14 @@ def main(argv: list[str]) -> int:
     if isinstance(res, int):
         return res
     cli, policy, config_path, used_cfg = res
-    ctx = None
+    ctx: RunContext | None = None
     exit_code: int | None = None
     try:
         ctx = build_paths_and_logger(cli, policy, config_path, used_cfg)
-        startup_failure = getattr(ctx, "startup_failure", None)
+        try:
+            startup_failure = ctx.startup_failure
+        except AttributeError:
+            startup_failure = None
         if startup_failure is None:
             try:
                 result = run_mode(ctx)
@@ -318,7 +252,7 @@ def main(argv: list[str]) -> int:
         exit_code = finalize_and_report(ctx, result)
         return exit_code
     finally:
-        ipc = getattr(ctx, "ipc", None) if ctx is not None else None
+        ipc = None if ctx is None else ctx.ipc
         if ctx is not None and ipc is not None:
             shutdown_handshake_active = False
             with contextlib.suppress(Exception):
@@ -341,11 +275,10 @@ def main(argv: list[str]) -> int:
                     if shutdown_handshake_active:
                         ipc.wait_for_drain_ack()
             if not shutdown_handshake_active:
-                delay = (
-                    int(getattr(policy, "ipc_socket_cleanup_delay_success_s", 0) or 0)
-                    if exit_code == 0
-                    else int(getattr(policy, "ipc_socket_cleanup_delay_failure_s", 0) or 0)
-                )
+                if exit_code == 0:
+                    delay = int(policy.ipc_socket_cleanup_delay_success_s or 0)
+                else:
+                    delay = int(policy.ipc_socket_cleanup_delay_failure_s or 0)
                 if delay > 0:
                     threading.Event().wait(float(delay))
             with contextlib.suppress(Exception):

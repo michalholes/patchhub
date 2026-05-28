@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,10 +79,11 @@ def _coerce_optional_int(value: object) -> int | None:
 
 
 def _obj_dict(value: object) -> dict[str, object] | None:
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         return None
+    mapping = cast(Mapping[object, object], value)
     out: dict[str, object] = {}
-    for key, item in value.items():
+    for key, item in mapping.items():
         if isinstance(key, str):
             out[key] = item
     return out
@@ -89,7 +91,7 @@ def _obj_dict(value: object) -> dict[str, object] | None:
 
 def _obj_list(value: object) -> list[object]:
     if isinstance(value, list):
-        return list(value)
+        return list(cast(list[object], value))
     return []
 
 
@@ -106,6 +108,18 @@ def _dict_list(value: object) -> list[dict[str, object]]:
     return out
 
 
+def _empty_str_list() -> list[str]:
+    return []
+
+
+def _empty_dict_list() -> list[dict[str, object]]:
+    return []
+
+
+def _empty_stats_windows() -> list[StatsWindow]:
+    return []
+
+
 @runtime_checkable
 class BackendModeStateLike(Protocol):
     mode: object
@@ -116,8 +130,14 @@ class BackendModeStateLike(Protocol):
 @runtime_checkable
 class RuntimeOriginSourceLike(Protocol):
     backend_mode_state: object
-    _backend_session_id: object
     web_jobs_db: object
+
+
+def _get_attr_object(obj: object, name: str) -> object | None:
+    try:
+        return cast(object, object.__getattribute__(obj, name))
+    except AttributeError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -169,10 +189,10 @@ class RollbackAuthorityRecord:
     manifest_effective_runner_target_repo: str | None = None
     manifest_authority_kind: str | None = None
     manifest_authority_source_ref: str | None = None
-    manifest_entries: list[dict[str, object]] = field(default_factory=list)
+    manifest_entries: list[dict[str, object]] = field(default_factory=_empty_dict_list)
     request_source_job_id: str | None = None
     request_scope_kind: str | None = None
-    request_selected_repo_paths: list[str] = field(default_factory=list)
+    request_selected_repo_paths: list[str] = field(default_factory=_empty_str_list)
     request_preflight_token: str | None = None
     updated_unix_ms: int = 0
 
@@ -364,8 +384,8 @@ class JobRecord:
     original_patch_path: str | None = None
     effective_patch_path: str | None = None
     effective_patch_kind: str | None = None
-    selected_patch_entries: list[str] = field(default_factory=list)
-    selected_repo_paths: list[str] = field(default_factory=list)
+    selected_patch_entries: list[str] = field(default_factory=_empty_str_list)
+    selected_repo_paths: list[str] = field(default_factory=_empty_str_list)
     zip_target_repo: str | None = None
     selected_target_repo: str | None = None
     effective_runner_target_repo: str | None = None
@@ -382,7 +402,7 @@ class JobRecord:
     origin_authoritative_backend: str | None = None
     origin_backend_session_id: str | None = None
     origin_recovery_json: str | None = None
-    applied_files: list[str] = field(default_factory=list)
+    applied_files: list[str] = field(default_factory=_empty_str_list)
     applied_files_source: str = "unavailable"
     last_log_seq: int = 0
     last_event_seq: int = 0
@@ -686,7 +706,7 @@ def build_job_origin_fields_from_runtime(source: object) -> dict[str, str | None
     web_jobs_db_present = False
     if isinstance(source, RuntimeOriginSourceLike):
         backend_mode_state = source.backend_mode_state
-        backend_session_id = str(source._backend_session_id or "")
+        backend_session_id = str(_get_attr_object(source, "_backend_session_id") or "")
         web_jobs_db_present = source.web_jobs_db is not None
     return build_job_origin_fields(
         backend_mode_state=backend_mode_state,
@@ -785,4 +805,4 @@ class StatsWindow:
 @dataclass
 class AppStats:
     all_time: StatsWindow
-    windows: list[StatsWindow] = field(default_factory=list)
+    windows: list[StatsWindow] = field(default_factory=_empty_stats_windows)

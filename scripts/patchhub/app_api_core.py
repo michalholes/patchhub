@@ -8,15 +8,21 @@ from typing import TYPE_CHECKING, cast
 
 from . import proc_resources
 from .app_support import (
-    _decorate_run,
-    _err,
-    _iter_canceled_runs,
-    _json_bytes,
-    _ok,
     active_canceled_runs_source,
     canceled_runs_signature,
     compute_success_archive_rel,
+    decorate_run,
+    iter_canceled_runs,
     read_tail,
+)
+from .app_support import (
+    err as err_response,
+)
+from .app_support import (
+    json_bytes as json_bytes_response,
+)
+from .app_support import (
+    ok as ok_response,
 )
 from .command_parse import CommandParseError, parse_runner_command
 from .indexing import compute_stats, iter_runs, runs_signature
@@ -51,11 +57,17 @@ def _autofill_scan_dir_rel(self: AsyncAppCore) -> str | None:
     return None
 
 
-def _derive_from_filename(
+def derive_from_filename(
     self: AsyncAppCore,
     filename: str,
 ) -> tuple[str | None, str | None]:
     return derive_filename_metadata(self.cfg, filename)
+
+
+autofill_scan_dir_rel = _autofill_scan_dir_rel
+_derive_from_filename = derive_from_filename
+_iter_canceled_runs = iter_canceled_runs
+_decorate_run = decorate_run
 
 
 def _run_sort_key(run: RunEntry) -> tuple[str, int]:
@@ -109,7 +121,7 @@ def api_config(self: AsyncAppCore) -> tuple[int, bytes]:
             target_cfg=cast(TargetCfgLike, self.cfg.targeting),
         )
     except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
-        return _err(str(e), status=400)
+        return err_response(str(e), status=400)
     success_rel = compute_success_archive_rel(
         self.repo_root, runtime.runner_config_toml, self.cfg.paths.patches_root
     )
@@ -182,7 +194,7 @@ def api_config(self: AsyncAppCore) -> tuple[int, bytes]:
             "zip_target_prefill_enabled": bool(self.cfg.targeting.zip_target_prefill_enabled),
         },
     }
-    return _json_bytes(data)
+    return json_bytes_response(data)
 
 
 def api_patches_latest(
@@ -190,11 +202,11 @@ def api_patches_latest(
     qs: dict[str, str] | None = None,
 ) -> tuple[int, bytes]:
     if not self.cfg.autofill.enabled:
-        return _ok({"found": False, "disabled": True})
+        return ok_response({"found": False, "disabled": True})
     if self.cfg.autofill.choose_strategy != "mtime_ns":
-        return _err("Unsupported choose_strategy", status=400)
+        return err_response("Unsupported choose_strategy", status=400)
     if self.cfg.autofill.tiebreaker != "lex_name":
-        return _err("Unsupported tiebreaker", status=400)
+        return err_response("Unsupported tiebreaker", status=400)
 
     qs = qs or {}
     since_token = str(qs.get("since_token", "") or "").strip()
@@ -203,12 +215,12 @@ def api_patches_latest(
 
     rel = _autofill_scan_dir_rel(self)
     if rel is None:
-        return _err("scan_dir must be under patches_root", status=400)
+        return err_response("scan_dir must be under patches_root", status=400)
 
     try:
         d = self.jail.resolve_rel(rel)
     except Exception as e:
-        return _err(str(e), status=400)
+        return err_response(str(e), status=400)
     if not d.exists() or not d.is_dir():
         payload_nf: dict[str, object] = {
             "found": False,
@@ -217,7 +229,7 @@ def api_patches_latest(
                 "ignored_ext=0 ignored_zip_no_patch=0 selected=none",
             ],
         }
-        return _ok(payload_nf)
+        return ok_response(payload_nf)
 
     exts = {str(x).lower() for x in self.cfg.autofill.scan_extensions}
     best_name: str | None = None
@@ -267,7 +279,7 @@ def api_patches_latest(
                 "selected=none",
             ],
         }
-        return _ok(payload_nf2)
+        return ok_response(payload_nf2)
 
     rel_dir = self.cfg.autofill.scan_dir.rstrip("/")
     stored_rel = str(Path(rel_dir) / best_name)
@@ -291,7 +303,7 @@ def api_patches_latest(
     }
 
     if since_token and since_token == str(payload.get("token", "")):
-        return _ok({"unchanged": True, "token": payload.get("token", "")})
+        return ok_response({"unchanged": True, "token": payload.get("token", "")})
 
     if self.cfg.autofill.derive_enabled:
         payload["derived_issue"] = metadata.derived_issue
@@ -309,7 +321,7 @@ def api_patches_latest(
         status_lines.append("autofill: target from zip target.txt")
     elif metadata.zip_target_err:
         status_lines.append(f"autofill: zip target ignored ({metadata.zip_target_err})")
-    return _ok(payload)
+    return ok_response(payload)
 
 
 def api_parse_command(self: AsyncAppCore, body: dict[str, object]) -> tuple[int, bytes]:
@@ -317,7 +329,7 @@ def api_parse_command(self: AsyncAppCore, body: dict[str, object]) -> tuple[int,
     try:
         parsed = parse_runner_command(raw)
     except CommandParseError as e:
-        return _err(str(e), status=400)
+        return err_response(str(e), status=400)
 
     if parsed.target_repo:
         try:
@@ -328,11 +340,11 @@ def api_parse_command(self: AsyncAppCore, body: dict[str, object]) -> tuple[int,
             )
             validate_selected_target_repo(parsed.target_repo, runtime.options)
         except AttributeError:
-            return _err("targeting runtime is unavailable", status=400)
+            return err_response("targeting runtime is unavailable", status=400)
         except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
-            return _err(str(e), status=400)
+            return err_response(str(e), status=400)
 
-    return _ok(
+    return ok_response(
         {
             "status": ["parse_command: ok"],
             "parsed": {
@@ -362,7 +374,7 @@ def api_runs(self: AsyncAppCore, qs: dict[str, str]) -> tuple[int, bytes]:
 
     # Conditional refresh applies only to the default (unfiltered) runs list.
     if since_sig and not issue_id and not result and since_sig == sig:
-        return _ok({"unchanged": True, "sig": sig})
+        return ok_response({"unchanged": True, "sig": sig})
 
     runs = iter_runs(self.patches_root, self.cfg.indexing.log_filename_regex)
     runs.extend(_iter_canceled_runs(canceled_source))
@@ -382,16 +394,16 @@ def api_runs(self: AsyncAppCore, qs: dict[str, str]) -> tuple[int, bytes]:
         try:
             iid = int(issue_id)
         except ValueError:
-            return _err("Invalid issue_id", status=400)
+            return err_response("Invalid issue_id", status=400)
         runs = [r for r in runs if r.issue_id == iid]
     if result:
         if result not in ("success", "fail", "unknown", "canceled"):
-            return _err("Invalid result filter", status=400)
+            return err_response("Invalid result filter", status=400)
         runs = [r for r in runs if r.result == result]
 
     runs.sort(key=_run_sort_key, reverse=True)
     runs = runs[: max(1, min(limit, 500))]
-    return _ok({"runs": [run_to_list_item_json(r) for r in runs], "sig": sig})
+    return ok_response({"runs": [run_to_list_item_json(r) for r in runs], "sig": sig})
 
 
 def api_run_detail(self: AsyncAppCore, issue_id: int) -> tuple[int, bytes]:
@@ -410,8 +422,8 @@ def api_run_detail(self: AsyncAppCore, issue_id: int) -> tuple[int, bytes]:
 
     for r in runs:
         if int(r.issue_id) == int(issue_id):
-            return _ok({"run": _run_detail_json(r)})
-    return _err("Not found", status=404)
+            return ok_response({"run": _run_detail_json(r)})
+    return err_response("Not found", status=404)
 
 
 def api_runner_tail(self: AsyncAppCore, qs: dict[str, str]) -> tuple[int, bytes]:
@@ -422,7 +434,12 @@ def api_runner_tail(self: AsyncAppCore, qs: dict[str, str]) -> tuple[int, bytes]
         max_bytes=self.cfg.server.tail_max_bytes,
         cache_max_entries=self.cfg.server.tail_cache_max_entries,
     )
-    return _ok({"path": str(Path(self.cfg.paths.patches_root) / "am_patch.log"), "tail": tail})
+    return ok_response(
+        {
+            "path": str(Path(self.cfg.paths.patches_root) / "am_patch.log"),
+            "tail": tail,
+        }
+    )
 
 
 def diagnostics(self: AsyncAppCore) -> dict[str, object]:

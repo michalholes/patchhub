@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import os
 from collections import OrderedDict
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from .models import RunEntry
 from .web_jobs_db import WebJobsDatabase
@@ -16,18 +17,22 @@ def _json_bytes(obj: object, status: int = 200) -> tuple[int, bytes]:
     return status, json.dumps(obj, ensure_ascii=True, indent=2).encode("utf-8")
 
 
-def _err(msg: str, status: int = 400) -> tuple[int, bytes]:
+def json_bytes(obj: object, status: int = 200) -> tuple[int, bytes]:
+    return _json_bytes(obj, status=status)
+
+
+def err(msg: str, status: int = 400) -> tuple[int, bytes]:
     return _json_bytes({"ok": False, "error": msg}, status=status)
 
 
-def _ok(obj: dict[str, object] | None = None) -> tuple[int, bytes]:
+def ok(obj: dict[str, object] | None = None) -> tuple[int, bytes]:
     out: dict[str, object] = {"ok": True}
     if obj:
         out.update(obj)
     return _json_bytes(out, status=200)
 
 
-def _is_ascii(s: str) -> bool:
+def is_ascii(s: str) -> bool:
     try:
         s.encode("ascii")
         return True
@@ -35,7 +40,7 @@ def _is_ascii(s: str) -> bool:
         return False
 
 
-def _utc_now() -> str:
+def utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -48,10 +53,11 @@ def _tail_stat_fingerprint(path: Path) -> tuple[int, int] | None:
 
 
 def _obj_dict(value: object) -> dict[str, object] | None:
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         return None
+    mapping = cast(Mapping[object, object], value)
     out: dict[str, object] = {}
-    for key, item in value.items():
+    for key, item in mapping.items():
         if isinstance(key, str):
             out[key] = item
     return out
@@ -304,8 +310,8 @@ def _utc_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _ascii_sanitize(s: str) -> str:
-    out = []
+def ascii_sanitize(s: str) -> str:
+    out: list[str] = []
     for ch in s:
         if ord(ch) < 128:
             out.append(ch)
@@ -338,7 +344,7 @@ def _find_latest_artifact_rel(patches_root: Path, dir_name: str, contains: str) 
     return str(Path(dir_name) / best)
 
 
-def _decorate_run(
+def decorate_run(
     run: RunEntry,
     *,
     patches_root: Path,
@@ -381,9 +387,7 @@ def _jobs_source_path(source: WebJobsDatabase | Path) -> WebJobsDatabase | Path:
 def active_canceled_runs_source(owner: CanceledRunsOwner) -> WebJobsDatabase | Path:
     if owner.web_jobs_db is not None:
         return owner.web_jobs_db
-    if isinstance(owner.jobs_root, Path):
-        return owner.jobs_root
-    return owner.patches_root
+    return owner.jobs_root
 
 
 def canceled_runs_signature(source: WebJobsDatabase | Path) -> tuple[int, int]:
@@ -399,7 +403,7 @@ def canceled_runs_signature(source: WebJobsDatabase | Path) -> tuple[int, int]:
     return len(canceled), max_rev
 
 
-def _iter_canceled_runs(source: WebJobsDatabase | Path) -> list[RunEntry]:
+def iter_canceled_runs(source: WebJobsDatabase | Path) -> list[RunEntry]:
     out: list[RunEntry] = []
     event_name_fn = None
     source = _jobs_source_path(source)
@@ -444,3 +448,12 @@ def _iter_canceled_runs(source: WebJobsDatabase | Path) -> list[RunEntry]:
         )
     out.sort(key=_run_sort_key, reverse=True)
     return out
+
+
+_err = err
+_ok = ok
+_is_ascii = is_ascii
+_utc_now = utc_now
+_ascii_sanitize = ascii_sanitize
+_decorate_run = decorate_run
+_iter_canceled_runs = iter_canceled_runs

@@ -4,6 +4,7 @@ import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 _FORBIDDEN_EVAL_KEYS = {
     "rc_eq",
@@ -57,7 +58,7 @@ class BdgAssetEntry:
     kind: str | None = None
     subject: str | None = None
     zip_name: str | None = None
-    declared_subjects: list[str] = field(default_factory=list)
+    declared_subjects: list[str] = field(default_factory=lambda: [])
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ class BdgAsset:
     content: str | None
     entries: list[BdgAssetEntry]
     subject: str | None = None
-    declared_subjects: list[str] = field(default_factory=list)
+    declared_subjects: list[str] = field(default_factory=lambda: [])
 
 
 @dataclass(frozen=True)
@@ -83,7 +84,7 @@ class BdgTest:
     is_guard: bool
     assets: dict[str, BdgAsset]
     steps: list[BdgStep]
-    subjects: dict[str, str] = field(default_factory=dict)
+    subjects: dict[str, str] = field(default_factory=lambda: {})
 
 
 def _as_str(d: dict[str, object], key: str, default: str = "") -> str:
@@ -103,9 +104,33 @@ def _as_bool(d: dict[str, object], key: str, default: bool = False) -> bool:
 def _as_string_list(*, value: object, label: str) -> list[str]:
     if value is None:
         return []
-    if not (isinstance(value, list) and all(isinstance(item, str) for item in value)):
+    if not isinstance(value, list):
         raise SystemExit(f"FAIL: bdg: {label} must be list[str]")
-    return list(value)
+    items = cast(list[object], value)
+    if not all(isinstance(item, str) for item in items):
+        raise SystemExit(f"FAIL: bdg: {label} must be list[str]")
+    return [item for item in items if isinstance(item, str)]
+
+
+def _obj_dict(value: object) -> dict[str, object]:
+    out: dict[str, object] = {}
+    for key, item in cast(dict[object, object], value).items():
+        out[str(key)] = item
+    return out
+
+
+def _require_table(*, value: object, label: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise SystemExit(f"FAIL: bdg: {label} must be a table")
+    return _obj_dict(cast(object, value))
+
+
+def _obj_list(value: object) -> list[object]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return list(cast(list[object], value))
 
 
 def _validate_relpath(*, relpath: str, label: str) -> str:
@@ -127,19 +152,18 @@ def _validate_python_payload(*, label: str, content: str) -> None:
 
 
 def _validate_toml_delta(*, label: str, content: str) -> None:
-    raw = tomllib.loads(content) if content.strip() else {}
-    if not isinstance(raw, dict):
-        raise SystemExit(f"FAIL: bdg: {label} must decode to a TOML table")
+    raw_obj = cast(object, tomllib.loads(content)) if content.strip() else cast(object, {})
+    raw = _obj_dict(raw_obj)
     suite = raw.get("suite", {})
     lock = raw.get("lock", {})
     if not isinstance(suite, dict):
         raise SystemExit(f"FAIL: bdg: {label} [suite] must be a table")
     if not isinstance(lock, dict):
         raise SystemExit(f"FAIL: bdg: {label} [lock] must be a table")
-    for key in suite:
+    for key in _obj_dict(cast(object, suite)):
         if key in _FORBIDDEN_TOML_KEYS:
             raise SystemExit(f"FAIL: bdg: {label} must not embed suite.{key}")
-    for key in lock:
+    for key in _obj_dict(cast(object, lock)):
         if key in _FORBIDDEN_TOML_KEYS:
             raise SystemExit(f"FAIL: bdg: {label} must not embed lock.{key}")
 
@@ -185,25 +209,28 @@ def _validate_asset(item: dict[str, object], *, asset_id: str, kind: str) -> Non
 
 
 def load_bdg_test(path: Path) -> BdgTest:
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    meta = raw.get("meta", {})
-    if meta is None:
-        meta = {}
-    if not isinstance(meta, dict):
-        raise SystemExit("FAIL: bdg: [meta] must be a table")
+    raw_obj = cast(object, tomllib.loads(path.read_text(encoding="utf-8")))
+    raw = _require_table(value=raw_obj, label="root")
+    meta_raw = raw.get("meta")
+    if meta_raw is None:
+        meta_obj: object = {}
+    else:
+        meta_obj = meta_raw
+    meta = _require_table(value=meta_obj, label="[meta]")
 
     makes_commit = _as_bool(meta, "makes_commit", False)
     is_guard = _as_bool(meta, "is_guard", False)
 
-    raw_subjects = raw.get("subjects", {})
-    if raw_subjects is None:
-        raw_subjects = {}
-    if not isinstance(raw_subjects, dict):
-        raise SystemExit("FAIL: bdg: [subjects] must be a table")
+    raw_subjects_raw = raw.get("subjects")
+    if raw_subjects_raw is None:
+        raw_subjects_obj: object = {}
+    else:
+        raw_subjects_obj = raw_subjects_raw
+    raw_subjects = _require_table(value=raw_subjects_obj, label="[subjects]")
     subjects: dict[str, str] = {}
-    for subject_id, item in raw_subjects.items():
-        if not isinstance(item, dict):
-            raise SystemExit(f"FAIL: bdg: [subjects.{subject_id}] must be a table")
+    for subject_key, item_obj in raw_subjects.items():
+        subject_id = str(subject_key)
+        item = _require_table(value=item_obj, label=f"[subjects.{subject_id}]")
         extra = sorted(set(item) - {"relpath"})
         if extra:
             joined = ", ".join(extra)
@@ -211,31 +238,33 @@ def load_bdg_test(path: Path) -> BdgTest:
         relpath = item.get("relpath")
         if not isinstance(relpath, str):
             raise SystemExit(f"FAIL: bdg: [subjects.{subject_id}].relpath must be string")
-        subjects[str(subject_id)] = _validate_relpath(
+        subjects[subject_id] = _validate_relpath(
             relpath=relpath,
             label=f"subjects.{subject_id}",
         )
 
     assets: dict[str, BdgAsset] = {}
-    for item in raw.get("asset", []):
-        if not isinstance(item, dict):
-            raise SystemExit("FAIL: bdg: [[asset]] must be a table")
+    for item_obj in _obj_list(raw.get("asset", [])):
+        item = _require_table(value=item_obj, label="[[asset]]")
         asset_id = _as_str(item, "id")
         kind = _as_str(item, "kind")
         _validate_asset(item, asset_id=asset_id, kind=kind)
-        content = item.get("content")
-        subject = item.get("subject")
-        if subject is not None and not isinstance(subject, str):
+        content_obj = item.get("content")
+        if content_obj is not None and not isinstance(content_obj, str):
+            raise SystemExit("FAIL: bdg: asset content must be string or omitted")
+        content: str | None = content_obj
+        subject_obj = item.get("subject")
+        if subject_obj is not None and not isinstance(subject_obj, str):
             raise SystemExit(f"FAIL: bdg: asset '{asset_id}' subject must be string")
+        subject: str | None = subject_obj
         declared_subjects = _as_string_list(
             value=item.get("declared_subjects", []),
             label=f"asset '{asset_id}' declared_subjects",
         )
 
         entries: list[BdgAssetEntry] = []
-        for ent in item.get("entry", []):
-            if not isinstance(ent, dict):
-                raise SystemExit("FAIL: bdg: [[asset.entry]] must be a table")
+        for ent_obj in _obj_list(item.get("entry", [])):
+            ent = _require_table(value=ent_obj, label="[[asset.entry]]")
             name = _as_str(ent, "name")
             if (
                 "/" in name
@@ -289,9 +318,8 @@ def load_bdg_test(path: Path) -> BdgTest:
         )
 
     steps: list[BdgStep] = []
-    for item in raw.get("step", []):
-        if not isinstance(item, dict):
-            raise SystemExit("FAIL: bdg: [[step]] must be a table")
+    for item_obj in _obj_list(raw.get("step", [])):
+        item = _require_table(value=item_obj, label="[[step]]")
         op = _as_str(item, "op")
         params = dict(item)
         params.pop("op", None)

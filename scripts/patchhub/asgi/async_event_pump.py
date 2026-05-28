@@ -4,8 +4,9 @@ import asyncio
 import contextlib
 import json
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from pathlib import Path
+from typing import TextIO, cast
 
 from patchhub.web_jobs_db import WebJobsDatabase
 
@@ -72,7 +73,7 @@ class EventPumpCommandChannel:
         timeout_s: float = CANCEL_REPLY_TIMEOUT_S,
     ) -> bool:
         actual_cmd_id = cmd_id or f"{cmd_id_prefix}_{uuid.uuid4().hex}"
-        waiter = asyncio.get_running_loop().create_future()
+        waiter: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
 
         async with self._mu:
             writer = self._writer
@@ -100,7 +101,7 @@ class EventPumpCommandChannel:
 
 def _write_line(
     *,
-    f,
+    f: TextIO | None,
     line: str,
     publish: Callable[[str, int], None] | None,
     job_db: WebJobsDatabase | None,
@@ -112,22 +113,28 @@ def _write_line(
 
     if job_db is not None and job_id:
         seq = job_db.append_event_line(job_id, line)
-    else:
+    elif f is not None:
         f.write(line + "\n")
-        seq = f.tell()
+        seq = int(f.tell())
+    else:
+        seq = 0
     if publish is not None:
         publish(line, seq)
     return seq
 
 
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return cast(dict[str, object], value)
+
+
 def _parse_line_obj(line: str) -> dict[str, object] | None:
     try:
-        obj = json.loads(line)
+        obj = cast(object, json.loads(line))
     except Exception:
         return None
-    if not isinstance(obj, dict):
-        return None
-    return obj
+    return _obj_dict(obj)
 
 
 def _event_seq(value: object) -> int | None:
@@ -154,9 +161,9 @@ def _command_payload(*, cmd_id: str, cmd: str, args: dict[str, object]) -> bytes
 
 def _track_background_command(
     tasks: set[asyncio.Task[bool]],
-    coro,
+    coro: Coroutine[object, object, bool],
 ) -> None:
-    task = asyncio.create_task(coro)
+    task: asyncio.Task[bool] = asyncio.create_task(coro)
     tasks.add(task)
     task.add_done_callback(tasks.discard)
 

@@ -4,19 +4,19 @@ import asyncio
 import json
 import mimetypes
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, ParamSpec, Protocol, TypeVar, cast
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
-from patchhub import app_api_core as _core_api
-from patchhub.config import AppConfig
-from patchhub.models import JobRecord, job_to_list_item_json
-from patchhub.patch_inventory import build_patch_inventory
-
+from .. import app_api_core as _core_api
+from ..config import AppConfig
+from ..models import JobRecord, job_to_list_item_json
+from ..patch_inventory import build_patch_inventory
 from ..repo_snapshot_cleanup import execute_repo_snapshot_cleanup
 from .async_app_core import AsyncAppCore
 from .async_jobs_runs_indexer import IndexerSnapshot
@@ -38,13 +38,73 @@ from .operator_info_runtime import (
 )
 from .route_diagnostics import handle_api_debug_diagnostics
 from .route_snapshot_events import handle_api_snapshot_events
-from .route_ui_snapshot import _legacy_snapshot_payload, handle_api_ui_snapshot
+from .route_ui_snapshot import handle_api_ui_snapshot, legacy_snapshot_payload
 from .route_ui_snapshot_delta import handle_api_ui_snapshot_delta
 from .route_workspaces import handle_api_workspaces
 from .snapshot_change_broker import SnapshotChangeBroker
 from .snapshot_delta_store import SnapshotDeltaStore
 
 UploadPatchParam = Annotated[UploadFile, File(...)]
+_P = ParamSpec("_P")
+_POffload = ParamSpec("_POffload")
+_TOffload = TypeVar("_TOffload")
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return cast(list[object], value)
+    return []
+
+
+class _RouteHandler(Protocol[_P]):
+    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> Awaitable[object]: ...
+
+
+class _RouteRegistrar(Protocol):
+    def __call__(self, path: str) -> Callable[[_RouteHandler[_P]], _RouteHandler[_P]]: ...
+
+
+def _job_sig_part(job: JobRecord) -> str:
+    return f"{job.job_id}|{job.status}|{job.issue_id}|{job.started_utc}|{job.ended_utc}"
+
+
+def _job_id_sort_key(job: JobRecord) -> str:
+    return str(job.job_id)
+
+
+def _job_created_utc_sort_key(job: JobRecord) -> str:
+    return str(job.created_utc or "")
+
+
+def _offload(
+    fn: Callable[_POffload, _TOffload],
+    /,
+    *args: _POffload.args,
+    **kwargs: _POffload.kwargs,
+) -> asyncio.Task[_TOffload]:
+    return to_thread(fn, *args, **kwargs)
+
+
+def _as_status_bytes(value: object) -> tuple[int, bytes]:
+    return cast(tuple[int, bytes], value)
+
+
+def _as_cleanup_record(value: object) -> tuple[dict[str, object], bool]:
+    return cast(tuple[dict[str, object], bool], value)
+
+
+def _as_inventory_result(value: object) -> tuple[str, list[dict[str, object]]]:
+    return cast(tuple[str, list[dict[str, object]]], value)
+
+
+async def _offload_status_bytes(
+    fn: Callable[_POffload, object],
+    /,
+    *args: _POffload.args,
+    **kwargs: _POffload.kwargs,
+) -> tuple[int, bytes]:
+    result_obj = await _offload(fn, *args, **kwargs)
+    return _as_status_bytes(result_obj)
 
 
 def _json_bytes_response(
@@ -114,9 +174,7 @@ def _persist_cleanup_summary_record(
     except Exception:
         operator_info = load_operator_info(patches_root)
         raw_recent = operator_info.get("cleanup_recent_status")
-        cleanup_recent_status: list[object] = (
-            list(raw_recent) if isinstance(raw_recent, list) else []
-        )
+        cleanup_recent_status = _obj_list(raw_recent)
         cleanup_recent_status.append(dict(cleanup_summary))
         merged_payload: dict[str, object] = {
             "cleanup_recent_status": cleanup_recent_status,
@@ -162,17 +220,45 @@ async def _refresh_after_cleanup(core: AsyncAppCore) -> bool:
         pass
 
     try:
-        await core.indexer._rebuild(reason="patch_success_cleanup")
-        return True
+        if await _rebuild_after_cleanup_force_rescan_failure(core):
+            return True
     except Exception:
         pass
 
     return await _publish_cleanup_refresh_fallback(core)
 
 
+class _IndexerRebuildMethod(Protocol):
+    def __call__(self, *, reason: str) -> Awaitable[None]: ...
+
+
+def _get_attr_object(obj: object, name: str) -> object | None:
+    try:
+        return cast(object, object.__getattribute__(obj, name))
+    except AttributeError:
+        return None
+
+
+async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, object]:
+    return await legacy_snapshot_payload(core)
+
+
+async def _rebuild_after_cleanup_force_rescan_failure(core: AsyncAppCore) -> bool:
+    indexer_obj: object = core.indexer
+    rebuild_fail_safe = _get_attr_object(indexer_obj, "rebuild_fail_safe")
+    if callable(rebuild_fail_safe):
+        await cast(_IndexerRebuildMethod, rebuild_fail_safe)(reason="patch_success_cleanup")
+        return True
+    legacy_rebuild = _get_attr_object(indexer_obj, "_rebuild")
+    if callable(legacy_rebuild):
+        await cast(_IndexerRebuildMethod, legacy_rebuild)(reason="patch_success_cleanup")
+        return True
+    return False
+
+
 async def run_terminal_job_cleanup(core: AsyncAppCore, job: JobRecord) -> None:
     created_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    summary = await to_thread(
+    summary = await _offload(
         execute_repo_snapshot_cleanup,
         patches_root=core.patches_root,
         config=core.cfg.repo_snapshot_cleanup,
@@ -180,14 +266,12 @@ async def run_terminal_job_cleanup(core: AsyncAppCore, job: JobRecord) -> None:
         issue_id=str(job.issue_id),
         created_utc=created_utc,
     )
-    _record, persisted = cast(
-        tuple[dict[str, object], bool],
-        await to_thread(
-            _persist_cleanup_summary_record,
-            core.patches_root,
-            summary.to_json(),
-        ),
+    cleanup_record_obj = await _offload(
+        _persist_cleanup_summary_record,
+        core.patches_root,
+        summary.to_json(),
     )
+    _record, persisted = _as_cleanup_record(cleanup_record_obj)
     if not persisted:
         return
     await _refresh_after_cleanup(core)
@@ -198,10 +282,23 @@ async def run_patch_job_success_cleanup(core: AsyncAppCore, job: JobRecord) -> N
 
 
 def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
-    app = FastAPI()
     core = AsyncAppCore(repo_root=repo_root, cfg=cfg)
     snapshot_change_broker = SnapshotChangeBroker()
     snapshot_delta_store = SnapshotDeltaStore()
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+        await core.startup()
+        try:
+            yield
+        finally:
+            snapshot_change_broker.close()
+            await core.shutdown()
+
+    app = FastAPI(lifespan=lifespan)
+    route_get = cast(_RouteRegistrar, app.get)
+    route_post = cast(_RouteRegistrar, app.post)
+    route_head = cast(_RouteRegistrar, app.head)
 
     async def _handle_terminal_job_cleanup(job: JobRecord) -> None:
         try:
@@ -233,31 +330,22 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
     app.state.snapshot_change_broker = snapshot_change_broker
     app.state.snapshot_delta_store = snapshot_delta_store
 
-    @app.on_event("startup")
-    async def _startup() -> None:
-        await core.startup()
-
-    @app.on_event("shutdown")
-    async def _shutdown() -> None:
-        snapshot_change_broker.close()
-        await core.shutdown()
-
-    @app.get("/")
+    @route_get("/")
     async def index() -> HTMLResponse:
         html = core.render_index().encode("utf-8")
         return HTMLResponse(content=html, status_code=200)
 
-    @app.get("/debug")
+    @route_get("/debug")
     async def debug() -> HTMLResponse:
         html = core.render_debug().encode("utf-8")
         return HTMLResponse(content=html, status_code=200)
 
-    @app.get("/editor")
+    @route_get("/editor")
     async def editor() -> HTMLResponse:
         html = core.render_editor().encode("utf-8")
         return HTMLResponse(content=html, status_code=200)
 
-    @app.get("/static/{rel_path:path}")
+    @route_get("/static/{rel_path:path}")
     async def static(rel_path: str) -> FileResponse:
         def _resolve_static_sync(rel_path: str) -> Path | None:
             base = Path(__file__).resolve().parent.parent / "static"
@@ -268,99 +356,101 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
                 return None
             return p
 
-        p = await to_thread(_resolve_static_sync, rel_path)
+        p = await _offload(_resolve_static_sync, rel_path)
         if p is None:
             raise HTTPException(status_code=404, detail="Not found")
         return FileResponse(p, media_type=_guess_content_type(p))
 
-    @app.get("/api/editor/bootstrap")
+    @route_get("/api/editor/bootstrap")
     async def api_editor_bootstrap(request: Request) -> Response:
         qs = dict(request.query_params)
-        status, data = await to_thread(core.api_editor_bootstrap, qs)
+        status, data = await _offload_status_bytes(core.api_editor_bootstrap, qs)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/editor/document")
+    @route_get("/api/editor/document")
     async def api_editor_document(request: Request) -> Response:
         qs = dict(request.query_params)
-        status, data = await to_thread(core.api_editor_document, qs)
+        status, data = await _offload_status_bytes(core.api_editor_document, qs)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/editor/validate")
+    @route_post("/api/editor/validate")
     async def api_editor_validate(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_editor_validate, body)
+        status, data = await _offload_status_bytes(core.api_editor_validate, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/editor/save")
+    @route_post("/api/editor/save")
     async def api_editor_save(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_editor_save, body)
+        status, data = await _offload_status_bytes(core.api_editor_save, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/editor/save_unsafe")
+    @route_post("/api/editor/save_unsafe")
     async def api_editor_save_unsafe_compat(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_editor_save_unsafe, body)
+        status, data = await _offload_status_bytes(core.api_editor_save_unsafe, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/editor/save-unsafe")
+    @route_post("/api/editor/save-unsafe")
     async def api_editor_save_unsafe(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_editor_save_unsafe, body)
+        status, data = await _offload_status_bytes(core.api_editor_save_unsafe, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/editor/apply_fix")
+    @route_post("/api/editor/apply_fix")
     async def api_editor_apply_fix(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_editor_apply_fix, body)
+        status, data = await _offload_status_bytes(core.api_editor_apply_fix, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/editor/preview_action")
+    @route_post("/api/editor/preview_action")
     async def api_editor_preview_action(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_editor_preview_action, body)
+        status, data = await _offload_status_bytes(core.api_editor_preview_action, body)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/config")
+    @route_get("/api/config")
     async def api_config() -> Response:
-        status, data = await to_thread(core.api_config)
+        status, data = await _offload_status_bytes(core.api_config)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/amp/schema")
+    @route_get("/api/amp/schema")
     async def api_amp_schema() -> Response:
-        status, data = await to_thread(core.api_amp_schema)
+        status, data = await _offload_status_bytes(core.api_amp_schema)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/amp/config")
+    @route_get("/api/amp/config")
     async def api_amp_config_get() -> Response:
-        status, data = await to_thread(core.api_amp_config_get)
+        status, data = await _offload_status_bytes(core.api_amp_config_get)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/amp/config")
+    @route_post("/api/amp/config")
     async def api_amp_config_post(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_amp_config_post, body)
+        status, data = await _offload_status_bytes(core.api_amp_config_post, body)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/fs/list")
+    @route_get("/api/fs/list")
     async def api_fs_list(path: str = "") -> Response:
-        status, data = await to_thread(core.api_fs_list, path)
+        status, data = await _offload_status_bytes(core.api_fs_list, path)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/fs/stat")
+    @route_get("/api/fs/stat")
     async def api_fs_stat(path: str = "") -> Response:
-        status, data = await to_thread(core.api_fs_stat, path)
+        status, data = await _offload_status_bytes(core.api_fs_stat, path)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/workspaces")
+    @route_get("/api/workspaces")
     async def api_workspaces(request: Request) -> Response:
         return await handle_api_workspaces(core, request)
 
-    @app.get("/api/patches/latest")
+    @route_get("/api/patches/latest")
     async def api_patches_latest(request: Request) -> Response:
         qs = dict(request.query_params)
-        status, data = await to_thread(core.api_patches_latest, qs)
+        status, data = await _offload_status_bytes(core.api_patches_latest, qs)
         etag = ""
         try:
-            obj = json.loads(data.decode("utf-8"))
-            token = str(obj.get("token", ""))
-            if token:
-                etag = _etag_quote(token)
+            loaded = cast(object, json.loads(data.decode("utf-8")))
+            if isinstance(loaded, dict):
+                parsed = cast(dict[str, object], loaded)
+                token = str(parsed.get("token", ""))
+                if token:
+                    etag = _etag_quote(token)
         except Exception:
-            etag = ""
+            pass
 
         inm = request.headers.get("if-none-match")
         if status == 200 and etag and _etag_matches(inm, etag):
@@ -368,10 +458,11 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
         headers = {"ETag": etag} if (status == 200 and etag) else None
         return _json_bytes_response(status, data, headers=headers)
 
-    @app.get("/api/patches/inventory")
+    @route_get("/api/patches/inventory")
     async def api_patches_inventory(request: Request) -> Response:
         since_sig = str(request.query_params.get("since_sig", "")).strip()
-        sig, items = await to_thread(build_patch_inventory, core)
+        inventory_result = await _offload(build_patch_inventory, core)
+        sig, items = _as_inventory_result(inventory_result)
         etag = _etag_quote(sig)
         inm = request.headers.get("if-none-match")
         if etag and _etag_matches(inm, etag):
@@ -388,15 +479,15 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
             headers={"ETag": etag},
         )
 
-    @app.get("/api/fs/read_text")
+    @route_get("/api/fs/read_text")
     async def api_fs_read_text(request: Request) -> Response:
         qs = dict(request.query_params)
-        status, data = await to_thread(core.api_fs_read_text, qs)
+        status, data = await _offload_status_bytes(core.api_fs_read_text, qs)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/fs/download")
+    @route_get("/api/fs/download")
     async def api_fs_download(path: str = "") -> Response:
-        result = await to_thread(core.api_fs_download, path)
+        result = await _offload(core.api_fs_download, path)
         if isinstance(result, tuple):
             status, data = result
             return _json_bytes_response(status, data)
@@ -414,7 +505,7 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
             headers=headers,
         )
 
-    @app.get("/api/runs")
+    @route_get("/api/runs")
     async def api_runs(request: Request) -> Response:
         qs = dict(request.query_params)
         issue_id_s = str(qs.get("issue_id", "")).strip()
@@ -477,11 +568,11 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
             from patchhub.app_support import canceled_runs_signature
             from patchhub.indexing import runs_signature
 
-            base_sig = await to_thread(
+            base_sig = await _offload(
                 runs_signature, core.patches_root, core.cfg.indexing.log_filename_regex
             )
             canceled_source = core.web_jobs_db if core.web_jobs_db is not None else core.jobs_root
-            canceled_sig = await to_thread(canceled_runs_signature, canceled_source)
+            canceled_sig = await _offload(canceled_runs_signature, canceled_source)
             sig = (
                 f"runs:r={base_sig[0]}:{base_sig[1]}:{base_sig[2]}"
                 f":c={canceled_sig[0]}:{canceled_sig[1]}"
@@ -497,11 +588,11 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
                     headers={"ETag": etag},
                 )
 
-        status, data = await to_thread(core.api_runs, qs)
+        status, data = await _offload_status_bytes(core.api_runs, qs)
         headers = {"ETag": etag} if (status == 200 and etag) else None
         return _json_bytes_response(status, data, headers=headers)
 
-    @app.head("/api/runs")
+    @route_head("/api/runs")
     async def api_runs_head(request: Request) -> Response:
         qs = dict(request.query_params)
         issue_id_s = str(qs.get("issue_id", "")).strip()
@@ -527,13 +618,13 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
         from patchhub.app_support import canceled_runs_signature
         from patchhub.indexing import runs_signature
 
-        base_sig = await to_thread(
+        base_sig = await _offload(
             runs_signature,
             core.patches_root,
             core.cfg.indexing.log_filename_regex,
         )
         canceled_source = core.web_jobs_db if core.web_jobs_db is not None else core.jobs_root
-        canceled_sig = await to_thread(canceled_runs_signature, canceled_source)
+        canceled_sig = await _offload(canceled_runs_signature, canceled_source)
         sig = (
             f"runs:r={base_sig[0]}:{base_sig[1]}:{base_sig[2]}"
             f":c={canceled_sig[0]}:{canceled_sig[1]}"
@@ -547,18 +638,18 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
             return _head_json_response(200, etag=etag)
         return _head_json_response(200, etag=etag)
 
-    @app.get("/api/runs/{issue_id}")
+    @route_get("/api/runs/{issue_id}")
     async def api_runs_get(issue_id: int) -> Response:
-        status, data = await to_thread(_core_api.api_run_detail, core, int(issue_id))
+        status, data = await _offload_status_bytes(_core_api.api_run_detail, core, int(issue_id))
         return _json_bytes_response(status, data)
 
-    @app.get("/api/runner/tail")
+    @route_get("/api/runner/tail")
     async def api_runner_tail(request: Request) -> Response:
         qs = dict(request.query_params)
-        status, data = await to_thread(core.api_runner_tail, qs)
+        status, data = await _offload_status_bytes(core.api_runner_tail, qs)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/jobs")
+    @route_get("/api/jobs")
     async def api_jobs_list(request: Request) -> Response:
         since_sig = str(request.query_params.get("since_sig", "")).strip()
 
@@ -588,15 +679,12 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
 
         from hashlib import sha1
 
-        disk_sig = await to_thread(core.jobs_signature_sync)
+        disk_sig = await _offload(core.jobs_signature_sync)
         mem_parts: list[str] = []
-        for j in sorted(mem, key=lambda x: str(getattr(x, "job_id", ""))):
-            jid = str(getattr(j, "job_id", ""))
-            st = str(getattr(j, "status", ""))
-            isu = str(getattr(j, "issue_id", ""))
-            su = str(getattr(j, "started_utc", ""))
-            eu = str(getattr(j, "ended_utc", ""))
-            mem_parts.append("|".join([jid, st, isu, su, eu]))
+        ordered_mem = list(mem)
+        ordered_mem.sort(key=_job_id_sort_key)
+        for j in ordered_mem:
+            mem_parts.append(_job_sig_part(j))
         mem_sig = sha1("\n".join(mem_parts).encode("utf-8")).hexdigest()
         sig = f"jobs:d={disk_sig[0]}:{disk_sig[1]}:m={mem_sig}"
         etag = _etag_quote(sig)
@@ -621,11 +709,11 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
                 jid = str(r.get("job_id", ""))
                 if not jid or jid in mem_by_id:
                     continue
-                j = core._load_job_from_disk(jid)
+                j = core.load_job_from_disk(jid)
                 if j is None:
                     continue
 
-                status = str(getattr(j, "status", ""))
+                status = str(j.status)
                 if status in ("queued", "running"):
                     j.status = "fail"
                     j.ended_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -635,17 +723,17 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
                 disk.append(j)
             return disk
 
-        disk = await to_thread(_load_disk_jobs_sync, mem_by_id)
+        disk = await _offload(_load_disk_jobs_sync, mem_by_id)
 
         jobs = mem + disk
-        jobs.sort(key=lambda j: str(j.created_utc or ""), reverse=True)
+        jobs.sort(key=_job_created_utc_sort_key, reverse=True)
         return _json_response_obj(
             200,
             {"ok": True, "jobs": [job_to_list_item_json(j) for j in jobs], "sig": sig},
             headers={"ETag": etag},
         )
 
-    @app.head("/api/jobs")
+    @route_head("/api/jobs")
     async def api_jobs_list_head(request: Request) -> Response:
         since_sig = str(request.query_params.get("since_sig", "")).strip()
 
@@ -665,16 +753,13 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
         from hashlib import sha1
 
         mem = await core.queue.list_jobs()
-        disk_sig = await to_thread(core.jobs_signature_sync)
+        disk_sig = await _offload(core.jobs_signature_sync)
 
         mem_parts: list[str] = []
-        for j in sorted(mem, key=lambda x: str(getattr(x, "job_id", ""))):
-            jid = str(getattr(j, "job_id", ""))
-            st = str(getattr(j, "status", ""))
-            isu = str(getattr(j, "issue_id", ""))
-            su = str(getattr(j, "started_utc", ""))
-            eu = str(getattr(j, "ended_utc", ""))
-            mem_parts.append("|".join([jid, st, isu, su, eu]))
+        ordered_mem = list(mem)
+        ordered_mem.sort(key=_job_id_sort_key)
+        for j in ordered_mem:
+            mem_parts.append(_job_sig_part(j))
 
         mem_sig = sha1("\n".join(mem_parts).encode("utf-8")).hexdigest()
         sig = f"jobs:d={disk_sig[0]}:{disk_sig[1]}:m={mem_sig}"
@@ -687,58 +772,60 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
             return _head_json_response(200, etag=etag)
         return _head_json_response(200, etag=etag)
 
-    @app.get("/api/patches/zip_manifest")
+    @route_get("/api/patches/zip_manifest")
     async def api_patch_zip_manifest(path: str) -> Response:
-        status, data = await to_thread(core.api_patch_zip_manifest, {"path": path})
+        status, data = await _offload_status_bytes(core.api_patch_zip_manifest, {"path": path})
         return _json_bytes_response(status, data)
 
-    @app.get("/api/jobs/{job_id}")
+    @route_get("/api/jobs/{job_id}")
     async def api_jobs_get(job_id: str) -> Response:
-        status, data = await to_thread(core.api_jobs_get, job_id)
+        status, data = await _offload_status_bytes(core.api_jobs_get, job_id)
         return _json_bytes_response(status, data)
 
-    @app.get("/api/jobs/{job_id}/log_tail")
+    @route_get("/api/jobs/{job_id}/log_tail")
     async def api_jobs_log_tail(job_id: str, lines: int = 200) -> Response:
         job = await core.queue.get_job(job_id)
         if job is None:
-            job = await to_thread(core._load_job_from_disk, job_id)
+            job = await _offload(core.load_job_from_disk, job_id)
         if job is None:
             return _json_response_obj(404, {"ok": False, "error": "Not found"})
-        tail = await to_thread(core.read_log_tail_sync, job_id, lines=lines)
+        tail = await _offload(core.read_log_tail_sync, job_id, lines=lines)
         return _json_response_obj(200, {"ok": True, "job_id": job_id, "tail": tail})
 
-    @app.post("/api/jobs/{job_id}/revert")
+    @route_post("/api/jobs/{job_id}/revert")
     async def api_jobs_revert(job_id: str) -> Response:
-        status, data = await to_thread(core.api_jobs_revert, job_id)
+        status, data = await _offload_status_bytes(core.api_jobs_revert, job_id)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/rollback/preflight")
+    @route_post("/api/rollback/preflight")
     async def api_rollback_preflight(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_rollback_preflight, body)
+        status, data = await _offload_status_bytes(core.api_rollback_preflight, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/rollback/helper_action")
+    @route_post("/api/rollback/helper_action")
     async def api_rollback_helper_action(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_rollback_helper_action, body)
+        status, data = await _offload_status_bytes(core.api_rollback_helper_action, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/jobs/{job_id}/cancel")
+    @route_post("/api/jobs/{job_id}/cancel")
     async def api_jobs_cancel(job_id: str) -> Response:
         ok = await core.queue.cancel(job_id)
         if not ok:
             return _json_response_obj(409, {"ok": False, "error": "Cannot cancel"})
         return _json_response_obj(200, {"ok": True, "job_id": job_id})
 
-    @app.post("/api/jobs/{job_id}/hard_stop")
+    @route_post("/api/jobs/{job_id}/hard_stop")
     async def api_jobs_hard_stop(job_id: str) -> Response:
         ok = await core.queue.hard_stop(job_id)
         if not ok:
             return _json_response_obj(409, {"ok": False, "error": "Cannot hard stop"})
         return _json_response_obj(200, {"ok": True, "job_id": job_id})
 
-    @app.post("/api/jobs/enqueue")
+    @route_post("/api/jobs/enqueue")
     async def api_jobs_enqueue(body: dict[str, object]) -> Response:
         from patchhub.app_api_jobs import api_jobs_enqueue
+
+        queue_jobs_snapshot = list(await core.queue.list_jobs())
 
         # Reuse legacy parsing/validation logic, but enqueue via async queue.
         # The legacy helper calls self.queue.enqueue(job), which is sync.
@@ -759,83 +846,84 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
                 self.jobs_root = core.jobs_root
                 self.web_jobs_db = core.web_jobs_db
                 self.queue = self
-                self._pending: list[asyncio.Task[None]] = []
-                self._target_repo_roots = dict(getattr(core.queue, "_target_repo_roots", {}))
+                self.pending_tasks: list[asyncio.Task[None]] = []
 
-            def _load_job_from_disk(self, job_id: str):
-                return core._load_job_from_disk(job_id)
+            def load_job_from_disk(self, job_id: str) -> JobRecord | None:
+                return core.load_job_from_disk(job_id)
+
+            _load_job_from_disk = load_job_from_disk
 
             def queue_block_reason(self) -> str | None:
                 return core.queue_block_reason()
 
             def list_jobs(self) -> list[JobRecord]:
-                return list(core.queue._jobs.values())
+                return list(queue_jobs_snapshot)
 
             async def _enqueue_async(self, job: JobRecord) -> None:
                 await core.queue.enqueue(job)
 
             def enqueue(self, job: JobRecord) -> None:
                 t = asyncio.get_running_loop().create_task(self._enqueue_async(job))
-                self._pending.append(t)
+                self.pending_tasks.append(t)
 
         adapter = _Adapter(core)
         try:
             status, data = api_jobs_enqueue(cast("AsyncAppCore", adapter), body)
         except Exception as exc:
             return _error_response(exc)
-        if status < 400 and adapter._pending:
+        if status < 400 and adapter.pending_tasks:
             try:
-                await asyncio.gather(*adapter._pending)
+                await asyncio.gather(*adapter.pending_tasks)
             except Exception as exc:
                 return _error_response(exc)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/parse_command")
+    @route_post("/api/parse_command")
     async def api_parse_command(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_parse_command, body)
+        status, data = await _offload_status_bytes(core.api_parse_command, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/upload/patch")
+    @route_post("/api/upload/patch")
     async def api_upload_patch(file: UploadPatchParam) -> Response:
         filename = os.path.basename(file.filename or "")
         data = await file.read()
-        status, resp = await to_thread(core.api_upload_patch, filename, data)
+        status, resp = await _offload_status_bytes(core.api_upload_patch, filename, data)
         return _json_bytes_response(status, resp)
 
-    @app.post("/api/fs/mkdir")
+    @route_post("/api/fs/mkdir")
     async def api_fs_mkdir(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_fs_mkdir, body)
+        status, data = await _offload_status_bytes(core.api_fs_mkdir, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/fs/rename")
+    @route_post("/api/fs/rename")
     async def api_fs_rename(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_fs_rename, body)
+        status, data = await _offload_status_bytes(core.api_fs_rename, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/fs/delete")
+    @route_post("/api/fs/delete")
     async def api_fs_delete(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_fs_delete, body)
+        status, data = await _offload_status_bytes(core.api_fs_delete, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/fs/unzip")
+    @route_post("/api/fs/unzip")
     async def api_fs_unzip(body: dict[str, object]) -> Response:
-        status, data = await to_thread(core.api_fs_unzip, body)
+        status, data = await _offload_status_bytes(core.api_fs_unzip, body)
         return _json_bytes_response(status, data)
 
-    @app.post("/api/fs/archive")
+    @route_post("/api/fs/archive")
     async def api_fs_archive(body: dict[str, object]) -> Response:
-        paths = body.get("paths")
-        if not isinstance(paths, list) or not paths:
+        paths = _obj_list(body.get("paths"))
+        if not paths:
             return _json_response_obj(
                 400,
                 {"ok": False, "error": "paths must be a non-empty list"},
             )
 
         rel_paths: list[str] = []
-        for x in paths:
-            if not isinstance(x, str):
+        for item in paths:
+            if not isinstance(item, str):
                 continue
-            rel = x.strip().lstrip("/")
+            rel = item.strip().lstrip("/")
             if rel:
                 rel_paths.append(rel)
         if not rel_paths:
@@ -843,6 +931,9 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
         rel_paths = sorted(set(rel_paths))
 
         def _build_archive_bytes_sync(core: AsyncAppCore, rel_paths: list[str]) -> bytes:
+            def _archive_member_name(item: tuple[str, Path]) -> str:
+                return item[0]
+
             files: list[tuple[str, Path]] = []
             seen: set[str] = set()
             for rel in rel_paths:
@@ -869,7 +960,7 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
                             files.append((sub_rel, fp))
                             seen.add(sub_rel)
 
-            files.sort(key=lambda t: t[0])
+            files.sort(key=_archive_member_name)
 
             import io
             import zipfile
@@ -882,49 +973,50 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
             return buf.getvalue()
 
         try:
-            data = await to_thread(_build_archive_bytes_sync, core, rel_paths)
+            data = await _offload(_build_archive_bytes_sync, core, rel_paths)
         except FileNotFoundError as e:
-            return _json_response_obj(400, {"ok": False, "error": f"Not found: {e.args[0]}"})
+            return _json_response_obj(400, {"ok": False, "error": f"Not found: {e}"})
         except Exception as e:
             return _json_response_obj(400, {"ok": False, "error": str(e)})
         headers = {"Content-Disposition": 'attachment; filename="selection.zip"'}
         return Response(content=data, media_type="application/zip", headers=headers)
 
-    @app.post("/api/debug/indexer/force_rescan")
+    @route_post("/api/debug/indexer/force_rescan")
     async def api_debug_indexer_force_rescan() -> Response:
         await core.indexer.force_rescan()
         return _json_response_obj(200, {"ok": True})
 
-    @app.get("/api/debug/diagnostics")
+    @route_get("/api/debug/diagnostics")
     async def api_debug_diagnostics(request: Request) -> Response:
         return await handle_api_debug_diagnostics(core, request)
 
-    @app.get("/api/ui_snapshot")
+    @route_get("/api/ui_snapshot")
     async def api_ui_snapshot(request: Request) -> Response:
         return await handle_api_ui_snapshot(core, request)
 
-    @app.head("/api/ui_snapshot")
+    @route_head("/api/ui_snapshot")
     async def api_ui_snapshot_head(request: Request) -> Response:
         return await handle_api_ui_snapshot(core, request, head_only=True)
 
-    @app.get("/api/events")
+    @route_get("/api/events")
     async def api_snapshot_events() -> StreamingResponse:
         return await handle_api_snapshot_events(core, snapshot_change_broker)
 
-    @app.get("/api/ui_snapshot_delta")
+    @route_get("/api/ui_snapshot_delta")
     async def api_ui_snapshot_delta(request: Request) -> Response:
         return await handle_api_ui_snapshot_delta(request, snapshot_delta_store)
 
-    @app.get("/api/jobs/{job_id}/events")
+    @route_get("/api/jobs/{job_id}/events")
     async def api_jobs_events(job_id: str) -> StreamingResponse:
         async def gen() -> AsyncIterator[bytes]:
             job = await core.queue.get_job(job_id)
             disk_job = None
             if job is None:
-                disk_job = await to_thread(core._load_job_from_disk, job_id)
+                disk_job = await _offload(core.load_job_from_disk, job_id)
 
             if job is None and disk_job is None:
-                data = json.dumps({"reason": "job_not_found"}, ensure_ascii=True)
+                payload: dict[str, object] = {"reason": "job_not_found"}
+                data = json.dumps(payload, ensure_ascii=True)
                 yield f"event: end\ndata: {data}\n\n".encode()
                 return
 
@@ -933,7 +1025,7 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
                 if j is not None:
                     return str(j.status)
                 if disk_job is None:
-                    current = await to_thread(core._load_job_from_disk, job_id)
+                    current = await _offload(core.load_job_from_disk, job_id)
                 else:
                     current = disk_job
                 return str(current.status) if current is not None else None
@@ -956,12 +1048,13 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
 
             current = job if job is not None else disk_job
             if current is None:
-                data = json.dumps({"reason": "job_not_found"}, ensure_ascii=True)
+                payload_end = {"reason": "job_not_found"}
+                data = json.dumps(payload_end, ensure_ascii=True)
                 yield f"event: end\ndata: {data}\n\n".encode()
                 return
             from .sse_jsonl_stream import stream_job_events_sse
 
-            jsonl_path = core._job_jsonl_path(current)
+            jsonl_path = core.job_jsonl_path(current)
             async for chunk in stream_job_events_sse(
                 job_id=str(job_id),
                 jsonl_path=jsonl_path,
@@ -971,4 +1064,58 @@ def create_app(*, repo_root: Path, cfg: AppConfig) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    del (
+        index,
+        debug,
+        editor,
+        static,
+        api_editor_bootstrap,
+        api_editor_document,
+        api_editor_validate,
+        api_editor_save,
+        api_editor_save_unsafe_compat,
+        api_editor_save_unsafe,
+        api_editor_apply_fix,
+        api_editor_preview_action,
+        api_config,
+        api_amp_schema,
+        api_amp_config_get,
+        api_amp_config_post,
+        api_fs_list,
+        api_fs_stat,
+        api_workspaces,
+        api_patches_latest,
+        api_patches_inventory,
+        api_fs_read_text,
+        api_fs_download,
+        api_runs,
+        api_runs_head,
+        api_runs_get,
+        api_runner_tail,
+        api_jobs_list,
+        api_jobs_list_head,
+        api_patch_zip_manifest,
+        api_jobs_get,
+        api_jobs_log_tail,
+        api_jobs_revert,
+        api_rollback_preflight,
+        api_rollback_helper_action,
+        api_jobs_cancel,
+        api_jobs_hard_stop,
+        api_jobs_enqueue,
+        api_parse_command,
+        api_upload_patch,
+        api_fs_mkdir,
+        api_fs_rename,
+        api_fs_delete,
+        api_fs_unzip,
+        api_fs_archive,
+        api_debug_indexer_force_rescan,
+        api_debug_diagnostics,
+        api_ui_snapshot,
+        api_ui_snapshot_head,
+        api_snapshot_events,
+        api_ui_snapshot_delta,
+        api_jobs_events,
+    )
     return app

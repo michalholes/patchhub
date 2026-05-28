@@ -134,7 +134,7 @@ class ValidationContext(Protocol):
 
 @runtime_checkable
 class FilenameDeriver(Protocol):
-    def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]: ...
+    def derive_from_filename(self, filename: str) -> tuple[str | None, str | None]: ...
 
 
 def _parse_instructions_basename(name: str) -> tuple[str, int] | None:
@@ -228,7 +228,7 @@ def _derive_validation_inputs(self: ValidationContext, zpath: Path) -> tuple[str
     derived_issue: str | None = None
     derived_commit: str | None = None
     if isinstance(self, FilenameDeriver):
-        derived_issue, derived_commit = self._derive_from_filename(zpath.name)
+        derived_issue, derived_commit = self.derive_from_filename(zpath.name)
     return str(issue_id or derived_issue or ""), str(commit_message or derived_commit or "")
 
 
@@ -580,8 +580,8 @@ def build_patch_zip_pm_validation(self: ValidationContext, patch_path: str) -> d
         supplemental_files=[],
     )
     passed_sources = list(authority_sources)
-    if instructions_authority is not None and str(instructions_authority) not in passed_sources:
-        passed_sources.append(str(instructions_authority))
+    if instructions_authority is not None:
+        passed_sources = _append_authority_source(passed_sources, instructions_authority)
     raw = _raw_output(proc.stdout, proc.stderr)
 
     if overlay_path is not None:
@@ -614,8 +614,7 @@ def build_patch_zip_pm_validation(self: ValidationContext, patch_path: str) -> d
                     raw_output=f"repair_workspace_snapshot_missing:{repair_target}",
                     toolkit_resolution=toolkit_resolution,
                 )
-            if str(workspace_snapshot) not in authority_sources:
-                authority_sources.append(str(workspace_snapshot))
+            authority_sources = _append_authority_source(authority_sources, workspace_snapshot)
             proc = _run_validator(
                 validator_script=toolkit.pm_validator_path,
                 repo_root=self.repo_root,
@@ -629,11 +628,8 @@ def build_patch_zip_pm_validation(self: ValidationContext, patch_path: str) -> d
             )
             effective_mode = "repair-supplemental"
             passed_sources = list(authority_sources)
-            if (
-                instructions_authority is not None
-                and str(instructions_authority) not in passed_sources
-            ):
-                passed_sources.append(str(instructions_authority))
+            if instructions_authority is not None:
+                passed_sources = _append_authority_source(passed_sources, instructions_authority)
             raw = _raw_output(proc.stdout, proc.stderr)
 
     status = _parse_status(proc.returncode, raw)

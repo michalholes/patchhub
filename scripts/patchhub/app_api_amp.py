@@ -5,10 +5,12 @@ import fcntl
 import os
 import tempfile
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
-from patchhub.app_support import _err, _json_bytes, _ok
+from patchhub.app_support import err as err_response
+from patchhub.app_support import ok as ok_response
 from patchhub.config import AppConfig
 from patchhub.fs_jail import FsJail
 
@@ -42,6 +44,31 @@ def _runner_config_path(repo_root: Path, cfg: AppConfig) -> Path:
     return (repo_root / rel).resolve()
 
 
+runner_config_path = _runner_config_path
+
+
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    mapping = cast(Mapping[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in mapping.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _str_list(value: object) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    out: list[str] = []
+    for item in list(cast(list[object], value)):
+        if not isinstance(item, str):
+            return None
+        out.append(item)
+    return out
+
+
 def _normalize_policy_value(value: object, default_value: object) -> object | None:
     if isinstance(value, bool):
         return value
@@ -49,8 +76,9 @@ def _normalize_policy_value(value: object, default_value: object) -> object | No
         return value
     if isinstance(value, str):
         return value
-    if isinstance(value, list) and all(isinstance(item, str) for item in value):
-        return [str(item) for item in value]
+    value_list = _str_list(value)
+    if value_list is not None:
+        return value_list
 
     if value is None:
         if isinstance(default_value, bool):
@@ -59,53 +87,33 @@ def _normalize_policy_value(value: object, default_value: object) -> object | No
             return 0
         if isinstance(default_value, str):
             return ""
-        if isinstance(default_value, list) and all(isinstance(item, str) for item in default_value):
+        if _str_list(default_value) is not None:
             return []
         return None
 
     return None
 
 
-def _object_mapping(value: object) -> dict[str, object]:
-    if not isinstance(value, dict):
-        return {}
-    out: dict[str, object] = {}
-    for key, item in value.items():
-        if isinstance(key, str):
-            out[key] = item
-    return out
-
-
 def _policy_snapshot(policy_obj: object) -> dict[str, object]:
     raw_obj: object
     try:
-        raw_obj = policy_obj.__dict__
+        raw_obj = cast(object, policy_obj.__dict__)
     except Exception:
         return {}
-    if not isinstance(raw_obj, dict):
-        return {}
-    out: dict[str, object] = {}
-    for key, item in raw_obj.items():
-        if isinstance(key, str):
-            out[key] = item
-    return out
+    return _obj_dict(raw_obj) or {}
 
 
 def _load_config_safe(cfg_path: Path) -> tuple[dict[str, object], bool]:
     from am_patch.config import load_config
 
-    loaded: object = load_config(cfg_path)
-    if not isinstance(loaded, tuple) or len(loaded) != 2:
-        return {}, False
-    flat_raw, ok_raw = loaded
-    return _object_mapping(flat_raw), bool(ok_raw)
+    flat, used = load_config(cfg_path)
+    return dict(flat), bool(used)
 
 
 def _flatten_sections_safe(data: object) -> dict[str, object]:
     from am_patch.config import _flatten_sections
 
-    flattened: object = _flatten_sections(data)
-    return _object_mapping(flattened)
+    return _flatten_sections(data)
 
 
 def _policy_keys(policy_obj: object, allowed_keys: set[str] | None = None) -> list[str]:
@@ -175,25 +183,26 @@ def api_amp_schema(self: AmpApiContext) -> tuple[int, bytes]:
 
     schema = get_bootstrap_policy_schema()
     policy = schema.get("policy")
-    if not isinstance(policy, dict):
-        return _err("amp_schema_invalid: policy missing")
-    policy_map = _object_mapping(policy)
+    policy_map = _obj_dict(policy)
+    if policy_map is None:
+        return err_response("amp_schema_invalid: policy missing")
 
     allowed_types = {"bool", "int", "str", "optional[str]", "list[str]"}
     editable: dict[str, object] = {}
     for key, item in policy_map.items():
         if key == "json_out":
             continue
-        if not isinstance(item, dict):
-            return _err(f"amp_schema_invalid: invalid item for {key}")
-        if item.get("read_only") is True:
+        item_map = _obj_dict(item)
+        if item_map is None:
+            return err_response(f"amp_schema_invalid: invalid item for {key}")
+        if item_map.get("read_only") is True:
             continue
-        if str(item.get("type") or "") not in allowed_types:
+        if str(item_map.get("type") or "") not in allowed_types:
             continue
-        editable[key] = item
+        editable[key] = item_map
 
     schema["policy"] = editable
-    return _ok({"schema": schema})
+    return ok_response({"schema": schema})
 
 
 def api_amp_config_get(self: AmpApiContext) -> tuple[int, bytes]:
@@ -204,20 +213,20 @@ def api_amp_config_get(self: AmpApiContext) -> tuple[int, bytes]:
         values = _read_policy_values(cfg_path, allowed_keys=BOOTSTRAP_OWNED_KEYS)
         values.pop("json_out", None)
     except Exception as e:
-        return _err(f"amp_config_read_failed: {type(e).__name__}: {e}")
-    return _ok({"values": values})
+        return err_response(f"amp_config_read_failed: {type(e).__name__}: {e}")
+    return ok_response({"values": values})
 
 
 def api_amp_config_post(self: AmpApiContext, body: dict[str, object]) -> tuple[int, bytes]:
     if _is_lock_held(self.jail.lock_path()):
-        return _json_bytes({"ok": False, "error": "Runner active (lock held)"}, status=409)
+        return err_response("Runner active (lock held)", status=409)
 
-    values = body.get("values")
-    if not isinstance(values, dict):
-        return _err("values must be an object")
+    values = _obj_dict(body.get("values"))
+    if values is None:
+        return err_response("values must be an object")
     dry_run = bool(body.get("dry_run", False))
     if "json_out" in values:
-        return _err("json_out is PatchHub-managed and cannot be changed")
+        return err_response("json_out is PatchHub-managed and cannot be changed")
 
     from am_patch.config import BOOTSTRAP_OWNED_KEYS
     from am_patch.config_edit import (
@@ -260,9 +269,9 @@ def api_amp_config_post(self: AmpApiContext, body: dict[str, object]) -> tuple[i
 
             typed = _read_policy_values(cfg_path, allowed_keys=BOOTSTRAP_OWNED_KEYS)
     except RunnerError as e:
-        return _err(f"amp_config_invalid: {e}")
+        return err_response(f"amp_config_invalid: {e}")
     except Exception as e:
-        return _err(f"amp_config_update_failed: {type(e).__name__}: {e}")
+        return err_response(f"amp_config_update_failed: {type(e).__name__}: {e}")
 
     updated = sorted(updates_typed.keys())
-    return _ok({"dry_run": dry_run, "values": typed, "updated": updated})
+    return ok_response({"dry_run": dry_run, "values": typed, "updated": updated})

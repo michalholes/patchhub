@@ -12,6 +12,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol, cast
 
 
 def now_stamp() -> str:
@@ -23,13 +24,21 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _run_cmd(argv: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def run_cmd(argv: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(list(argv), cwd=str(cwd), capture_output=True, text=True)
 
 
-def _format_completed_process(cp: subprocess.CompletedProcess[str]) -> str:
-    args = cp.args if isinstance(cp.args, list) else [str(cp.args)]
-    out = ["$ " + " ".join(str(a) for a in args)]
+def _args_as_strings(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Sequence):
+        return [str(item) for item in cast(Sequence[object], value)]
+    return [str(value)]
+
+
+def format_completed_process(cp: subprocess.CompletedProcess[str]) -> str:
+    args_obj = cast(object, cp.args)
+    out = ["$ " + " ".join(_args_as_strings(args_obj))]
     if cp.stdout:
         out.append(cp.stdout.rstrip("\n"))
     if cp.stderr:
@@ -67,7 +76,7 @@ Step = CmdStep | FuncStep | ExpectPathExists
 @dataclass
 class Plan:
     steps: list[Step]
-    cleanup_paths: list[Path] = field(default_factory=list)
+    cleanup_paths: list[Path] = field(default_factory=lambda: [])
 
 
 def write_git_add_file_patch(patch_path: Path, rel_path: str, text: str) -> None:
@@ -197,14 +206,17 @@ def print_result(test_name: str, ok: bool) -> None:
     sys.stdout.flush()
 
 
-def fail_commit_limit(central_log: Path, commit_limit: int, commit_tests: Sequence[object]) -> None:
-    names = []
-    for t in commit_tests:
-        name = getattr(t, "name", None)
-        if isinstance(name, str):
-            names.append(name)
-        else:
-            names.append(str(t))
+class _NamedCommitTest(Protocol):
+    @property
+    def name(self) -> str: ...
+
+
+def fail_commit_limit(
+    central_log: Path,
+    commit_limit: int,
+    commit_tests: Sequence[_NamedCommitTest],
+) -> None:
+    names = [t.name for t in commit_tests]
 
     msg = f"FAIL: commit_limit exceeded: selected={len(names)} limit={commit_limit}"
     event = {
@@ -218,8 +230,8 @@ def fail_commit_limit(central_log: Path, commit_limit: int, commit_tests: Sequen
         f.write(json.dumps(event, ensure_ascii=True, separators=(",", ":")) + "\n")
 
     print(msg, file=sys.stderr)
-    for n in names:
-        print(f" - {n}", file=sys.stderr)
+    for test_name in names:
+        print(f" - {test_name}", file=sys.stderr)
     print("Fix: increase --commit-limit OR use --exclude/--include.", file=sys.stderr)
     raise SystemExit(1)
 

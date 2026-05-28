@@ -33,6 +33,16 @@ class _RowLike(Protocol):
     def __getitem__(self, key: object, /) -> object: ...
 
 
+@runtime_checkable
+class _ConnectSource(Protocol):
+    def connect(self) -> sqlite3.Connection: ...
+
+
+@runtime_checkable
+class _JobJsonSource(Protocol):
+    def load_job_json(self, job_id: str) -> dict[str, object] | None: ...
+
+
 def _obj_dict(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None
@@ -270,7 +280,7 @@ def ensure_job_derived_row(
 
 
 def load_derived_payload(
-    source: WebJobsDatabase | sqlite3.Connection,
+    source: _ConnectSource | sqlite3.Connection,
     job_id: str,
 ) -> dict[str, object] | None:
     row: dict[str, object]
@@ -351,8 +361,11 @@ def read_effective_event_tail_text(
     )
 
 
-def read_effective_applied_files(job_db: WebJobsDatabase, job_id: str) -> tuple[list[str], str]:
-    derived = load_derived_payload(job_db, job_id)
+def read_effective_applied_files(job_db: _JobJsonSource, job_id: str) -> tuple[list[str], str]:
+    source_obj = cast(object, job_db)
+    derived = (
+        load_derived_payload(source_obj, job_id) if isinstance(source_obj, _ConnectSource) else None
+    )
     if derived is not None:
         return (
             _str_list(derived.get("applied_files")),

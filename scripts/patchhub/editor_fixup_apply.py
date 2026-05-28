@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import cast
 
-from .editor_codec import ObjectRecord, recompute_meta_counts, scaffold_object
+from .editor_codec import JsonValue, ObjectRecord, recompute_meta_counts, scaffold_object
 from .editor_fixup_shared import CLIENT_ONLY_ACTIONS, EditorFixupError
 
 
@@ -25,9 +26,23 @@ def _items(items: list[ObjectRecord], kind: str) -> list[ObjectRecord]:
     return [obj for obj in items if obj.get("type") == kind]
 
 
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    if isinstance(value, tuple):
+        return list(cast(tuple[object, ...], value))
+    if isinstance(value, set):
+        return list(cast(set[object], value))
+    return []
+
+
 def _iter_values(values: object) -> list[object]:
-    if isinstance(values, list | tuple | set):
-        return list(values)
+    if isinstance(values, list):
+        return list(cast(list[object], values))
+    if isinstance(values, tuple):
+        return list(cast(tuple[object, ...], values))
+    if isinstance(values, set):
+        return list(cast(set[object], values))
     if values in (None, ""):
         return []
     return [values]
@@ -37,12 +52,26 @@ def _str_list(values: object) -> list[str]:
     return [str(x) for x in _iter_values(values)]
 
 
-def _swap(values: object, old: str, new: str) -> list[str]:
-    return [new if str(x) == old else str(x) for x in _iter_values(values)]
+def _json_str_list(values: list[str]) -> list[JsonValue]:
+    out: list[JsonValue] = []
+    out.extend(values)
+    return out
 
 
-def _drop(values: object, old: str) -> list[str]:
-    return [str(x) for x in _iter_values(values) if str(x) != old]
+def _swap(values: object, old: str, new: str) -> list[JsonValue]:
+    out: list[JsonValue] = []
+    for item in _iter_values(values):
+        out.append(new if str(item) == old else str(item))
+    return out
+
+
+def _drop(values: object, old: str) -> list[JsonValue]:
+    out: list[JsonValue] = []
+    for item in _iter_values(values):
+        text = str(item)
+        if text != old:
+            out.append(text)
+    return out
 
 
 def _remove(items: list[ObjectRecord], obj_id: str) -> None:
@@ -119,11 +148,12 @@ def apply_fix_action(
 
 
 def _providers(items: list[ObjectRecord], route: ObjectRecord) -> list[ObjectRecord]:
-    return [
-        obj
-        for pid in map(str, route.get("provider_chain", []))
-        if (obj := _by_id(items, pid)) is not None
-    ]
+    out: list[ObjectRecord] = []
+    for provider_id in _str_list(route.get("provider_chain", [])):
+        found = _by_id(items, provider_id)
+        if found is not None:
+            out.append(found)
+    return out
 
 
 def _missing_cap_id(items: list[ObjectRecord], primary_id: str) -> str:
@@ -133,7 +163,7 @@ def _missing_cap_id(items: list[ObjectRecord], primary_id: str) -> str:
         if primary and primary.get("type") == "surface"
         else "covers_capabilities"
     )
-    for cap_id in (primary or {}).get(field, []):
+    for cap_id in _obj_list((primary or {}).get(field, [])):
         if _by_id(items, str(cap_id)) is None:
             return str(cap_id)
     return "CAP.FIX"
@@ -154,7 +184,8 @@ def _apply(items: list[ObjectRecord], ctx: FixContext, action_id: str) -> None:
         items.insert(0, deepcopy(replacement or scaffold_object("meta")))
     elif action_id == "merge_into_existing_binding_meta":
         keep_id = secondary_id or _first_id(items, "binding_meta")
-        kept, seen = [], False
+        kept: list[ObjectRecord] = []
+        seen = False
         for obj in items:
             if obj.get("type") != "binding_meta":
                 kept.append(obj)
@@ -169,10 +200,10 @@ def _apply(items: list[ObjectRecord], ctx: FixContext, action_id: str) -> None:
         return
     elif action_id == "relink_rule_to_existing_capability":
         cap = _first(items, "capability")
-        refs = [str(x) for x in cap.get("triggers_rules", [])]
+        refs = _str_list(cap.get("triggers_rules", []))
         if primary_id not in refs:
             refs.append(primary_id)
-        cap["triggers_rules"] = refs
+        cap["triggers_rules"] = _json_str_list(refs)
     elif action_id == "create_companion_capability_block":
         cap = _append(items, "capability", "CAP.FIX")
         cap["triggers_rules"] = [primary_id]
@@ -208,48 +239,55 @@ def _apply(items: list[ObjectRecord], ctx: FixContext, action_id: str) -> None:
             raise EditorFixupError("Route has no provider_chain")
         provider = _obj(items, chain[-1])
         provided_caps = _str_list(provider.get("provides_capabilities", []))
-        for cap_id in route.get("covers_capabilities", []):
+        for cap_id in _obj_list(route.get("covers_capabilities", [])):
             if str(cap_id) not in provided_caps:
                 provided_caps.append(str(cap_id))
-        provider["provides_capabilities"] = provided_caps
+        provider["provides_capabilities"] = _json_str_list(provided_caps)
     elif action_id == "create_provider_block":
         route = _obj(items, primary_id)
         provider = _append(items, "provider", "PROVIDER.FIX")
-        provider["provides_capabilities"] = [str(x) for x in route.get("covers_capabilities", [])]
-        route["provider_chain"] = [*map(str, route.get("provider_chain", [])), provider["id"]]
+        provider["provides_capabilities"] = _json_str_list(
+            _str_list(route.get("covers_capabilities", []))
+        )
+        chain = _str_list(route.get("provider_chain", []))
+        chain.append(_sid(provider))
+        route["provider_chain"] = _json_str_list(chain)
     elif action_id == "reduce_route_capabilities":
         route = _obj(items, primary_id)
         provided_ids = {
-            str(x) for obj in _providers(items, route) for x in obj.get("provides_capabilities", [])
+            str(cap_id)
+            for provider in _providers(items, route)
+            for cap_id in _obj_list(provider.get("provides_capabilities", []))
         }
-        route["covers_capabilities"] = [
-            cap for cap in map(str, route.get("covers_capabilities", [])) if cap in provided_ids
-        ]
+        route_caps = _str_list(route.get("covers_capabilities", []))
+        route["covers_capabilities"] = _json_str_list(
+            [cap_id for cap_id in route_caps if cap_id in provided_ids]
+        )
     elif action_id in {"select_existing_route_ref", "create_route_block"}:
         if action_id == "create_route_block":
             route = _append(items, "route", secondary_id or primary_id or "ROUTE.FIX")
-            _set_route_ref(_obj(items, primary_id), route["id"])
+            _set_route_ref(_obj(items, primary_id), _sid(route))
         else:
             _set_route_ref(_obj(items, primary_id), _first_id(items, "route"))
     elif action_id == "select_existing_capabilities":
         surface = _obj(items, primary_id)
         route_obj = _by_id(items, str(surface.get("route_ref", "")))
         cap_ids = [
-            str(x)
-            for x in (route_obj or {}).get("covers_capabilities", [])
-            if _by_id(items, str(x))
+            str(cap_id)
+            for cap_id in _obj_list((route_obj or {}).get("covers_capabilities", []))
+            if _by_id(items, str(cap_id))
         ]
-        surface["requires_capabilities"] = cap_ids or sorted(
-            str(obj.get("id", "")) for obj in _items(items, "capability")
+        surface["requires_capabilities"] = _json_str_list(
+            cap_ids or sorted(str(obj.get("id", "")) for obj in _items(items, "capability"))
         )
     elif action_id == "add_missing_declared_capabilities":
         impl = _obj(items, primary_id)
         route = _obj(items, str(impl.get("implements_route", "")))
         declared = _str_list(impl.get("declared_capabilities", []))
-        for cap_id in route.get("covers_capabilities", []):
+        for cap_id in _obj_list(route.get("covers_capabilities", [])):
             if str(cap_id) not in declared:
                 declared.append(str(cap_id))
-        impl["declared_capabilities"] = declared
+        impl["declared_capabilities"] = _json_str_list(declared)
     elif action_id in {"select_existing_oracle_ref", "create_oracle_block"}:
         if action_id == "create_oracle_block":
             oracle = _append(items, "oracle", secondary_id or "ORACLE.FIX")
@@ -262,7 +300,7 @@ def _apply(items: list[ObjectRecord], ctx: FixContext, action_id: str) -> None:
         step["entry_mode"] = ""
     elif action_id == "create_transition_block":
         sid = str(_obj(items, primary_id).get("id", ""))
-        steps = sorted(_items(items, "workflow_step"), key=lambda obj: str(obj.get("id", "")))
+        steps = sorted(_items(items, "workflow_step"), key=_sid)
         other = next((obj for obj in steps if str(obj.get("id", "")) != sid), None)
         if other is None:
             raise EditorFixupError("At least two workflow steps are required")
@@ -273,7 +311,7 @@ def _apply(items: list[ObjectRecord], ctx: FixContext, action_id: str) -> None:
         other_id = str(other.get("id", ""))
         trans["from_step"], trans["to_step"] = (sid, other_id) if inbound else (other_id, sid)
     elif action_id == "create_invalidation_block":
-        steps = sorted(_items(items, "workflow_step"), key=lambda obj: str(obj.get("id", "")))
+        steps = sorted(_items(items, "workflow_step"), key=_sid)
         target = next(
             (
                 obj
@@ -308,7 +346,7 @@ def _apply(items: list[ObjectRecord], ctx: FixContext, action_id: str) -> None:
         gate = _append(items, "workflow_gate", "WORKFLOW_GATE.FIX")
         gate["step_ref"] = primary_id
         gate["gate_kind"] = "entry"
-        gate["gate_capabilities"] = [str(x) for x in step.get("required_capabilities", [])]
+        gate["gate_capabilities"] = _json_str_list(_str_list(step.get("required_capabilities", [])))
         gate["gate_rule_ids"] = []
     elif action_id == "mark_workflow_step_root":
         step = _obj(items, primary_id)
@@ -322,20 +360,16 @@ def _apply(items: list[ObjectRecord], ctx: FixContext, action_id: str) -> None:
         step = _append(items, "workflow_step", "WORKFLOW_STEP.FIX")
         if action_id.endswith("surface"):
             surface_id, route_id = primary_id, str(source.get("route_ref", ""))
-            req_caps = [str(x) for x in source.get("requires_capabilities", [])]
+            req_caps = _str_list(source.get("requires_capabilities", []))
         else:
             surface_id = str(_first(items, "surface", route_ref=primary_id).get("id", ""))
             route_id = primary_id
             req_caps = _str_list(source.get("covers_capabilities", []))
-        step.update(
-            {
-                "display_name": primary_id,
-                "branch": "editor_fix",
-                "route_ref": route_id,
-                "surface_ref": surface_id,
-                "required_capabilities": req_caps,
-            }
-        )
+        step["display_name"] = primary_id
+        step["branch"] = "editor_fix"
+        step["route_ref"] = route_id
+        step["surface_ref"] = surface_id
+        step["required_capabilities"] = _json_str_list(req_caps)
     elif action_id == "relink_workflow_step_surface":
         step = _obj(items, primary_id)
         step["surface_ref"] = str(

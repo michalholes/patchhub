@@ -114,7 +114,7 @@ def derive_filename_metadata(cfg: AppConfig, filename: str) -> tuple[str | None,
             commit_msg = os.path.splitext(filename)[0]
 
     if commit_msg is not None:
-        from .app_support import _ascii_sanitize
+        from .app_support import ascii_sanitize
 
         if cfg.autofill.commit_replace_underscores:
             commit_msg = commit_msg.replace("_", " ")
@@ -125,7 +125,7 @@ def derive_filename_metadata(cfg: AppConfig, filename: str) -> tuple[str | None,
         if cfg.autofill.commit_trim:
             commit_msg = commit_msg.strip()
         if cfg.autofill.commit_ascii_only:
-            commit_msg = _ascii_sanitize(commit_msg)
+            commit_msg = ascii_sanitize(commit_msg)
             if cfg.autofill.commit_collapse_spaces:
                 commit_msg = " ".join(commit_msg.split())
             if cfg.autofill.commit_trim:

@@ -40,6 +40,15 @@ class RevertFailureVerification:
     error: str | None
 
 
+class VerifyFailedRevertPostconditionsFn(Protocol):
+    def __call__(
+        self,
+        repo_root: Path,
+        *,
+        expected_head: str,
+    ) -> RevertFailureVerification: ...
+
+
 class RevertJobHandler:
     def __init__(
         self,
@@ -52,7 +61,7 @@ class RevertJobHandler:
         tracked_tree_is_clean_fn: Callable[[Path], bool],
         run_git_revert_fn: Callable[[Path, str], GitCommandResult],
         abort_git_revert_fn: Callable[[Path], GitAbortResult],
-        verify_failed_revert_postconditions_fn: Callable[..., RevertFailureVerification],
+        verify_failed_revert_postconditions_fn: VerifyFailedRevertPostconditionsFn,
     ) -> None:
         self._load_job_record_any = load_job_record_any
         self._resolve_target_root = resolve_target_root
@@ -230,7 +239,7 @@ def build_revert_job_handler(
     tracked_tree_is_clean_fn: Callable[[Path], bool],
     run_git_revert_fn: Callable[[Path, str], GitCommandResult],
     abort_git_revert_fn: Callable[[Path], GitAbortResult],
-    verify_failed_revert_postconditions_fn: Callable[..., RevertFailureVerification],
+    verify_failed_revert_postconditions_fn: VerifyFailedRevertPostconditionsFn,
 ) -> RevertJobHandler:
     async def load_job_record_any(job_id: str) -> JobRecord | None:
         current = await current_job_lookup(job_id)

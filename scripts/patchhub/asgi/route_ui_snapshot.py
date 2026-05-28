@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 from fastapi import Request
 from fastapi.responses import Response
 
+from patchhub import app_api_core as _core_api
 from patchhub.app_support import canceled_runs_signature
 from patchhub.indexing import iter_runs, runs_signature
 from patchhub.models import JobRecord, job_to_list_item_json, workspace_to_list_item_json
@@ -40,24 +41,38 @@ def _etag_matches(if_none_match: str | None, etag_value: str) -> bool:
     return str(if_none_match).strip() == etag_value
 
 
-def _legacy_jobs_root(core: AsyncAppCore) -> Path | None:
-    source = getattr(core, "jobs_root", None)
-    if isinstance(source, Path):
-        return source
-    return None
+def _legacy_jobs_root(core: AsyncAppCore) -> Path:
+    return core.jobs_root
+
+
+def _job_id_key(record: JobRecord) -> str:
+    return str(record.job_id)
+
+
+def _job_created_key(record: JobRecord) -> str:
+    return str(record.created_utc or "")
+
+
+def _get_attr_object(obj: object, name: str) -> object | None:
+    try:
+        return cast(object, object.__getattribute__(obj, name))
+    except AttributeError:
+        return None
 
 
 def _jobs_sig(*, disk_sig: tuple[int, int], mem: Sequence[JobRecord]) -> str:
     parts: list[str] = []
-    for item in sorted(mem, key=lambda x: str(getattr(x, "job_id", ""))):
+    ordered = list(mem)
+    ordered.sort(key=_job_id_key)
+    for item in ordered:
         parts.append(
             "|".join(
                 [
-                    str(getattr(item, "job_id", "")),
-                    str(getattr(item, "status", "")),
-                    str(getattr(item, "issue_id", "")),
-                    str(getattr(item, "started_utc", "")),
-                    str(getattr(item, "ended_utc", "")),
+                    str(item.job_id),
+                    str(item.status),
+                    str(item.issue_id),
+                    str(item.started_utc),
+                    str(item.ended_utc),
                 ]
             )
         )
@@ -66,22 +81,22 @@ def _jobs_sig(*, disk_sig: tuple[int, int], mem: Sequence[JobRecord]) -> str:
 
 
 async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, object]:
-    qstate = None
+    queued = 0
+    running = 0
     try:
         qstate = await core.queue.state()
+        queued = int(qstate.queued)
+        running = int(qstate.running)
     except Exception:
-        qstate = None
-    queued = int(getattr(qstate, "queued", 0) or 0) if qstate is not None else 0
-    running = int(getattr(qstate, "running", 0) or 0) if qstate is not None else 0
+        pass
 
-    job_source = getattr(core, "web_jobs_db", None)
+    job_source_raw = _get_attr_object(core, "web_jobs_db")
+    job_source = job_source_raw if isinstance(job_source_raw, WebJobsDatabase) else None
     if isinstance(job_source, WebJobsDatabase):
         disk_sig = await to_thread(job_source.jobs_signature)
     else:
         jobs_root = _legacy_jobs_root(core)
-        disk_sig = (
-            (0, 0) if jobs_root is None else await to_thread(legacy_jobs_signature, jobs_root)
-        )
+        disk_sig = await to_thread(legacy_jobs_signature, jobs_root)
     mem = await core.queue.list_jobs()
     mem_by_id = {str(j.job_id): j for j in mem}
     jobs_sig = _jobs_sig(disk_sig=disk_sig, mem=mem)
@@ -91,7 +106,7 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, object]:
             disk_raw = job_source.list_job_jsons(limit=200)
         else:
             jobs_root = _legacy_jobs_root(core)
-            disk_raw = [] if jobs_root is None else list_legacy_job_jsons(jobs_root, limit=200)
+            disk_raw = list_legacy_job_jsons(jobs_root, limit=200)
         disk_jobs: list[JobRecord] = []
         for item in disk_raw:
             jid = str(item.get("job_id", ""))
@@ -106,7 +121,7 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, object]:
 
     disk_jobs = await to_thread(_load_disk_jobs_sync)
     jobs = list(mem) + disk_jobs
-    jobs.sort(key=lambda job: str(getattr(job, "created_utc", "")) or "", reverse=True)
+    jobs.sort(key=_job_created_key, reverse=True)
     jobs_items = [job_to_list_item_json(job) for job in jobs]
 
     base_sig = await to_thread(
@@ -115,28 +130,41 @@ async def _legacy_snapshot_payload(core: AsyncAppCore) -> dict[str, object]:
         core.cfg.indexing.log_filename_regex,
     )
     canceled_source: WebJobsDatabase | Path = (
-        job_source if isinstance(job_source, WebJobsDatabase) else core.jobs_root
+        job_source if isinstance(job_source, WebJobsDatabase) else _legacy_jobs_root(core)
     )
     canceled_sig = await to_thread(canceled_runs_signature, canceled_source)
     runs_sig = (
         f"runs:r={base_sig[0]}:{base_sig[1]}:{base_sig[2]}:c={canceled_sig[0]}:{canceled_sig[1]}"
     )
 
-    runs_status, runs_bytes = await to_thread(core.api_runs, {"limit": "80"})
+    if TYPE_CHECKING:
+        runs_status, runs_bytes = _core_api.api_runs(core, {"limit": "80"})
+    else:
+        runs_status, runs_bytes = await to_thread(core.api_runs, {"limit": "80"})
     runs_items: list[object] = []
     if runs_status == 200:
         try:
-            runs_payload = json.loads(runs_bytes.decode("utf-8"))
-            runs_items = list(runs_payload.get("runs", []) or [])
+            loaded = cast(object, json.loads(runs_bytes.decode("utf-8")))
+            if isinstance(loaded, dict):
+                runs_payload = cast(dict[str, object], loaded)
+                runs_raw = runs_payload.get("runs")
+                if isinstance(runs_raw, list):
+                    runs_items = list(cast(list[object], runs_raw))
         except Exception:
             runs_items = []
 
     try:
-        patches_sig, patches_items = await to_thread(build_patch_inventory, core)
+        if TYPE_CHECKING:
+            patches_sig, patches_items = build_patch_inventory(core)
+        else:
+            patches_sig, patches_items = await to_thread(build_patch_inventory, core)
     except Exception:
         patches_sig = "patches:" + sha1(b"").hexdigest()
         patches_items = []
-    workspaces_sig, workspaces_raw = await to_thread(list_workspaces, core, mem)
+    if TYPE_CHECKING:
+        workspaces_sig, workspaces_raw = list_workspaces(core, mem)
+    else:
+        workspaces_sig, workspaces_raw = await to_thread(list_workspaces, core, mem)
     workspaces_items = [workspace_to_list_item_json(item) for item in workspaces_raw]
 
     def _lock_held_sync() -> bool:
@@ -229,7 +257,7 @@ async def handle_api_ui_snapshot(
                 return json_head_response(200, headers={"ETag": etag})
             payload: dict[str, object] = {
                 "ok": True,
-                "seq": int(getattr(snap, "seq", 0) or 0),
+                "seq": int(snap.seq),
                 "snapshot": {
                     "jobs": list(snap.jobs_items),
                     "runs": list(snap.runs_items[:80]),

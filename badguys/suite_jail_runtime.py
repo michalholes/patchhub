@@ -12,13 +12,12 @@ def external_bind_paths(*, repo_root: Path) -> list[Path]:
 
 
 def _existing_user_site_paths(*, repo_root: Path) -> list[Path]:
-    user_site = site.getusersitepackages()
-    candidates = [user_site] if isinstance(user_site, str) else list(user_site)
+    user_site = str(site.getusersitepackages())
+    candidates = [Path(user_site)]
     resolved_root = repo_root.resolve()
     seen: set[Path] = set()
     paths: list[Path] = []
-    for value in candidates:
-        candidate = Path(str(value))
+    for candidate in candidates:
         if not candidate.is_absolute() or not candidate.exists():
             continue
         resolved = candidate.resolve()

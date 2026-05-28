@@ -165,6 +165,7 @@ def e2e_patchhub_base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[
     host = os.getenv("E2E_HOST", "127.0.0.1")
     port = _pick_free_port()
     log_dir = tmp_path_factory.mktemp("playwright-e2e-patchhub")
+    state_dir = tmp_path_factory.mktemp("playwright-e2e-patchhub-state")
     readiness_url = f"http://{host}:{port}/"
 
     yield from _spawn_server(
@@ -173,4 +174,5 @@ def e2e_patchhub_base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[
         port=port,
         readiness_url=readiness_url,
         log_path=log_dir / "patchhub.log",
+        extra_env={"E2E_PATCHES_ROOT": str(state_dir)},
     )

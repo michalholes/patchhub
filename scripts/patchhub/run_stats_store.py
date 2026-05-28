@@ -4,11 +4,19 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from .indexing import iter_run_log_infos, read_run_result_from_log
 from .models import AppStats, StatsWindow, WebJobsDbConfig
 
 _RESULT_VALUES = ("success", "fail", "unknown")
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    try:
+        return int(str(value))
+    except Exception:
+        return default
 
 
 @dataclass(frozen=True)
@@ -40,7 +48,6 @@ class RunStatsStore:
             timeout=float(self.cfg.connect_timeout_s),
             isolation_level=None,
         )
-        conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=FULL")
         conn.execute(f"PRAGMA busy_timeout={int(self.cfg.busy_timeout_ms)}")
@@ -180,49 +187,59 @@ class RunStatsStore:
         days: int,
     ) -> StatsWindow:
         cutoff_ms = int(current_ms - (days * 86400 * 1000))
-        row = conn.execute(
-            """
-            SELECT
-                COUNT(*) AS total,
-                SUM(CASE WHEN result = 'success' THEN 1 ELSE 0 END) AS success,
-                SUM(CASE WHEN result = 'fail' THEN 1 ELSE 0 END) AS fail,
-                SUM(CASE WHEN result = 'unknown' THEN 1 ELSE 0 END) AS unknown
-              FROM run_stats_seen
-             WHERE run_unix_ms >= ?
-            """,
-            (cutoff_ms,),
-        ).fetchone()
+        row_obj = cast(
+            object,
+            conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN result = 'success' THEN 1 ELSE 0 END) AS success,
+                    SUM(CASE WHEN result = 'fail' THEN 1 ELSE 0 END) AS fail,
+                    SUM(CASE WHEN result = 'unknown' THEN 1 ELSE 0 END) AS unknown
+                  FROM run_stats_seen
+                 WHERE run_unix_ms >= ?
+                """,
+                (cutoff_ms,),
+            ).fetchone(),
+        )
+        row_tuple = cast(tuple[object, object, object, object] | None, row_obj)
+        if row_tuple is None:
+            return StatsWindow(days=int(days), total=0, success=0, fail=0, unknown=0)
         return StatsWindow(
             days=int(days),
-            total=int(row["total"] or 0),
-            success=int(row["success"] or 0),
-            fail=int(row["fail"] or 0),
-            unknown=int(row["unknown"] or 0),
+            total=_as_int(row_tuple[0], 0),
+            success=_as_int(row_tuple[1], 0),
+            fail=_as_int(row_tuple[2], 0),
+            unknown=_as_int(row_tuple[3], 0),
         )
 
     def _load_meta(self, conn: sqlite3.Connection) -> RunStatsMeta:
-        row = conn.execute(
-            """
-            SELECT
-                last_indexed_mtime_ns,
-                last_indexed_filename,
-                all_time_total,
-                all_time_success,
-                all_time_fail,
-                all_time_unknown
-              FROM run_stats_meta
-             WHERE singleton = 1
-            """
-        ).fetchone()
-        if row is None:
+        row_obj = cast(
+            object,
+            conn.execute(
+                """
+                SELECT
+                    last_indexed_mtime_ns,
+                    last_indexed_filename,
+                    all_time_total,
+                    all_time_success,
+                    all_time_fail,
+                    all_time_unknown
+                  FROM run_stats_meta
+                 WHERE singleton = 1
+                """
+            ).fetchone(),
+        )
+        row_tuple = cast(tuple[object, ...] | None, row_obj)
+        if row_tuple is None:
             return RunStatsMeta(0, "", 0, 0, 0, 0)
         return RunStatsMeta(
-            last_indexed_mtime_ns=int(row["last_indexed_mtime_ns"] or 0),
-            last_indexed_filename=str(row["last_indexed_filename"] or ""),
-            all_time_total=int(row["all_time_total"] or 0),
-            all_time_success=int(row["all_time_success"] or 0),
-            all_time_fail=int(row["all_time_fail"] or 0),
-            all_time_unknown=int(row["all_time_unknown"] or 0),
+            last_indexed_mtime_ns=_as_int(row_tuple[0], 0),
+            last_indexed_filename=str(row_tuple[1] or ""),
+            all_time_total=_as_int(row_tuple[2], 0),
+            all_time_success=_as_int(row_tuple[3], 0),
+            all_time_fail=_as_int(row_tuple[4], 0),
+            all_time_unknown=_as_int(row_tuple[5], 0),
         )
 
     def _write_meta(self, conn: sqlite3.Connection, meta: RunStatsMeta) -> None:
@@ -261,15 +278,19 @@ class RunStatsStore:
         run_unix_ms: int,
         result: str,
     ) -> RunStatsMeta:
-        existing = conn.execute(
-            """
-            SELECT result, log_mtime_ns, log_size, run_unix_ms
-              FROM run_stats_seen
-             WHERE source_key = ?
-            """,
-            (str(source_key),),
-        ).fetchone()
-        if existing is None:
+        existing_obj = cast(
+            object,
+            conn.execute(
+                """
+                SELECT result, log_mtime_ns, log_size, run_unix_ms
+                  FROM run_stats_seen
+                 WHERE source_key = ?
+                """,
+                (str(source_key),),
+            ).fetchone(),
+        )
+        existing_tuple = cast(tuple[object, object, object, object] | None, existing_obj)
+        if existing_tuple is None:
             conn.execute(
                 """
                 INSERT INTO run_stats_seen(
@@ -292,10 +313,10 @@ class RunStatsStore:
             )
             return _apply_delta(meta, old_result=None, new_result=result)
 
-        old_result = str(existing["result"] or "unknown")
-        old_mtime_ns = int(existing["log_mtime_ns"] or 0)
-        old_size = int(existing["log_size"] or 0)
-        old_run_unix_ms = int(existing["run_unix_ms"] or 0)
+        old_result = str(existing_tuple[0] or "unknown")
+        old_mtime_ns = _as_int(existing_tuple[1], 0)
+        old_size = _as_int(existing_tuple[2], 0)
+        old_run_unix_ms = _as_int(existing_tuple[3], 0)
         if (
             old_result == result
             and old_mtime_ns == int(log_mtime_ns)

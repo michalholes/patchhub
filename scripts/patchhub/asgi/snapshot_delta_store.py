@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .async_jobs_runs_indexer import IndexerSnapshot
@@ -67,7 +68,7 @@ class SnapshotDeltaStore:
     def record_snapshot(self, snap: IndexerSnapshot) -> None:
         self._records.append(
             SnapshotRecord(
-                seq=int(getattr(snap, "seq", 0) or 0),
+                seq=int(snap.seq),
                 jobs=_copy_items(list(snap.jobs_items)),
                 runs=_copy_items(list(snap.runs_items[:80])),
                 patches=_copy_items(list(snap.patches_items)),
@@ -124,7 +125,7 @@ class SnapshotDeltaStore:
         if previous.operator_info != current.operator_info:
             return {"ok": True, "resync_needed": True, "seq": current.seq}
 
-        payload = {
+        payload: dict[str, object] = {
             "ok": True,
             "seq": current.seq,
             "sigs": dict(current.sigs),
@@ -153,8 +154,8 @@ class SnapshotDeltaStore:
         self,
         before: list[dict[str, object]],
         after: list[dict[str, object]],
-        key_fn: object,
-        removed_fn: object,
+        key_fn: Callable[[dict[str, object]], str],
+        removed_fn: Callable[[dict[str, object]], dict[str, object]],
         *,
         include_order: bool = False,
     ) -> dict[str, object]:

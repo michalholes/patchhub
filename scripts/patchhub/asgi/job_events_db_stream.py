@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from patchhub.live_event_retention import LIVE_EVENT_RETENTION_MIN
 from patchhub.web_jobs_db import WebJobsDatabase
 
+from .async_offload import to_thread
 from .job_event_broker import JobEventBroker
 
 
@@ -31,7 +33,10 @@ async def stream_job_events_db_live(
             yield chunk
         return
 
-    tail_rows, snapshot_seq = await asyncio.to_thread(db.read_event_tail, job_id, lines=tail_lines)
+    if TYPE_CHECKING:
+        tail_rows, snapshot_seq = db.read_event_tail(job_id, lines=tail_lines)
+    else:
+        tail_rows, snapshot_seq = await to_thread(db.read_event_tail, job_id, lines=tail_lines)
     for row in tail_rows:
         if row.raw_line.strip():
             yield f"data: {row.raw_line}\n\n".encode()
@@ -43,11 +48,13 @@ async def stream_job_events_db_live(
             break
         status = await job_status()
         if status is None:
-            data = json.dumps({"reason": "job_not_found"}, ensure_ascii=True)
+            payload: dict[str, object] = {"reason": "job_not_found"}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
         if status not in {"queued", "running"}:
-            data = json.dumps({"reason": "job_completed", "status": str(status)}, ensure_ascii=True)
+            payload = {"reason": "job_completed", "status": str(status)}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
         now = asyncio.get_running_loop().time()
@@ -68,7 +75,8 @@ async def stream_job_events_db_live(
         yield f"data: {line}\n\n".encode()
 
     status = await job_status()
-    data = json.dumps({"reason": "job_completed", "status": status or ""}, ensure_ascii=True)
+    payload = {"reason": "job_completed", "status": status or ""}
+    data = json.dumps(payload, ensure_ascii=True)
     yield f"event: end\ndata: {data}\n\n".encode()
 
 
@@ -86,10 +94,14 @@ async def stream_job_events_db_history(
     while True:
         status = await job_status()
         if status is None:
-            data = json.dumps({"reason": "job_not_found"}, ensure_ascii=True)
+            payload: dict[str, object] = {"reason": "job_not_found"}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
-        rows = await asyncio.to_thread(db.read_event_rows, job_id, after_seq=last_seq, limit=2000)
+        if TYPE_CHECKING:
+            rows = db.read_event_rows(job_id, after_seq=last_seq, limit=2000)
+        else:
+            rows = await to_thread(db.read_event_rows, job_id, after_seq=last_seq, limit=2000)
         if rows:
             last_growth = asyncio.get_running_loop().time()
             for row in rows:
@@ -101,7 +113,8 @@ async def stream_job_events_db_history(
             yield b": ping\n\n"
             last_ping = now
         if status != "running" and now - last_growth >= 0.5:
-            data = json.dumps({"reason": "job_completed", "status": str(status)}, ensure_ascii=True)
+            payload = {"reason": "job_completed", "status": str(status)}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
         await asyncio.sleep(poll_interval_s)

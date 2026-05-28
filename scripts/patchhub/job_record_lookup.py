@@ -67,12 +67,12 @@ def _job_record_matches_rollback_candidate(
         return False
     if str(job.effective_runner_target_repo or "") != target_repo:
         return False
-    if int(getattr(job, "created_unix_ms", 0) or 0) <= source_created_unix_ms:
+    if int(job.created_unix_ms or 0) <= source_created_unix_ms:
         return False
     if has_manifest_authority is not None:
         return has_manifest_authority(str(job.job_id or ""))
-    manifest_path = str(getattr(job, "rollback_scope_manifest_rel_path", "") or "").strip()
-    manifest_hash = str(getattr(job, "rollback_scope_manifest_hash", "") or "").strip()
+    manifest_path = str(job.rollback_scope_manifest_rel_path or "").strip()
+    manifest_hash = str(job.rollback_scope_manifest_hash or "").strip()
     return bool(manifest_path and manifest_hash)
 
 
@@ -186,10 +186,10 @@ def list_rollback_relevant_job_records_sync(
     limit: int = 5000,
 ) -> list[JobRecord]:
     source_job_id = str(source_job.job_id or "").strip()
-    source_created_unix_ms = int(getattr(source_job, "created_unix_ms", 0) or 0)
+    source_created_unix_ms = int(source_job.created_unix_ms or 0)
     target_repo = str(source_job.effective_runner_target_repo or "").strip()
     out = [source_job]
-    seen = {source_job_id} if source_job_id else set()
+    seen: set[str] = {source_job_id} if source_job_id else set()
     has_manifest_authority = (
         job_db.job_has_manifest_authority if isinstance(job_db, WebJobsDatabase) else None
     )

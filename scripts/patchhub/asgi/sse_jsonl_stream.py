@@ -4,6 +4,9 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from .async_offload import to_thread
 
 
 def _read_chunk_sync(path: Path, offset: int) -> tuple[bytes, int]:
@@ -32,11 +35,15 @@ async def stream_job_events_sse(
     while True:
         status = await job_status()
         if status is None:
-            data = json.dumps({"reason": "job_not_found"}, ensure_ascii=True)
+            payload: dict[str, object] = {"reason": "job_not_found"}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
 
-        exists = await asyncio.to_thread(_path_exists_sync, jsonl_path)
+        if TYPE_CHECKING:
+            exists = _path_exists_sync(jsonl_path)
+        else:
+            exists = await to_thread(_path_exists_sync, jsonl_path)
         if status == "running" and not exists:
             now = asyncio.get_running_loop().time()
             if now - last_ping >= ping_interval_s:
@@ -46,18 +53,24 @@ async def stream_job_events_sse(
             continue
 
         if not exists:
-            data = json.dumps({"reason": "job_completed", "status": str(status)}, ensure_ascii=True)
+            payload = {"reason": "job_completed", "status": str(status)}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
 
         try:
-            chunk, end_pos = await asyncio.to_thread(_read_chunk_sync, jsonl_path, offset)
+            if TYPE_CHECKING:
+                chunk, end_pos = _read_chunk_sync(jsonl_path, offset)
+            else:
+                chunk, end_pos = await to_thread(_read_chunk_sync, jsonl_path, offset)
         except FileNotFoundError:
-            data = json.dumps({"reason": "job_completed", "status": str(status)}, ensure_ascii=True)
+            payload = {"reason": "job_completed", "status": str(status)}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
         except OSError:
-            data = json.dumps({"reason": "io_error"}, ensure_ascii=True)
+            payload = {"reason": "io_error"}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
 
@@ -87,7 +100,8 @@ async def stream_job_events_sse(
             last_ping = now
 
         if status != "running" and now - last_growth >= 0.5:
-            data = json.dumps({"reason": "job_completed", "status": str(status)}, ensure_ascii=True)
+            payload = {"reason": "job_completed", "status": str(status)}
+            data = json.dumps(payload, ensure_ascii=True)
             yield f"event: end\ndata: {data}\n\n".encode()
             return
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from pathlib import Path
+from typing import cast
 
 from .web_jobs_legacy_fs import list_legacy_job_jsons
 
@@ -36,18 +37,19 @@ def _max_issue_id_from_web_jobs_db(patches_root: Path) -> int | None:
     except sqlite3.Error:
         return None
     try:
-        row = conn.execute("SELECT MAX(issue_id_int) FROM web_jobs").fetchone()
+        row_obj = cast(object, conn.execute("SELECT MAX(issue_id_int) FROM web_jobs").fetchone())
     except sqlite3.Error:
         return None
     finally:
         conn.close()
-    if not row:
+    row_tuple = cast(tuple[object, ...] | None, row_obj)
+    if not row_tuple:
         return None
-    value = row[0]
+    value = row_tuple[0]
     if value is None:
         return None
     try:
-        parsed = int(value)
+        parsed = int(str(value))
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None

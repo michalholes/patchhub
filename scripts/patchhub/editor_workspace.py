@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from .editor_codec import FailurePayload, ObjectRecord
 
@@ -88,13 +89,31 @@ def _label(kind: str) -> str:
     return _KIND_LABELS.get(kind, kind.replace("_", " ").title())
 
 
+def _obj_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_dict = cast(dict[object, object], value)
+    out: dict[str, object] = {}
+    for key, item in raw_dict.items():
+        if isinstance(key, str):
+            out[key] = item
+    return out
+
+
+def _obj_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(cast(list[object], value))
+    return []
+
+
 def _stringify(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
         return value
     if isinstance(value, list):
-        return ", ".join(str(item) for item in value) if value else "-"
+        items = list(cast(list[object], value))
+        return ", ".join(str(item) for item in items) if items else "-"
     if isinstance(value, dict):
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
     return str(value)
@@ -129,7 +148,7 @@ def _subtitle(obj: ObjectRecord) -> str:
 
 
 def _local_fields(obj: ObjectRecord) -> list[dict[str, str]]:
-    out = []
+    out: list[dict[str, str]] = []
     for key, value in obj.items():
         if key in {"type", "id"}:
             continue
@@ -142,8 +161,15 @@ def _index(objects: list[ObjectRecord]) -> dict[str, ObjectRecord]:
 
 
 def _expand(raw: object) -> list[str]:
-    values = raw if isinstance(raw, list) else ([raw] if raw not in (None, "") else [])
-    return [str(value).strip() for value in values if str(value).strip()]
+    values = _obj_list(raw)
+    if not values and raw not in (None, "") and not isinstance(raw, list):
+        values = [raw]
+    out: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if text:
+            out.append(text)
+    return out
 
 
 def _outbound(selected: ObjectRecord, objects: list[ObjectRecord]) -> list[dict[str, str]]:
@@ -187,7 +213,7 @@ def _relation_sections(
 ) -> list[dict[str, object]]:
     outbound = _outbound(selected, objects)
     inbound = _inbound(_sid(selected), objects)
-    groups = {
+    groups: dict[str, list[dict[str, str]]] = {
         "What this points to": outbound,
         "What points back here": inbound,
         "What this requires": [
@@ -287,7 +313,7 @@ def _navigation_items(
         str((failure or {}).get("primary_id", "")).strip(),
         str((failure or {}).get("secondary_id", "")).strip(),
     }
-    items = []
+    items: list[dict[str, object]] = []
     for obj in objects:
         obj_id = _sid(obj)
         items.append(
@@ -315,17 +341,32 @@ def _navigation_items(
     return items
 
 
+def _failure_actions(failure: FailurePayload) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for raw_item in _obj_list(failure.get("actions", [])):
+        item = _obj_dict(raw_item)
+        if item is None:
+            continue
+        action_id = str(item.get("action_id", "")).strip()
+        label = str(item.get("label", "")).strip()
+        if not action_id:
+            continue
+        out.append({"action_id": action_id, "label": label})
+    return out
+
+
 def _health(
     validated: bool,
     failure: FailurePayload | None,
     object_count: int,
 ) -> dict[str, object]:
     if failure:
+        actions = _failure_actions(failure)
         return {
             "status": "problem",
             "headline": failure.get("title") or "Validation needs attention",
             "summary": "Repair the current validation problem before saving.",
-            "recommended": (failure.get("actions") or [None])[0],
+            "recommended": actions[0] if actions else None,
             "technical_reason": str(failure.get("failure_code", "")).strip(),
             "object_count": object_count,
         }
@@ -360,15 +401,19 @@ def build_workspace(
     selected_id: str | None = None,
 ) -> dict[str, object]:
     chosen_id = _preferred_selected_id(objects, failure, selected_id)
-    chosen = next((obj for obj in objects if _sid(obj) == chosen_id), objects[0] if objects else {})
-    problem = None
+    chosen: ObjectRecord
+    if objects:
+        chosen = next((obj for obj in objects if _sid(obj) == chosen_id), objects[0])
+    else:
+        chosen = {"id": "", "type": ""}
+    problem: dict[str, object] | None = None
     if failure:
         problem = {
             "title": str(failure.get("title", "Validation failed")),
             "summary": "Start with the safest recommended fix, then review the impact.",
             "primary_id": str(failure.get("primary_id", "")).strip(),
             "secondary_id": str(failure.get("secondary_id", "")).strip(),
-            "actions": list(failure.get("actions") or []),
+            "actions": _failure_actions(failure),
             "failure_code": str(failure.get("failure_code", "")).strip(),
             "error_text": str(failure.get("error_text", "")).strip(),
         }

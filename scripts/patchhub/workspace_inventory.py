@@ -3,16 +3,20 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
-from patchhub.app_api_amp import _runner_config_path
-from patchhub.app_support import _iter_canceled_runs
+from patchhub.app_api_amp import runner_config_path
+from patchhub.app_support import iter_canceled_runs
 from patchhub.config import AppConfig
 from patchhub.models import JobRecord, compute_commit_summary
 from patchhub.web_jobs_db import WebJobsDatabase
+
+_runner_config_path = runner_config_path
+_iter_canceled_runs = iter_canceled_runs
 
 
 @dataclass(frozen=True)
@@ -63,10 +67,11 @@ def _read_json_dict(path: Path) -> dict[str, object]:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    if not isinstance(raw, dict):
+    if not isinstance(raw, Mapping):
         return {}
+    mapping = cast(Mapping[object, object], raw)
     out: dict[str, object] = {}
-    for key, val in raw.items():
+    for key, val in mapping.items():
         out[str(key)] = val
     return out
 
@@ -93,7 +98,7 @@ def _allowed_union_count(ws_root: Path) -> int | None:
     if not isinstance(allowed, list):
         return None
     count = 0
-    for item in allowed:
+    for item in cast(list[object], allowed):
         if isinstance(item, str):
             count += 1
     return count

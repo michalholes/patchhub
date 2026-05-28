@@ -58,6 +58,14 @@ class NamespaceMatcher:
         return False
 
 
+def _string_literal(node: ast.AST) -> str | None:
+    match node:
+        case ast.Constant(value=str() as value):
+            return value
+        case _:
+            return None
+
+
 class _RefCollector(ast.NodeVisitor):
     def __init__(self) -> None:
         self.refs: set[str] = set()
@@ -76,13 +84,15 @@ class _RefCollector(ast.NodeVisitor):
         func = node.func
         if isinstance(func, ast.Name) and func.id == "import_module" and node.args:
             arg0 = node.args[0]
-            if isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
-                self.refs.add(arg0.value)
+            value = _string_literal(arg0)
+            if value is not None:
+                self.refs.add(value)
         self.generic_visit(node)
 
-    def visit_Constant(self, node: ast.Constant) -> None:
-        if isinstance(node.value, str):
-            value = node.value.strip()
+    def visit_Constant(self, node: ast.AST) -> None:
+        value_raw = _string_literal(node)
+        if value_raw is not None:
+            value = value_raw.strip()
             if value:
                 self.refs.add(value)
         self.generic_visit(node)
@@ -211,8 +221,9 @@ def _path_candidate_from_expr(node: ast.AST) -> str | None:
             visit(expr.left)
             visit(expr.right)
             return
-        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
-            const_value = expr.value.strip().replace("\\", "/")
+        literal_value = _string_literal(expr)
+        if literal_value is not None:
+            const_value = literal_value.strip().replace("\\", "/")
             if const_value:
                 parts.extend(item for item in const_value.split("/") if item)
             return
@@ -253,8 +264,9 @@ def _collect_repo_path_refs(node: ast.AST) -> tuple[str, ...]:
             repo_path = _repo_python_path(candidate)
             if repo_path is not None and repo_path not in out:
                 out.append(repo_path)
-        if isinstance(child, ast.Constant) and isinstance(child.value, str):
-            repo_path = _repo_python_path(child.value)
+        literal_value = _string_literal(child)
+        if literal_value is not None:
+            repo_path = _repo_python_path(literal_value)
             if repo_path is not None and repo_path not in out:
                 out.append(repo_path)
     return tuple(out)

@@ -47,7 +47,7 @@ def validate_patchhub_update(
     policy_schema = cast(dict[object, object], policy_schema_obj)
 
     out: dict[str, object] = {}
-    for raw_key, v in values_map.items():
+    for raw_key, value_obj in values_map.items():
         if not isinstance(raw_key, str):
             raise RunnerError("CONFIG", "CONFIG", "policy key must be a string")
         k = raw_key
@@ -72,53 +72,54 @@ def validate_patchhub_update(
             enum_values = [entry for entry in enum_list if isinstance(entry, str)]
 
         if type_name == "bool":
-            if not isinstance(v, bool):
+            if not isinstance(value_obj, bool):
                 raise RunnerError("CONFIG", "CONFIG", f"expected bool for {k}")
         elif type_name == "int":
-            if not isinstance(v, int) or isinstance(v, bool):
+            if not isinstance(value_obj, int) or isinstance(value_obj, bool):
                 raise RunnerError("CONFIG", "CONFIG", f"expected int for {k}")
         elif type_name == "str":
-            if not isinstance(v, str):
+            if not isinstance(value_obj, str):
                 raise RunnerError("CONFIG", "CONFIG", f"expected str for {k}")
         elif type_name == "optional[str]":
-            if v is not None and not isinstance(v, str):
+            if value_obj is not None and not isinstance(value_obj, str):
                 raise RunnerError("CONFIG", "CONFIG", f"expected optional[str] for {k}")
         elif type_name == "list[str]":
-            if not isinstance(v, list):
+            if not isinstance(value_obj, list):
                 raise RunnerError("CONFIG", "CONFIG", f"expected list[str] for {k}")
-            list_value = cast(list[object], v)
+            list_value = cast(list[object], value_obj)
             if any(not isinstance(item, str) for item in list_value):
                 raise RunnerError("CONFIG", "CONFIG", f"expected list[str] for {k}")
         elif type_name == "dict[str,list[str]]":
-            if not isinstance(v, dict):
+            if not isinstance(value_obj, dict):
                 raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}")
-            for kk, vv in cast(dict[object, object], v).items():
+            for kk, vv in cast(dict[object, object], value_obj).items():
                 if not isinstance(kk, str) or not isinstance(vv, list):
                     raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}")
                 if any(not isinstance(item, str) for item in cast(list[object], vv)):
                     raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,list[str]] for {k}")
         elif type_name == "dict[str,str]":
-            if not isinstance(v, dict):
+            if not isinstance(value_obj, dict):
                 raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,str] for {k}")
-            for kk, vv in cast(dict[object, object], v).items():
+            for kk, vv in cast(dict[object, object], value_obj).items():
                 if not isinstance(kk, str) or not isinstance(vv, str):
                     raise RunnerError("CONFIG", "CONFIG", f"expected dict[str,str] for {k}")
         else:
             raise RunnerError("CONFIG", "CONFIG", f"unsupported schema type for {k}: {type_name}")
 
+        enum_candidate = cast(object, value_obj)
         if enum_values is not None:
-            if v is None:
+            if enum_candidate is None:
                 raise RunnerError("CONFIG", "CONFIG", f"enum value may not be null: {k}")
-            if not isinstance(v, str):
+            if not isinstance(enum_candidate, str):
                 raise RunnerError("CONFIG", "CONFIG", f"enum value must be str: {k}")
-            if v not in enum_values:
+            if enum_candidate not in enum_values:
                 raise RunnerError(
                     "CONFIG",
                     "CONFIG",
-                    f"invalid enum value for {k}: {v}",
+                    f"invalid enum value for {k}: {enum_candidate}",
                 )
 
-        out[k] = v
+        out[k] = cast(object, value_obj)
     return out
 
 
@@ -237,6 +238,10 @@ def _toml_quote(s: str) -> str:
     return f'"{escaped}"'
 
 
+def _edit_sort_index(edit: _Edit) -> int:
+    return edit.index
+
+
 def _compute_edits(
     lines: list[str],
     values: dict[str, object],
@@ -288,7 +293,7 @@ def _compute_edits(
             insert_line = f"{key} = {rhs}\n"
             edits.append(_Edit(index=insert_at, insert_lines=[insert_line]))
 
-    edits.sort(key=lambda e: e.index, reverse=True)
+    edits.sort(key=_edit_sort_index, reverse=True)
     return edits
 
 

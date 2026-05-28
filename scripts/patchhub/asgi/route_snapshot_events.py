@@ -19,7 +19,7 @@ def _snapshot_state_from_indexer(core: AsyncAppCore) -> dict[str, object] | None
     if snap is None:
         return None
     return {
-        "seq": int(getattr(snap, "seq", 0) or 0),
+        "seq": int(snap.seq),
         "sigs": {
             "jobs": str(snap.jobs_sig),
             "runs": str(snap.runs_sig),

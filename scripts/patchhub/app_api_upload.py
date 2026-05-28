@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Protocol
 
-from .app_support import _err, _is_ascii, _ok
+from .app_support import err, is_ascii, ok
 from .config import AppConfig
 from .fs_jail import FsJail
 from .zip_commit_message import (
@@ -21,18 +21,18 @@ class UploadApiContext(Protocol):
     cfg: AppConfig
     jail: FsJail
 
-    def _derive_from_filename(self, filename: str) -> tuple[str | None, str | None]: ...
+    def derive_from_filename(self, filename: str) -> tuple[str | None, str | None]: ...
 
 
 def api_upload_patch(self: UploadApiContext, filename: str, data: bytes) -> tuple[int, bytes]:
     status_msgs: list[str] = []
-    if self.cfg.upload.ascii_only_names and not _is_ascii(filename):
-        return _err("Filename must be ASCII", status=400)
+    if self.cfg.upload.ascii_only_names and not is_ascii(filename):
+        return err("Filename must be ASCII", status=400)
     if len(data) > self.cfg.upload.max_bytes:
-        return _err("File too large", status=413)
+        return err("File too large", status=413)
     ext = os.path.splitext(filename)[1].lower()
     if ext not in self.cfg.upload.allowed_extensions:
-        return _err("File extension not allowed", status=400)
+        return err("File extension not allowed", status=400)
 
     upload_rel = self.cfg.paths.upload_dir
     prefix = self.cfg.paths.patches_root.rstrip("/")
@@ -41,7 +41,7 @@ def api_upload_patch(self: UploadApiContext, filename: str, data: bytes) -> tupl
     elif upload_rel.startswith(prefix + "/"):
         rel = upload_rel[len(prefix) + 1 :]
     else:
-        return _err("upload_dir must be under patches_root", status=500)
+        return err("upload_dir must be under patches_root", status=500)
 
     upload_dir = self.jail.resolve_rel(rel)
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,7 @@ def api_upload_patch(self: UploadApiContext, filename: str, data: bytes) -> tupl
     rel = str(Path(self.cfg.paths.upload_dir) / dst.name)
     status_msgs.append(f"upload: stored {rel} ({len(data)} bytes)")
 
-    issue_id, commit_msg = self._derive_from_filename(dst.name)
+    issue_id, commit_msg = self.derive_from_filename(dst.name)
     target_repo = None
     if ext == ".zip" and self.cfg.autofill.zip_commit_enabled:
         zcfg = ZipCommitConfig(
@@ -96,7 +96,7 @@ def api_upload_patch(self: UploadApiContext, filename: str, data: bytes) -> tupl
             status_msgs.append(f"autofill: derived issue={issue_id}")
     payload["derived_target_repo"] = target_repo
     payload["status"] = status_msgs
-    return _ok(payload)
+    return ok(payload)
 
 
 # ---------------- UI pages ----------------
