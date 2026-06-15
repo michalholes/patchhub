@@ -34,6 +34,7 @@ def _build_db(tmp_path: Path) -> WebJobsDatabase:
         "\n".join(
             [
                 "[web_jobs_retention]",
+                "jobs_keep_days = 3650",
                 "max_completed_job_raw_log_lines = 100000",
                 "max_completed_job_raw_event_lines = 100000",
                 "max_completed_job_raw_age_days = 3650",
@@ -124,6 +125,7 @@ def test_compacted_event_tail_keeps_20000_lines_when_config_requests_it(
         "\n".join(
             [
                 "[web_jobs_retention]",
+                "jobs_keep_days = 3650",
                 "max_completed_job_raw_log_lines = 1",
                 "max_completed_job_raw_event_lines = 1",
                 "max_completed_job_raw_age_days = 3650",

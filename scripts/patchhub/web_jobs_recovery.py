@@ -40,11 +40,18 @@ _REQUIRED_TABLES = (
     "web_job_log_lines",
     "web_job_event_lines",
     "web_jobs_meta",
+    "web_jobs_stats",
     "run_stats_meta",
     "run_stats_seen",
 )
 
-_BOOTSTRAP_SAFE_MISSING_TABLES = frozenset({"run_stats_meta", "run_stats_seen"})
+_BOOTSTRAP_SAFE_MISSING_TABLES = frozenset(
+    {
+        "web_jobs_stats",
+        "run_stats_meta",
+        "run_stats_seen",
+    }
+)
 
 
 def _obj_dict(value: object) -> dict[str, object]:

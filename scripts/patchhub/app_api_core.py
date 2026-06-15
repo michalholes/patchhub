@@ -445,6 +445,17 @@ def api_runner_tail(self: AsyncAppCore, qs: dict[str, str]) -> tuple[int, bytes]
 def diagnostics(self: AsyncAppCore) -> dict[str, object]:
     runs = iter_runs(self.patches_root, self.cfg.indexing.log_filename_regex)
     stats = compute_stats(runs, self.cfg.indexing.stats_windows_days)
+    try:
+        job_stats = self.job_stats_summary_sync()
+    except Exception:
+        job_stats = {
+            "jobs_total": 0,
+            "success_total": 0,
+            "fail_total": 0,
+            "canceled_total": 0,
+            "unknown_total": 0,
+            "updated_unix_ms": 0,
+        }
     queued = 0
     running = 0
     lock_held = False
@@ -469,5 +480,6 @@ def diagnostics(self: AsyncAppCore) -> dict[str, object]:
         },
         "resources": proc_resources.snapshot(),
         "runs": {"count": len(runs)},
+        "job_stats": job_stats,
         "stats": _stats_json(stats),
     }

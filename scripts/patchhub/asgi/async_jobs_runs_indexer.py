@@ -56,6 +56,8 @@ class CoreLike(Protocol):
 
     def list_job_jsons_sync(self, *, limit: int = 200) -> list[dict[str, object]]: ...
 
+    def job_stats_summary_sync(self) -> dict[str, int]: ...
+
 
 def _obj_dict(value: object) -> dict[str, object] | None:
     if not isinstance(value, Mapping):
@@ -117,6 +119,17 @@ def _stats_json(stats: AppStats) -> dict[str, object]:
     }
 
 
+def _job_stats_json(stats: dict[str, int]) -> dict[str, int]:
+    return {
+        "jobs_total": int(stats.get("jobs_total", 0)),
+        "success_total": int(stats.get("success_total", 0)),
+        "fail_total": int(stats.get("fail_total", 0)),
+        "canceled_total": int(stats.get("canceled_total", 0)),
+        "unknown_total": int(stats.get("unknown_total", 0)),
+        "updated_unix_ms": int(stats.get("updated_unix_ms", 0)),
+    }
+
+
 @dataclass(frozen=True)
 class IndexerSnapshot:
     jobs_items: list[dict[str, object]]
@@ -167,6 +180,17 @@ def build_header_summary(
     else:
         runs_count = len(base_runs)
         stats = compute_stats(base_runs, core.cfg.indexing.stats_windows_days)
+    job_stats_fn = cast(
+        Callable[[], dict[str, int]] | None,
+        getattr(core, "job_stats_summary_sync", None),
+    )
+    if callable(job_stats_fn):
+        try:
+            job_stats = _job_stats_json(job_stats_fn())
+        except Exception:
+            job_stats = _job_stats_json({})
+    else:
+        job_stats = _job_stats_json({})
     return {
         "queue": {"queued": int(queued), "running": int(running)},
         "lock": {
@@ -174,6 +198,7 @@ def build_header_summary(
             "held": bool(lock_held),
         },
         "runs": {"count": runs_count},
+        "job_stats": job_stats,
         "stats": _stats_json(stats),
     }
 

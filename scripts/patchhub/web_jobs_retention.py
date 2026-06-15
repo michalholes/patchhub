@@ -15,6 +15,7 @@ _TERMINAL_STATUSES = {"success", "fail", "canceled"}
 
 @dataclass(frozen=True)
 class RetentionSettings:
+    jobs_keep_days: int
     max_completed_log_lines: int
     max_completed_event_lines: int
     max_completed_age_days: int
@@ -117,6 +118,13 @@ def load_retention_settings(cfg: WebJobsDbConfig) -> RetentionSettings:
     if block is None:
         block = {}
     return RetentionSettings(
+        jobs_keep_days=max(
+            0,
+            _as_int(
+                block.get("jobs_keep_days", cfg.retention_defaults.get("jobs_keep_days", 30)),
+                cfg.retention_defaults.get("jobs_keep_days", 30),
+            ),
+        ),
         max_completed_log_lines=max(
             1,
             _as_int(
@@ -225,6 +233,16 @@ def _age_eligible(row: dict[str, object], settings: RetentionSettings, now_ms: i
     return now_ms - terminal_ms >= max_age_ms
 
 
+def _prune_eligible(row: dict[str, object], settings: RetentionSettings, now_ms: int) -> bool:
+    if settings.jobs_keep_days <= 0:
+        return False
+    terminal_ms = _utc_ms(_as_str(row.get("ended_utc") or row.get("created_utc"), ""))
+    if terminal_ms <= 0:
+        return False
+    max_age_ms = settings.jobs_keep_days * 24 * 60 * 60 * 1000
+    return now_ms - terminal_ms >= max_age_ms
+
+
 def _upsert_compact_derived(
     conn: sqlite3.Connection,
     *,
@@ -318,6 +336,21 @@ def _upsert_compact_derived(
     )
 
 
+def _prune_terminal_job_row(
+    conn: sqlite3.Connection,
+    *,
+    job_id: str,
+) -> tuple[int, int]:
+    raw_log_count = _count_rows(conn, "web_job_log_lines", job_id)
+    raw_event_count = _count_rows(conn, "web_job_event_lines", job_id)
+    conn.execute("DELETE FROM web_job_log_lines WHERE job_id = ?", (job_id,))
+    conn.execute("DELETE FROM web_job_event_lines WHERE job_id = ?", (job_id,))
+    conn.execute("DELETE FROM web_job_derived WHERE job_id = ?", (job_id,))
+    conn.execute("DELETE FROM web_job_rollback_authority WHERE job_id = ?", (job_id,))
+    conn.execute("DELETE FROM web_jobs WHERE job_id = ?", (job_id,))
+    return raw_log_count, raw_event_count
+
+
 def _maybe_reclaim(conn: sqlite3.Connection, settings: RetentionSettings, pruned_rows: int) -> bool:
     if pruned_rows < settings.reclaim_min_pruned_rows:
         return False
@@ -367,7 +400,7 @@ def maybe_compact_terminal_job(
 
     now_ms = _now_parts()[1]
     recent_by_mode: dict[str, int] = {}
-    compacted_jobs = pruned_log_rows = pruned_event_rows = 0
+    compacted_jobs = pruned_jobs = pruned_log_rows = pruned_event_rows = 0
     for row in rows:
         mode = _as_str(row.get("mode"), "")
         seen = recent_by_mode.get(mode, 0)
@@ -375,6 +408,12 @@ def maybe_compact_terminal_job(
             recent_by_mode[mode] = seen + 1
             continue
         job_id = _as_str(row.get("job_id"), "")
+        if _prune_eligible(row, settings, now_ms):
+            raw_log_count, raw_event_count = _prune_terminal_job_row(conn, job_id=job_id)
+            pruned_jobs += 1
+            pruned_log_rows += raw_log_count
+            pruned_event_rows += raw_event_count
+            continue
         raw_log_count = _count_rows(conn, "web_job_log_lines", job_id)
         raw_event_count = _count_rows(conn, "web_job_event_lines", job_id)
         if raw_log_count <= 0 and raw_event_count <= 0:
@@ -399,21 +438,26 @@ def maybe_compact_terminal_job(
         pruned_log_rows += raw_log_count
         pruned_event_rows += raw_event_count
 
-    if compacted_jobs <= 0:
+    if compacted_jobs <= 0 and pruned_jobs <= 0:
         return
     updated_ms = _now_parts()[1]
+    changed_jobs = compacted_jobs + pruned_jobs
     conn.execute(
         """
         UPDATE web_jobs_meta
            SET jobs_rev = jobs_rev + ?,
-               logs_rev = logs_rev - ?,
-               events_rev = events_rev - ?,
-               updated_unix_ms = ?
-         WHERE singleton = 1
+                logs_rev = logs_rev - ?,
+                events_rev = events_rev - ?,
+                updated_unix_ms = ?
+          WHERE singleton = 1
         """,
-        (compacted_jobs, pruned_log_rows, pruned_event_rows, updated_ms),
+        (changed_jobs, pruned_log_rows, pruned_event_rows, updated_ms),
     )
-    reclaimed = _maybe_reclaim(conn, settings, pruned_log_rows + pruned_event_rows)
+    reclaimed = _maybe_reclaim(
+        conn,
+        settings,
+        pruned_log_rows + pruned_event_rows + changed_jobs,
+    )
     conn.execute(
         """
         INSERT INTO web_jobs_housekeeping(
@@ -440,7 +484,7 @@ def maybe_compact_terminal_job(
         """,
         (
             updated_ms,
-            compacted_jobs,
+            changed_jobs,
             pruned_log_rows,
             pruned_event_rows,
             updated_ms,

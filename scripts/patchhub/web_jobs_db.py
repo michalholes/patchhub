@@ -371,6 +371,40 @@ class WebJobsDatabase:
         count = _row_int(count_row, 0) if count_row is not None else 0
         return count, rev
 
+    def load_job_stats_summary(self) -> dict[str, int]:
+        with self._store.connect() as conn:
+            row = _query_one(
+                conn,
+                """
+                SELECT
+                    jobs_total,
+                    success_total,
+                    fail_total,
+                    canceled_total,
+                    unknown_total,
+                    updated_unix_ms
+                  FROM web_jobs_stats
+                 WHERE singleton = 1
+                """,
+            )
+        if row is None:
+            return {
+                "jobs_total": 0,
+                "success_total": 0,
+                "fail_total": 0,
+                "canceled_total": 0,
+                "unknown_total": 0,
+                "updated_unix_ms": 0,
+            }
+        return {
+            "jobs_total": _row_int(row, "jobs_total"),
+            "success_total": _row_int(row, "success_total"),
+            "fail_total": _row_int(row, "fail_total"),
+            "canceled_total": _row_int(row, "canceled_total"),
+            "unknown_total": _row_int(row, "unknown_total"),
+            "updated_unix_ms": _row_int(row, "updated_unix_ms"),
+        }
+
     def upsert_job(self, job: JobRecord, *, count_as_job_change: bool = True) -> None:
         job = self._materialize_applied_files(job)
         with self._store.connect() as conn:

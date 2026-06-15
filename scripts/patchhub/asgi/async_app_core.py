@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from pathlib import Path
@@ -18,6 +19,7 @@ from patchhub import proc_resources
 from patchhub.app_support import read_tail, utc_now
 from patchhub.config import AppConfig
 from patchhub.fs_jail import FsJail
+from patchhub.indexing import compute_stats, iter_runs
 from patchhub.models import JobRecord, StatsWindow
 from patchhub.run_stats_store import RunStatsStore
 from patchhub.targeting import TargetCfgLike, resolve_targeting_runtime
@@ -39,6 +41,7 @@ from patchhub.web_jobs_recovery import (
     record_verified_backup,
     resolve_web_jobs_backend,
 )
+from patchhub.web_jobs_stats import summarize_job_rows
 from patchhub.web_jobs_virtual_fs import WebJobsVirtualFs
 
 from .async_jobs_runs_indexer import AsyncJobsRunsIndexer
@@ -251,6 +254,15 @@ class AsyncAppCore:
             return self.web_jobs_db.jobs_signature()
         return legacy_jobs_signature(self.jobs_root)
 
+    def job_stats_summary_sync(self) -> dict[str, int]:
+        if self.web_jobs_db is not None:
+            return self.web_jobs_db.load_job_stats_summary()
+        try:
+            rows = self.list_job_jsons_sync(limit=1_000_000)
+        except Exception:
+            rows = []
+        return summarize_job_rows(rows)
+
     def list_job_jsons_sync(self, *, limit: int = 200) -> list[dict[str, object]]:
         if self.web_jobs_db is not None:
             return self.web_jobs_db.list_job_jsons(limit=limit)
@@ -395,15 +407,16 @@ class AsyncAppCore:
             except Exception:
                 lock_held = False
 
-            runs = _core.iter_runs(self.patches_root, self.cfg.indexing.log_filename_regex)
+            runs = iter_runs(self.patches_root, self.cfg.indexing.log_filename_regex)
             if self.run_stats_store is not None:
                 summary = self.run_stats_store.build_summary(self.cfg.indexing.stats_windows_days)
                 runs_count = summary.count
                 stats = summary.stats
             else:
                 runs_count = len(runs)
-                stats = _core.compute_stats(runs, self.cfg.indexing.stats_windows_days)
-            usage = _core.shutil.disk_usage(str(self.patches_root))
+                stats = compute_stats(runs, self.cfg.indexing.stats_windows_days)
+            job_stats = self.job_stats_summary_sync()
+            usage = shutil.disk_usage(str(self.patches_root))
             return {
                 "lock": {
                     "path": str(Path(self.cfg.paths.patches_root) / "am_patch.lock"),
@@ -416,6 +429,7 @@ class AsyncAppCore:
                 },
                 "resources": proc_resources.snapshot(),
                 "runs": {"count": runs_count},
+                "job_stats": job_stats,
                 "stats": {
                     "all_time": _stats_window_json(stats.all_time),
                     "windows": [_stats_window_json(window) for window in stats.windows],
@@ -433,6 +447,14 @@ class AsyncAppCore:
                 "lock": {"path": "", "held": False},
                 "disk": {"total": 0, "used": 0, "free": 0},
                 "runs": {"count": 0},
+                "job_stats": {
+                    "jobs_total": 0,
+                    "success_total": 0,
+                    "fail_total": 0,
+                    "canceled_total": 0,
+                    "unknown_total": 0,
+                    "updated_unix_ms": 0,
+                },
                 "stats": {"all_time": empty_all_time, "windows": empty_windows},
                 "resources": empty_resources,
             }

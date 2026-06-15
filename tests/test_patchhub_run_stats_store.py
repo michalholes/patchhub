@@ -15,6 +15,7 @@ sys.path.insert(0, str(_SCRIPTS))
 
 from patchhub.asgi.asgi_app import create_app
 from patchhub.config import load_config
+from patchhub.models import JobRecord
 from patchhub.run_stats_store import RunStatsStore
 from patchhub.web_jobs_backup import _REQUIRED_TABLES as BACKUP_REQUIRED_TABLES
 from patchhub.web_jobs_db import WebJobsDatabase, load_web_jobs_db_config
@@ -97,8 +98,35 @@ def test_ui_snapshot_header_uses_persisted_stats_while_runs_stay_logs_based(
 
     app = create_app(repo_root=tmp_path, cfg=cfg)
     with TestClient(app) as client:
-        first_snapshot = client.get("/api/ui_snapshot").json()
+        assert app.state.core.web_jobs_db is not None
+        app.state.core.web_jobs_db.upsert_job(
+            JobRecord(
+                job_id="job-900-job-stats",
+                created_utc="2026-03-29T03:03:03Z",
+                mode="patch",
+                issue_id="900",
+                commit_summary="job stats",
+                patch_basename="issue_900.zip",
+                raw_command="python3 scripts/am_patch.py 900",
+                canonical_command=["python3", "scripts/am_patch.py", "900"],
+                status="success",
+            )
+        )
+        client.post("/api/debug/indexer/force_rescan")
+        deadline = time.monotonic() + 2.0
+        first_snapshot = None
+        while time.monotonic() < deadline:
+            first_snapshot = client.get("/api/ui_snapshot").json()
+            if (
+                first_snapshot["snapshot"]["header"]["job_stats"]["jobs_total"] == 1
+                and first_snapshot["snapshot"]["header"]["runs"]["count"] == 1
+            ):
+                break
+            time.sleep(0.05)
+        assert first_snapshot is not None
         assert first_snapshot["snapshot"]["header"]["runs"]["count"] == 1
+        assert first_snapshot["snapshot"]["header"]["job_stats"]["jobs_total"] == 1
+        assert first_snapshot["snapshot"]["header"]["job_stats"]["success_total"] == 1
         assert first_snapshot["snapshot"]["runs"][0]["issue_id"] == 721
 
         log_path.unlink()
@@ -110,6 +138,7 @@ def test_ui_snapshot_header_uses_persisted_stats_while_runs_stay_logs_based(
         while time.monotonic() < deadline:
             snapshot = client.get("/api/ui_snapshot").json()
             header_count = int(snapshot["snapshot"]["header"]["runs"]["count"])
+            assert snapshot["snapshot"]["header"]["job_stats"]["jobs_total"] == 1
             runs_len = len(snapshot["snapshot"]["runs"])
             if header_count == 1 and runs_len == 0:
                 break
@@ -127,6 +156,7 @@ def test_run_stats_tables_are_required_for_backup_and_recovery(tmp_path: Path) -
     assert "run_stats_seen" in BACKUP_REQUIRED_TABLES
     assert "run_stats_meta" in RECOVERY_REQUIRED_TABLES
     assert "run_stats_seen" in RECOVERY_REQUIRED_TABLES
+    assert "web_jobs_stats" in RECOVERY_REQUIRED_TABLES
 
     WebJobsDatabase(cfg)
     with sqlite3.connect(str(cfg.db_path)) as conn:
@@ -138,3 +168,4 @@ def test_run_stats_tables_are_required_for_backup_and_recovery(tmp_path: Path) -
         }
     assert "run_stats_meta" in tables
     assert "run_stats_seen" in tables
+    assert "web_jobs_stats" in tables

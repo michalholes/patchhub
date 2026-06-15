@@ -19,6 +19,7 @@ def _write_cfg(repo_root: Path) -> None:
         "\n".join(
             [
                 "[web_jobs_retention]",
+                "jobs_keep_days = 3650",
                 "max_completed_job_raw_log_lines = 1",
                 "max_completed_job_raw_event_lines = 1",
                 "max_completed_job_raw_age_days = 3650",

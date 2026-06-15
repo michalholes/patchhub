@@ -16,13 +16,14 @@ from patchhub.web_jobs_derived import (
 )
 
 
-def _write_cfg(repo_root: Path) -> None:
+def _write_cfg(repo_root: Path, *, jobs_keep_days: int = 3650) -> None:
     cfg_path = repo_root / "scripts" / "patchhub" / "patchhub.toml"
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg_path.write_text(
         "\n".join(
             [
                 "[web_jobs_retention]",
+                f"jobs_keep_days = {jobs_keep_days}",
                 "max_completed_job_raw_log_lines = 2",
                 "max_completed_job_raw_event_lines = 1",
                 "max_completed_job_raw_age_days = 3650",
@@ -38,11 +39,11 @@ def _write_cfg(repo_root: Path) -> None:
     )
 
 
-def _build_db(tmp_path: Path) -> WebJobsDatabase:
+def _build_db(tmp_path: Path, *, jobs_keep_days: int = 3650) -> WebJobsDatabase:
     repo_root = tmp_path / "repo"
     patches_root = repo_root / "patches"
     patches_root.mkdir(parents=True, exist_ok=True)
-    _write_cfg(repo_root)
+    _write_cfg(repo_root, jobs_keep_days=jobs_keep_days)
     return WebJobsDatabase(load_web_jobs_db_config(repo_root, patches_root))
 
 
@@ -104,6 +105,9 @@ def test_retention_compacts_old_terminal_jobs_but_keeps_recent_mode_exemption(
     assert old_derived["compact_event_tail_text"] == (
         '{"type":"log","msg":"e1"}\n{"type":"status","event":"done"}'
     )
+    stats = db.load_job_stats_summary()
+    assert stats["jobs_total"] == 2
+    assert stats["success_total"] == 2
     assert read_effective_log_tail(db, "job-516-old", lines=2) == "l2\nl3"
     assert read_effective_log_tail(db, "job-516-new", lines=2) == "l2\nl3"
     assert read_effective_event_tail_text(db, "job-516-old", lines=2) == (
@@ -112,3 +116,66 @@ def test_retention_compacts_old_terminal_jobs_but_keeps_recent_mode_exemption(
     assert db.legacy_event_text("job-516-old") == (
         '{"type":"log","msg":"e1"}\n{"type":"status","event":"done"}'
     )
+
+
+def test_retention_prunes_old_terminal_jobs_but_keeps_lifetime_stats(
+    tmp_path: Path,
+) -> None:
+    db = _build_db(tmp_path, jobs_keep_days=1)
+
+    _create_terminal_job(
+        db,
+        job_id="job-516-pruned-old",
+        created_utc="2026-03-08T10:00:00Z",
+    )
+    _create_terminal_job(
+        db,
+        job_id="job-516-retained-recent",
+        created_utc="2026-03-09T10:00:00Z",
+    )
+
+    stats = db.load_job_stats_summary()
+    assert stats["jobs_total"] == 2
+    assert stats["success_total"] == 2
+
+    assert db.load_job_record("job-516-pruned-old") is None
+    assert load_derived_payload(db, "job-516-pruned-old") is None
+    assert db.load_job_record("job-516-retained-recent") is not None
+
+    with db._store._connect() as conn:  # noqa: SLF001
+        old_logs = conn.execute(
+            "SELECT COUNT(*) AS n FROM web_job_log_lines WHERE job_id = ?",
+            ("job-516-pruned-old",),
+        ).fetchone()["n"]
+        kept_logs = conn.execute(
+            "SELECT COUNT(*) AS n FROM web_job_log_lines WHERE job_id = ?",
+            ("job-516-retained-recent",),
+        ).fetchone()["n"]
+
+    assert old_logs == 0
+    assert kept_logs == 3
+
+
+def test_retention_backfills_missing_job_stats_from_retained_rows(tmp_path: Path) -> None:
+    db = _build_db(tmp_path)
+    db.upsert_job(
+        JobRecord(
+            job_id="job-516-backfill",
+            created_utc="2026-03-10T10:00:00Z",
+            mode="patch",
+            issue_id="516",
+            commit_summary="backfill",
+            patch_basename="issue_516.zip",
+            raw_command="python3 scripts/am_patch.py 516",
+            canonical_command=["python3", "scripts/am_patch.py", "516"],
+            status="success",
+        )
+    )
+
+    with db._store._connect() as conn:  # noqa: SLF001
+        conn.execute("DROP TABLE web_jobs_stats")
+
+    reopened = WebJobsDatabase(db.cfg)
+    stats = reopened.load_job_stats_summary()
+    assert stats["jobs_total"] == 1
+    assert stats["success_total"] == 1

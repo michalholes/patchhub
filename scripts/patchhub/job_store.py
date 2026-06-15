@@ -12,6 +12,11 @@ from .models import (
     RollbackAuthorityRole,
     WebJobsDbConfig,
 )
+from .web_jobs_stats import (
+    apply_web_jobs_stats_delta,
+    ensure_web_jobs_stats,
+    job_stats_delta,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS web_jobs (
@@ -99,6 +104,15 @@ CREATE TABLE IF NOT EXISTS web_jobs_meta (
     logs_rev INTEGER NOT NULL,
     events_rev INTEGER NOT NULL,
     updated_unix_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS web_jobs_stats (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    jobs_total INTEGER NOT NULL DEFAULT 0,
+    success_total INTEGER NOT NULL DEFAULT 0,
+    fail_total INTEGER NOT NULL DEFAULT 0,
+    canceled_total INTEGER NOT NULL DEFAULT 0,
+    unknown_total INTEGER NOT NULL DEFAULT 0,
+    updated_unix_ms INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS run_stats_meta (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -390,6 +404,7 @@ class SqliteWebJobsStore:
             conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
             conn.executescript(_SCHEMA)
             _ensure_web_jobs_additive_columns(conn)
+            ensure_web_jobs_stats(conn)
             auto_vacuum_row = _query_one_dict(conn, "PRAGMA auto_vacuum")
             auto_vacuum = _as_int(auto_vacuum_row.get("auto_vacuum"), 0)
             if auto_vacuum <= 0:
@@ -730,6 +745,11 @@ class SqliteWebJobsStore:
         event_count: int | None = None,
         row_rev: int,
     ) -> None:
+        existing = _query_one_dict(
+            conn,
+            "SELECT status FROM web_jobs WHERE job_id = ?",
+            (str(job.job_id),),
+        )
         conn.execute(
             """
             INSERT INTO web_jobs(
@@ -812,6 +832,21 @@ class SqliteWebJobsStore:
                 event_count=event_count,
                 row_rev=row_rev,
             ),
+        )
+        (
+            jobs_total_delta,
+            success_delta,
+            fail_delta,
+            canceled_delta,
+            unknown_delta,
+        ) = job_stats_delta(existing.get("status"), job.status)
+        apply_web_jobs_stats_delta(
+            conn,
+            jobs_total_delta=jobs_total_delta,
+            success_total_delta=success_delta,
+            fail_total_delta=fail_delta,
+            canceled_total_delta=canceled_delta,
+            unknown_total_delta=unknown_delta,
         )
         if str(job.status) in {"success", "fail", "canceled"}:
             from .web_jobs_derived import ensure_job_derived_row
