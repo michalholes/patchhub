@@ -130,7 +130,7 @@ cleanup_enabled = false
 [web_jobs_backup]
 enabled = true
 destination_template = "artifacts/web_jobs_backup_{timestamp}.sqlite3"
-retain_count = 2
+retain_count = 1
 verify_after_write = true
 trigger_policy = "interval_hours"
 interval_hours = 12
@@ -145,7 +145,7 @@ restore_source_preference = ["explicit", "latest_backup", "main_db"]
 virtual_artifacts_web_jobs_enabled = true
 
 [web_jobs_retention]
-jobs_keep_days = 75
+jobs_keep_days = 30
 logs_keep_days = 7
 events_keep_days = 7
 compact_after_jobs = 10000

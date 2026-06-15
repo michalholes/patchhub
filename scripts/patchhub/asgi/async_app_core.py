@@ -41,6 +41,7 @@ from patchhub.web_jobs_recovery import (
     record_verified_backup,
     resolve_web_jobs_backend,
 )
+from patchhub.web_jobs_retention_scheduler import WebJobsRetentionJanitor
 from patchhub.web_jobs_stats import summarize_job_rows
 from patchhub.web_jobs_virtual_fs import WebJobsVirtualFs
 
@@ -92,6 +93,7 @@ class AsyncAppCore:
             db_cfg=self.web_jobs_db_cfg,
             get_mode=lambda: self.backend_mode_state.mode,
         )
+        self.retention_janitor: WebJobsRetentionJanitor | None = None
         self._terminal_job_callback: (
             Callable[[JobRecord], Coroutine[object, object, None]] | None
         ) = None
@@ -166,6 +168,10 @@ class AsyncAppCore:
             db=job_db,
             enabled=self.web_jobs_db_cfg.compatibility_enabled,
         )
+        self.retention_janitor = WebJobsRetentionJanitor(
+            db=job_db,
+            get_mode=lambda: self.backend_mode_state.mode,
+        )
         self.queue = self._build_queue(job_db=job_db)
         self.backend_mode_state.activate_db_primary(recovery)
         self._publish_backend_mode_status()
@@ -174,6 +180,7 @@ class AsyncAppCore:
         self.web_jobs_db = None
         self.run_stats_store = None
         self.virtual_jobs_fs = None
+        self.retention_janitor = None
         self.queue = self._build_queue(job_db=None)
         self.backend_mode_state.activate_file_emergency(recovery)
         self._publish_backend_mode_status()
@@ -231,10 +238,15 @@ class AsyncAppCore:
                 await to_thread(verify_legacy_jobs, self.repo_root)
             await to_thread(self._maybe_create_startup_backup)
             await self.backup_scheduler.start()
+            if self.retention_janitor is not None:
+                await self.retention_janitor.start()
         await self.queue.start()
         await self.indexer.start()
 
     async def shutdown(self) -> None:
+        with suppress(BaseException):
+            if self.retention_janitor is not None:
+                await self.retention_janitor.stop()
         with suppress(BaseException):
             await self.backup_scheduler.stop()
         with suppress(BaseException):

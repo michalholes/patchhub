@@ -375,18 +375,11 @@ def _maybe_reclaim(conn: sqlite3.Connection, settings: RetentionSettings, pruned
     return True
 
 
-def maybe_compact_terminal_job(
+def _run_retention_pass(
     conn: sqlite3.Connection,
     *,
-    cfg: WebJobsDbConfig,
-    job: JobRecord,
-    expected_log_count: int,
-    expected_event_count: int,
-) -> None:
-    del expected_log_count, expected_event_count
-    if str(job.status) not in _TERMINAL_STATUSES:
-        return
-    settings = load_retention_settings(cfg)
+    settings: RetentionSettings,
+) -> bool:
     rows = _query_all_dicts(
         conn,
         """
@@ -396,7 +389,7 @@ def maybe_compact_terminal_job(
         """,
     )
     if not rows:
-        return
+        return False
 
     now_ms = _now_parts()[1]
     recent_by_mode: dict[str, int] = {}
@@ -439,7 +432,7 @@ def maybe_compact_terminal_job(
         pruned_event_rows += raw_event_count
 
     if compacted_jobs <= 0 and pruned_jobs <= 0:
-        return
+        return False
     updated_ms = _now_parts()[1]
     changed_jobs = compacted_jobs + pruned_jobs
     conn.execute(
@@ -449,7 +442,7 @@ def maybe_compact_terminal_job(
                 logs_rev = logs_rev - ?,
                 events_rev = events_rev - ?,
                 updated_unix_ms = ?
-          WHERE singleton = 1
+         WHERE singleton = 1
         """,
         (changed_jobs, pruned_log_rows, pruned_event_rows, updated_ms),
     )
@@ -491,3 +484,28 @@ def maybe_compact_terminal_job(
             1 if reclaimed else 0,
         ),
     )
+    return True
+
+
+def run_retention_janitor(
+    conn: sqlite3.Connection,
+    *,
+    cfg: WebJobsDbConfig,
+) -> bool:
+    settings = load_retention_settings(cfg)
+    return _run_retention_pass(conn, settings=settings)
+
+
+def maybe_compact_terminal_job(
+    conn: sqlite3.Connection,
+    *,
+    cfg: WebJobsDbConfig,
+    job: JobRecord,
+    expected_log_count: int,
+    expected_event_count: int,
+) -> None:
+    del expected_log_count, expected_event_count
+    if str(job.status) not in _TERMINAL_STATUSES:
+        return
+    settings = load_retention_settings(cfg)
+    _run_retention_pass(conn, settings=settings)

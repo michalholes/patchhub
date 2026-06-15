@@ -405,6 +405,18 @@ class WebJobsDatabase:
             "updated_unix_ms": _row_int(row, "updated_unix_ms"),
         }
 
+    def run_retention_janitor(self) -> bool:
+        from .web_jobs_retention import run_retention_janitor
+
+        with self._store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            changed = run_retention_janitor(conn, cfg=self.cfg)
+            if changed:
+                conn.commit()
+            else:
+                conn.rollback()
+            return changed
+
     def upsert_job(self, job: JobRecord, *, count_as_job_change: bool = True) -> None:
         job = self._materialize_applied_files(job)
         with self._store.connect() as conn:
