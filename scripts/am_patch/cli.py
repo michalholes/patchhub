@@ -27,7 +27,7 @@ class AppendOverride(argparse.Action):
         nargs: int | str | None = None,
         const: object | None = None,
         default: object | None = None,
-        type: Callable[[str], object] | argparse.FileType | None = None,
+        type: Callable[[str], object] | None = None,
         choices: Sequence[object] | None = None,
         required: bool = False,
         help: str | None = None,
