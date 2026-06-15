@@ -44,6 +44,39 @@ def test_biome_controls_propagated(monkeypatch, tmp_path: Path) -> None:
     assert captured.get("biome_format_command") == ["biome", "format", "--write"]
 
 
+def test_pyright_controls_propagated(monkeypatch, tmp_path: Path) -> None:
+    policy_cls, wiring_mod = _import_runner_modules()
+
+    captured: dict[str, object] = {}
+
+    def fake_run_gates(*_args, **kwargs):
+        captured["skip_pyright"] = kwargs.get("skip_pyright")
+        captured["pyright_targets"] = kwargs.get("pyright_targets")
+        captured["gate_pyright_mode"] = kwargs.get("gate_pyright_mode")
+
+    import am_patch.gates as gates_mod
+
+    monkeypatch.setattr(gates_mod, "run_gates", fake_run_gates)
+    monkeypatch.setattr(wiring_mod, "changed_path_entries", lambda *_a, **_k: [])
+    policy = policy_cls()
+    policy.gates_skip_pyright = True
+    policy.pyright_targets = ["scripts", "badguys"]
+    policy.gate_pyright_mode = "always"
+
+    wiring_mod.run_policy_gates(
+        logger=None,  # type: ignore[arg-type]
+        cwd=tmp_path,
+        repo_root=tmp_path,
+        policy=policy,
+        decision_paths=[],
+        progress=None,
+    )
+
+    assert captured.get("skip_pyright") is True
+    assert captured.get("pyright_targets") == ["scripts", "badguys"]
+    assert captured.get("gate_pyright_mode") == "always"
+
+
 def test_docs_status_entries_use_cwd(monkeypatch, tmp_path: Path) -> None:
     policy_cls, wiring_mod = _import_runner_modules()
 

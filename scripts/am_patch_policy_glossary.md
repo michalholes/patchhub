@@ -5,12 +5,12 @@ Default: false
 Meaning: If true, gate failures are reported but do not fail the runner result.
 Notes:
 - This changes the final exit status semantics.
-Related: gates_order, gates_skip_ruff, gates_skip_pytest, gates_skip_mypy
+Related: gates_order, gates_skip_ruff, gates_skip_pytest, gates_skip_mypy, gates_skip_pyright
 
 ## Key: gates_order
 Key: gates_order
 Type: list[str]
-Default: ["dont-touch", "compile", "js", "biome", "typescript", "ruff", "pytest", "mypy", "monolith", "docs", "badguys"]
+Default: ["dont-touch", "compile", "js", "biome", "typescript", "ruff", "pytest", "mypy", "pyright", "monolith", "docs", "badguys"]
 Meaning: Ordered list of gate names to run when gating is enabled.
 Notes:
 - Unknown gate names are rejected by the runner.
@@ -22,6 +22,13 @@ Type: bool
 Default: false
 Meaning: If true, skip the mypy gate.
 Related: mypy_targets, run_all_tests
+
+## Key: gates_skip_pyright
+Key: gates_skip_pyright
+Type: bool
+Default: false
+Meaning: If true, skip the pyright gate.
+Related: pyright_targets, run_all_tests
 
 ## Key: gates_skip_pytest
 Key: gates_skip_pytest
@@ -58,6 +65,17 @@ Notes:
 - In mode "auto", the gate runs only when a file-scoped trigger matches.
 - Trigger semantics are defined in scripts/am_patch_specification.md (Python gates - auto mode).
 Related: gates_skip_mypy, mypy_targets
+
+## Key: gate_pyright_mode
+Key: gate_pyright_mode
+Type: str
+Default: "auto"
+Allowed: "auto" | "always"
+Meaning: Controls when the pyright gate runs.
+Notes:
+- In mode "auto", the gate runs only when a file-scoped trigger matches.
+- Trigger semantics are defined in scripts/am_patch_specification.md (Python gates - auto mode).
+Related: gates_skip_pyright, pyright_targets
 
 ## Key: gate_pytest_mode
 Key: gate_pytest_mode
@@ -99,6 +117,16 @@ Meaning: Paths passed to the mypy gate.
 Notes:
 - This is interpreted in the workspace repository root.
 Related: gates_skip_mypy
+
+## Key: pyright_targets
+Key: pyright_targets
+Type: list[str]
+Default: ["scripts", "badguys"]
+Meaning: Paths used to decide when the pyright gate auto-triggers.
+Notes:
+- This is interpreted in the workspace repository root.
+- The gate runs pyright using its config file, not these paths directly.
+Related: gates_skip_pyright, gate_pyright_mode
 
 ## Key: pytest_targets
 Key: pytest_targets

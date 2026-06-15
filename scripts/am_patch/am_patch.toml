@@ -75,12 +75,16 @@ gates_order = [
   "ruff",
   "pytest",
   "mypy",
+  "pyright",
   "monolith",
   "docs",
   "badguys",
 ]
 gates_skip_badguys = false
 gate_badguys_mode = "auto"
+gates_skip_pyright = false
+gate_pyright_mode = "auto"
+pyright_targets = ["scripts", "badguys"]
 gate_badguys_trigger_prefixes = ["scripts/am_patch"]
 gate_badguys_trigger_files = [
   "scripts/am_patch.py",

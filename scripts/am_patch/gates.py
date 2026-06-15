@@ -482,6 +482,7 @@ def _norm_gates_order(order: list[str] | None) -> list[str]:
         "ruff",
         "pytest",
         "mypy",
+        "pyright",
         "docs",
         "monolith",
         "badguys",
@@ -567,6 +568,7 @@ def run_gates(
     mypy_targets: list[str],
     gate_ruff_mode: str = "auto",
     gate_mypy_mode: str = "auto",
+    gate_pyright_mode: str = "auto",
     gate_pytest_mode: str = "auto",
     gate_pytest_py_prefixes: list[str] | None = None,
     gate_pytest_js_prefixes: list[str] | None = None,
@@ -587,6 +589,8 @@ def run_gates(
     decision_paths: list[str],
     progress: Callable[[str], None] | None = None,
     gate_step_callback: GateStepCallback | None = None,
+    skip_pyright: bool = False,
+    pyright_targets: list[str] | None = None,
 ) -> None:
     global _run_gates_wiring_checked
     if not _run_gates_wiring_checked:
@@ -612,6 +616,7 @@ def run_gates(
             f"invalid gate_typescript_mode: {ts_mode!r}",
         )
     ts_targets = _norm_targets(typescript_targets or [], fallback=[])
+    pyright_targets = _norm_targets(pyright_targets or [], fallback=[])
     ts_base = str(gate_typescript_base_tsconfig).strip() or "tsconfig.json"
     if not order:
         logger.section("GATES: SKIPPED (gates_order empty)")
@@ -808,6 +813,32 @@ def run_gates(
                 targets=mypy_targets,
             )
 
+        if name == "pyright":
+            if skip_pyright:
+                skipped.append("pyright")
+                logger.warning_core("gate_pyright=SKIP (skipped_by_user)")
+                return True
+            if gate_pyright_mode != "always":
+                from .gate_pyright import should_run_pyright
+
+                trigger = should_run_pyright(
+                    decision_paths=decision_paths,
+                    targets=pyright_targets,
+                )
+                if not trigger:
+                    skipped.append("pyright")
+                    logger.warning_core("gate_pyright=SKIP (no_matching_files)")
+                    return True
+            from .gate_pyright import run_pyright
+
+            return run_pyright(
+                logger,
+                cwd,
+                active_repository_tree_root=active_tree_root,
+                python_gate_mode=python_gate_mode,
+                python_gate_python=python_gate_python,
+            )
+
         if name == "monolith":
             if skip_monolith:
                 skipped.append("monolith")
@@ -913,6 +944,7 @@ def run_gates(
         "ruff",
         "pytest",
         "mypy",
+        "pyright",
         "docs",
         "monolith",
         "badguys",

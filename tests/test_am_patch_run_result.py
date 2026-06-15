@@ -80,14 +80,14 @@ def test_normalize_failure_summary_maps_gate_failures() -> None:
     ) = _import_am_patch()
 
     stage, reason = _normalize_failure_summary(
-        error=runner_error_cls("GATES", "GATES", "gates failed: ruff, pytest"),
+        error=runner_error_cls("GATES", "GATES", "gates failed: ruff, pyright, pytest"),
         primary_fail_stage=None,
         secondary_failures=[],
         parse_gate_list=parse_gate_list,
         stage_rank=stage_rank,
     )
 
-    assert stage == "GATE_RUFF, GATE_PYTEST"
+    assert stage == "GATE_RUFF, GATE_PYTEST, GATE_PYRIGHT"
     assert reason == "gates failed"
 
 

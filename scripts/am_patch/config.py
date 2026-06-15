@@ -215,6 +215,7 @@ class Policy(PolicyMonolithMixin):
     gates_skip_ruff: bool = False
     gates_skip_pytest: bool = False
     gates_skip_mypy: bool = False
+    gates_skip_pyright: bool = False
     gates_skip_docs: bool = False
 
     gates_skip_js: bool = False
@@ -260,6 +261,7 @@ class Policy(PolicyMonolithMixin):
             "ruff",
             "pytest",
             "mypy",
+            "pyright",
             "monolith",
             "docs",
             "badguys",
@@ -273,9 +275,11 @@ class Policy(PolicyMonolithMixin):
     ruff_targets: list[str] = field(default_factory=lambda: ["src", "tests"])
     pytest_targets: list[str] = field(default_factory=lambda: ["tests"])
     mypy_targets: list[str] = field(default_factory=lambda: ["src"])
+    pyright_targets: list[str] = field(default_factory=lambda: ["scripts", "badguys"])
 
     gate_ruff_mode: str = "auto"
     gate_mypy_mode: str = "auto"
+    gate_pyright_mode: str = "auto"
     gate_pytest_mode: str = "auto"
     gate_pytest_py_prefixes: list[str] = field(
         default_factory=lambda: ["tests", "src", "plugins", "scripts"]
@@ -353,12 +357,15 @@ REPO_OWNED_KEY_GROUPS: tuple[tuple[str, ...], ...] = (
     ("gate_monolith_mode", "gate_monolith_new_file_max_exports"),
     ("gate_monolith_new_file_max_imports", "gate_monolith_new_file_max_loc"),
     ("gate_monolith_on_parse_error", "gate_monolith_scan_scope", "gate_mypy_mode"),
+    ("gate_pyright_mode",),
     ("gate_pytest_js_prefixes", "gate_pytest_py_prefixes", "gate_pytest_mode"),
     ("gate_ruff_mode", "gate_typescript_base_tsconfig", "gate_typescript_command"),
     ("gate_typescript_extensions", "gate_typescript_mode", "gates_allow_fail"),
     ("gates_skip_badguys", "gates_skip_biome", "gates_skip_docs", "gates_skip_dont_touch"),
     ("gates_skip_js", "gates_skip_monolith", "gates_skip_mypy", "gates_skip_pytest"),
+    ("gates_skip_pyright",),
     ("gates_skip_ruff", "gates_skip_typescript", "live_changed_resolution", "mypy_targets"),
+    ("pyright_targets",),
     ("no_rollback", "post_success_audit", "pytest_dependencies"),
     ("pytest_external_dependencies", "pytest_full_suite_prefixes"),
     ("pytest_namespace_modules", "pytest_roots", "pytest_routing_mode", "pytest_targets"),

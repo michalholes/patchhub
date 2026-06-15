@@ -102,6 +102,7 @@ def stage_rank(stage: str) -> int:
         "GATE_RUFF",
         "GATE_PYTEST",
         "GATE_MYPY",
+        "GATE_PYRIGHT",
         "GATE_DOCS",
         "GATE_BADGUYS",
         "GATES",

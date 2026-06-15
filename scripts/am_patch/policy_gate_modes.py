@@ -9,6 +9,7 @@ from .errors import RunnerError
 class PolicyGateModesLike(Protocol):
     gate_ruff_mode: str
     gate_mypy_mode: str
+    gate_pyright_mode: str
     gate_pytest_mode: str
     gate_typescript_mode: str
     gate_badguys_mode: str
@@ -73,6 +74,15 @@ def apply_gate_modes(
             "CONFIG",
             "INVALID_GATE_MYPY_MODE",
             f"invalid gate_mypy_mode: {p.gate_mypy_mode!r}",
+        )
+
+    p.gate_pyright_mode = str(cfg.get("gate_pyright_mode", p.gate_pyright_mode)).strip()
+    mark_cfg(p, cfg, "gate_pyright_mode")
+    if p.gate_pyright_mode not in ("auto", "always"):
+        raise RunnerError(
+            "CONFIG",
+            "INVALID_GATE_PYRIGHT_MODE",
+            f"invalid gate_pyright_mode: {p.gate_pyright_mode!r}",
         )
 
     p.gate_pytest_mode = str(cfg.get("gate_pytest_mode", p.gate_pytest_mode)).strip()

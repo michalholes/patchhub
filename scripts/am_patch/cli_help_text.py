@@ -61,7 +61,7 @@ Options:
       patches/successful and patches/unsuccessful).
 
   -r, --run-all-gates
-      Run all gates (ruff, pytest, mypy) even if one fails.
+       Run all gates (ruff, pytest, mypy, pyright) even if one fails.
 
   -g, --allow-gates-fail
       Allow gate failures and still promote; intended for bug bounty.
@@ -202,6 +202,10 @@ GATES / EXECUTION
       Skip mypy gate.
       [default: OFF]
 
+  --skip-pyright
+      Skip pyright gate.
+      [default: OFF]
+
   --skip-js
       Skip JS gate.
       [default: OFF]
@@ -305,6 +309,9 @@ FORMAT / TOOLS
 
   --mypy-mode auto|always
       Control mypy gate trigger mode (auto=file-scoped; always=force run).
+
+  --pyright-mode auto|always
+      Control pyright gate trigger mode (auto=file-scoped; always=force run).
 
   --pytest-mode auto|always
       Control pytest gate trigger mode (auto=file-scoped; always=force run).

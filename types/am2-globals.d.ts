@@ -524,6 +524,7 @@ declare global {
 	function validateAndPreview(): unknown;
 	function normalizePatchPath(value: string): string;
 	function escapeHtml(value: string): string;
+	function getRawCommand(): string;
 	function getInfoPoolSnapshot(): PatchhubInfoPoolSnapshot;
 	function apiGet(path: string): Promise<unknown>;
 	function apiGetETag(

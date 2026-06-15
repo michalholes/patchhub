@@ -20,6 +20,7 @@ GATE_OPTIONS: tuple[GateOption, ...] = (
     GateOption("gates_skip_ruff", "--skip-ruff", True),
     GateOption("gates_skip_pytest", "--skip-pytest", True),
     GateOption("gates_skip_mypy", "--skip-mypy", True),
+    GateOption("gates_skip_pyright", "--skip-pyright", True),
     GateOption("gates_skip_js", "--skip-js", True),
     GateOption("gates_skip_docs", "--skip-docs", True),
     GateOption("gates_skip_monolith", "--skip-monolith", True),

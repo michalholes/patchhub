@@ -24,6 +24,7 @@ class PolicyGateExecutionLike(PolicyGateModesLike, Protocol):
     gates_skip_ruff: bool
     gates_skip_pytest: bool
     gates_skip_mypy: bool
+    gates_skip_pyright: bool
     gates_skip_docs: bool
     gates_skip_monolith: bool
     gate_monolith_enabled: bool
@@ -70,6 +71,7 @@ class PolicyGateExecutionLike(PolicyGateModesLike, Protocol):
     pytest_external_dependencies: dict[str, list[str]]
     pytest_full_suite_prefixes: list[str]
     mypy_targets: list[str]
+    pyright_targets: list[str]
     typescript_targets: list[str]
     gate_typescript_base_tsconfig: str
     pytest_use_venv: bool
@@ -185,6 +187,8 @@ def apply_gate_execution_cfg(
     mark_cfg(p, cfg, "gates_skip_pytest")
     p.gates_skip_mypy = as_bool(cfg, "gates_skip_mypy", p.gates_skip_mypy)
     mark_cfg(p, cfg, "gates_skip_mypy")
+    p.gates_skip_pyright = as_bool(cfg, "gates_skip_pyright", p.gates_skip_pyright)
+    mark_cfg(p, cfg, "gates_skip_pyright")
     p.gates_skip_docs = as_bool(cfg, "gates_skip_docs", p.gates_skip_docs)
     mark_cfg(p, cfg, "gates_skip_docs")
 
@@ -440,6 +444,8 @@ def apply_gate_execution_cfg(
     mark_cfg(p, cfg, "pytest_full_suite_prefixes")
     p.mypy_targets = as_list_str(cfg, "mypy_targets", p.mypy_targets)
     mark_cfg(p, cfg, "mypy_targets")
+    p.pyright_targets = as_list_str(cfg, "pyright_targets", p.pyright_targets)
+    mark_cfg(p, cfg, "pyright_targets")
     p.typescript_targets = as_list_str(cfg, "typescript_targets", p.typescript_targets)
     mark_cfg(p, cfg, "typescript_targets")
 

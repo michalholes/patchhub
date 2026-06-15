@@ -67,6 +67,8 @@ def apply_explicit_gate_flag_overrides(ns: object) -> None:
         _append_override(ns, "gates_skip_biome=true")
     if _flag_enabled(ns, "skip_typescript"):
         _append_override(ns, "gates_skip_typescript=true")
+    if _flag_enabled(ns, "skip_pyright"):
+        _append_override(ns, "gates_skip_pyright=true")
 
     raw = _get_attr(ns, "gate_biome_extensions")
     if raw is not None:
@@ -133,6 +135,7 @@ def build_cli_override_mapping(cli: object) -> dict[str, object | None]:
         "gates_skip_ruff": _get_attr(cli, "skip_ruff"),
         "gates_skip_pytest": _get_attr(cli, "skip_pytest"),
         "gates_skip_mypy": _get_attr(cli, "skip_mypy"),
+        "gates_skip_pyright": _get_attr(cli, "skip_pyright"),
         "gates_skip_js": _get_attr(cli, "skip_js"),
         "gates_skip_docs": _get_attr(cli, "skip_docs"),
         "gates_skip_monolith": _get_attr(cli, "skip_monolith"),

@@ -19,7 +19,7 @@ from typing import cast, get_args, get_origin, get_type_hints
 
 from am_patch.config import BOOTSTRAP_OWNED_KEYS, Policy
 
-SCHEMA_VERSION = "10"
+SCHEMA_VERSION = "11"
 
 
 # Explicit mapping of policy keys to TOML sections.
@@ -74,6 +74,7 @@ _SECTION_BY_KEY: dict[str, str] = {
     "gates_skip_ruff": "",
     "gates_skip_pytest": "",
     "gates_skip_mypy": "",
+    "gates_skip_pyright": "",
     "gates_skip_docs": "",
     "gates_skip_monolith": "",
     "gates_skip_js": "",
@@ -95,6 +96,7 @@ _SECTION_BY_KEY: dict[str, str] = {
     "apply_failure_zero_gates_policy": "",
     "gate_ruff_mode": "",
     "gate_mypy_mode": "",
+    "gate_pyright_mode": "",
     "gate_pytest_mode": "",
     "pytest_routing_mode": "",
     "pytest_roots": "pytest_roots",
@@ -115,6 +117,7 @@ _SECTION_BY_KEY: dict[str, str] = {
     "ruff_targets": "",
     "pytest_targets": "",
     "mypy_targets": "",
+    "pyright_targets": "",
     "gate_pytest_py_prefixes": "",
     "gate_pytest_js_prefixes": "",
     "pytest_use_venv": "",
@@ -227,9 +230,11 @@ _LABEL_BY_KEY: dict[str, str] = {
     "gates_allow_fail": "Gates: allow fail",
     "gates_order": "Gates: order",
     "gates_skip_mypy": "Gates: skip mypy",
+    "gates_skip_pyright": "Gates: skip pyright",
     "gates_skip_pytest": "Gates: skip pytest",
     "gates_skip_ruff": "Gates: skip ruff",
     "mypy_targets": "Mypy: targets",
+    "pyright_targets": "Pyright: targets",
     "pytest_targets": "Pytest: targets",
     "gate_pytest_py_prefixes": "Pytest: Python trigger prefixes",
     "pytest_routing_mode": "Pytest: routing mode",
@@ -312,6 +317,9 @@ _HELP_BY_KEY: dict[str, str] = {
     "gates_skip_mypy": (
         "Skip the mypy gate. See: scripts/am_patch_policy_glossary.md## Key: gates_skip_mypy"
     ),
+    "gates_skip_pyright": (
+        "Skip the pyright gate. See: scripts/am_patch_policy_glossary.md## Key: gates_skip_pyright"
+    ),
     "gates_skip_pytest": (
         "Skip the pytest gate. See: scripts/am_patch_policy_glossary.md## Key: gates_skip_pytest"
     ),
@@ -340,6 +348,9 @@ _HELP_BY_KEY: dict[str, str] = {
     ),
     "mypy_targets": (
         "Targets passed to mypy. See: scripts/am_patch_policy_glossary.md## Key: mypy_targets"
+    ),
+    "pyright_targets": (
+        "Targets passed to pyright. See: scripts/am_patch_policy_glossary.md## Key: pyright_targets"
     ),
     "pytest_targets": (
         "Targets passed to pytest. See: scripts/am_patch_policy_glossary.md## Key: pytest_targets"
@@ -614,6 +625,7 @@ _ENUM_BY_KEY: dict[str, list[str]] = {
     "apply_failure_zero_gates_policy": ["never", "always", "repair_only"],
     "gate_ruff_mode": ["auto", "always"],
     "gate_mypy_mode": ["auto", "always"],
+    "gate_pyright_mode": ["auto", "always"],
     "gate_pytest_mode": ["auto", "always"],
     "pytest_routing_mode": ["legacy", "bucketed"],
     "gate_typescript_mode": ["auto", "always"],

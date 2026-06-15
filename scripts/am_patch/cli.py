@@ -370,6 +370,13 @@ def parse_args(argv: list[str]) -> CliArgs:
         choices=("auto", "always"),
     )
     p.add_argument(
+        "--pyright-mode",
+        action=AppendOverride,
+        key="gate_pyright_mode",
+        dest="overrides",
+        choices=("auto", "always"),
+    )
+    p.add_argument(
         "--pytest-mode",
         action=AppendOverride,
         key="gate_pytest_mode",
@@ -653,6 +660,7 @@ def parse_args(argv: list[str]) -> CliArgs:
     p.add_argument("--skip-ruff", dest="skip_ruff", action="store_true", default=None)
     p.add_argument("--skip-pytest", dest="skip_pytest", action="store_true", default=None)
     p.add_argument("--skip-mypy", dest="skip_mypy", action="store_true", default=None)
+    p.add_argument("--skip-pyright", dest="skip_pyright", action="store_true", default=None)
     p.add_argument("--skip-js", dest="skip_js", action="store_true", default=None)
     p.add_argument("--skip-docs", dest="skip_docs", action="store_true", default=None)
     p.add_argument("--skip-monolith", dest="skip_monolith", action="store_true", default=None)

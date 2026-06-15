@@ -105,7 +105,7 @@ def _maybe_bootstrap_venv(argv: list[str]) -> None:
             )
             print(
                 "[am_patch_v2] Hint: create venv at repo/.venv and install dev deps "
-                "(ruff/pytest/mypy).",
+                "(ruff/pytest/mypy/pyright).",
                 file=sys.stderr,
             )
             raise SystemExit(2)

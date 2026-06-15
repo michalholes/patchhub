@@ -1,3 +1,4 @@
+/// <reference path="../../../types/am2-globals.d.ts" />
 /**
  * @typedef {{
  *   key: string,
@@ -75,6 +76,13 @@ var gateOptionDefs = [
 			value ? ["--skip-mypy"] : ["--override", "gates_skip_mypy=false"],
 	},
 	{
+		key: "gates_skip_pyright",
+		label: "Pyright",
+		configRun: (/** @type {boolean} */ value) => !value,
+		argvFor: (/** @type {boolean} */ value) =>
+			value ? ["--skip-pyright"] : ["--override", "gates_skip_pyright=false"],
+	},
+	{
 		key: "gates_skip_js",
 		label: "JS",
 		configRun: (/** @type {boolean} */ value) => !value,
@@ -142,7 +150,7 @@ function gateOptionsModeSupported(
 	/** @type {unknown} */ mode,
 	/** @type {unknown} */ rawCommand,
 ) {
-	var currentMode = String(mode || (el("mode") && el("mode").value) || "patch");
+	var currentMode = String(mode || el("mode")?.value || "patch");
 	if (gateOptionsRawDisabled(rawCommand)) return false;
 	return (
 		["patch", "finalize_live", "finalize_workspace", "rerun_latest"].indexOf(
@@ -222,12 +230,10 @@ function gateOverrideArgv() {
 function syncGateOptionsUi(/** @type {GatePreview} */ preview) {
 	var btn = gateOptionsButton();
 	if (!btn) return;
-	var rawCommand =
-		preview && preview.raw_command ? preview.raw_command : getRawCommand();
-	var mode =
-		preview && preview.mode
-			? preview.mode
-			: String(el("mode").value || "patch");
+	var rawCommand = preview?.raw_command ? preview.raw_command : getRawCommand();
+	var mode = preview?.mode
+		? preview.mode
+		: String(el("mode")?.value || "patch");
 	var supported = gateOptionsModeSupported(mode, rawCommand);
 	btn.disabled = !supported;
 	btn.title = gateOptionsReason(mode, rawCommand);
@@ -278,8 +284,7 @@ function renderGateOptionsModal() {
 		return;
 	}
 	if (gateOptionsState.error) {
-		list.innerHTML =
-			'<div class="muted">' + escapeHtml(gateOptionsState.error) + "</div>";
+		list.innerHTML = `<div class="muted">${escapeHtml(gateOptionsState.error)}</div>`;
 		return;
 	}
 	for (i = 0; i < gateOptionDefs.length; i++) {
@@ -288,9 +293,8 @@ function renderGateOptionsModal() {
 		thisRun = gateThisRun(def);
 		rowCls =
 			thisRun !== configRun ? " gate-options-row changed" : " gate-options-row";
-		html += '<div class="' + rowCls + '">';
-		html +=
-			'<div class="gate-options-label">' + escapeHtml(def.label) + "</div>";
+		html += `<div class="${rowCls}">`;
+		html += `<div class="gate-options-label">${escapeHtml(def.label)}</div>`;
 		html += '<div class="gate-options-state">';
 		html += '<div class="gate-options-group">';
 		html += '<button type="button" class="gate-options-switch';
@@ -326,7 +330,7 @@ function closeGateOptionsModal() {
 }
 
 function openGateOptionsModal() {
-	var mode = String((el("mode") && el("mode").value) || "patch");
+	var mode = String(el("mode")?.value || "patch");
 	var rawCommand = getRawCommand();
 	if (!gateOptionsModeSupported(mode, rawCommand)) {
 		syncGateOptionsUi({ mode: mode, raw_command: rawCommand });
@@ -346,7 +350,7 @@ function openGateOptionsModal() {
 			var resp = /** @type {GateOptionsConfigResponse} */ (r);
 			if (!resp || resp.ok === false) {
 				gateOptionsState.error = String(
-					(resp && resp.error) || "Cannot load gate options",
+					resp?.error || "Cannot load gate options",
 				);
 				return;
 			}
@@ -408,21 +412,21 @@ function initGateOptionsUi() {
 	var backdrop = gateOptionsBackdrop();
 	if (backdrop) {
 		backdrop.addEventListener("click", (event) => {
-			if (event && event.target === backdrop) closeGateOptionsModal();
+			if (event?.target === backdrop) closeGateOptionsModal();
 		});
 	}
 	var list = gateOptionsList();
 	if (list) {
 		list.addEventListener("click", (event) => {
 			var target = /** @type {GateOptionsEventTarget | null} */ (
-				event && event.target ? event.target : null
+				event?.target || null
 			);
 			var button =
 				target && typeof target.closest === "function"
 					? target.closest(".gate-options-switch")
 					: null;
 			var key;
-			if (!button || !button.getAttribute) return;
+			if (!button?.getAttribute) return;
 			key = String(button.getAttribute("data-gate-key") || "");
 			if (!key) return;
 			setGateRunState(
